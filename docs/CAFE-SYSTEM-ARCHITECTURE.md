@@ -1,4 +1,12 @@
 > ## ✅ APPROVED ARCHITECTURE DECISION — Phase 1 (supersedes prior stack below)
+> ## 🔄 UPDATE — Phase A DONE (2026-10-09): PostgreSQL + Supabase Auth schema applied locally
+> `schema.prisma` now targets **PostgreSQL** (pooled `DATABASE_URL` + `DIRECT_URL` for
+> migrations); `User` is keyed by **Supabase Auth UUID** and custom-password fields were
+> removed. Validated via Prisma format/validate/generate. See
+> **[PHASE-A-POSTGRES-SUPABASE-AUTH.md](./PHASE-A-POSTGRES-SUPABASE-AUTH.md)**.
+> MySQL/next-auth references in the body remain **legacy/superseded**. Not done:
+> migrations, RLS, Owner account, Supabase packages, auth code.
+
 > **Effective: 2026-10 · Status: approved direction, implementation pending.**
 >
 > This banner is authoritative. Where the body of this document (below) still

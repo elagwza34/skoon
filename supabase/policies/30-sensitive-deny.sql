@@ -1,0 +1,48 @@
+-- ============================================================================
+-- Skoon — Explicitly DENIED tables (review-only; NOT executed in this phase)
+-- ============================================================================
+--
+-- These tables have RLS enabled (10-rls-enable-and-public.sql) and receive NO
+-- permissive policy for the `anon` or `authenticated` roles. That means the
+-- PostgREST/Supabase data API DENIES all client access by default. This file
+-- adds NO grants — it exists purely to DOCUMENT the deny-by-default boundary
+-- so a reviewer can see the intent, and to record WHY each is server-only.
+--
+-- Access to these tables is provided ONLY through a trusted server process
+-- using either:
+--   * Prisma via DIRECT_URL (direct Postgres connection, bypasses RLS), or
+--   * the Supabase service-role key (bypasses RLS) held in SERVER-ONLY env.
+-- The service-role key must NEVER reach the browser bundle.
+--
+-- DELIBERATELY DENIED TO ALL CLIENTS (anon + authenticated):
+--   roles, permissions, role_permission
+--     -> RBAC structure. Client must not read/alter grants; prevents probing
+--        the permission graph and blocks self-escalation. (Staff UI reads the
+--        caller's own permissions via a server endpoint, not the client API.)
+--   users (writes)
+--     -> role/branch/activation changes are server-authoritative (Owner
+--        provisioning & staff management). Client may only SELECT own row /
+--        branch (see 20-operational-rls.sql); no INSERT/UPDATE/DELETE.
+--   discounts, discount_redemptions
+--     -> pricing authority. Creation/limits/usage_count must be validated and
+--        mutated server-side; client could otherwise forge discounts or reset
+--        usage counters.
+--   inventory_items, recipes, recipe_items, inventory_transactions
+--     -> cost/stock integrity. Posting is a server concern (Phase 6). Client
+--        reads (if ever needed) would be a separate, narrowly-scoped policy.
+--   app_settings
+--     -> tax rate, currency, branch config, invoice template. Must not be
+--        client-editable; a client could zero the tax rate or change currency.
+--   audit_logs
+--     -> append-only integrity. Written by server only; never client-writable
+--        or client-deletable. Reads (audit.view) via a server endpoint.
+--
+-- SERVICE-ROLE (bypasses RLS) — used sparingly, server-side only, for:
+--   * Owner invitation acceptance + role assignment (see OWNER-PROVISIONING.md)
+--   * privileged admin operations that must not be client-reachable
+-- Each service-role call site must be reviewed; it is the only path that can
+-- bypass every policy above.
+--
+-- NOTHING IN THIS FILE IS EXECUTED IN PHASE B. It is a design record to be
+-- validated in an isolated development Supabase project (see README.md).
+-- ============================================================================

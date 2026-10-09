@@ -1,4 +1,12 @@
 > ## ✅ APPROVED DATABASE TARGET — Phase 1 (supersedes MySQL specifics below)
+> ## 🔄 UPDATE — Phase A DONE (2026-10-09): schema converted to PostgreSQL & Supabase Auth locally
+> The `provider = "postgresql"` conversion, MySQL-type removal, and `User` → UUID
+> (Supabase Auth) changes have been **applied locally and validated** (format/validate/
+> generate pass). See **[PHASE-A-POSTGRES-SUPABASE-AUTH.md](./PHASE-A-POSTGRES-SUPABASE-AUTH.md)**.
+> This file remains the **relational design reference**; the MySQL-specific body below
+> is **legacy/superseded** — use Prisma `schema.prisma` + the Phase A record as the
+> source of truth. No data migration, migrations, RLS, or Owner provisioning were done.
+
 > **Effective: 2026-10 · Target: Supabase PostgreSQL · Auth: Supabase Auth**
 >
 > This banner is authoritative for the **target architecture**. The body below is

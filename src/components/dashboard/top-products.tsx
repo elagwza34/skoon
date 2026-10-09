@@ -1,0 +1,39 @@
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { topProducts } from "@/lib/demo/dashboard";
+import { formatCurrency, formatNumber } from "@/lib/format";
+
+/**
+ * TopProducts — best sellers for the demo day with a proportional bar.
+ * Presentational (server) component fed by local demo data.
+ */
+export function TopProducts() {
+  const max = Math.max(...topProducts.map((p) => p.revenue));
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>الأكثر مبيعاً</CardTitle>
+        <CardDescription>حسب الإيراد — بيانات تجريبية</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <ol className="flex flex-col gap-3">
+          {topProducts.map((p, i) => (
+            <li key={p.name} className="flex flex-col gap-1.5">
+              <div className="flex items-center gap-2.5">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-accent text-base">{p.emoji}</span>
+                <div className="flex min-w-0 flex-1 flex-col leading-tight">
+                  <span className="truncate text-sm font-medium text-foreground">{p.name}</span>
+                  <span className="text-xs text-muted-foreground">{formatNumber(p.qty)} × · ترتيب {i + 1}</span>
+                </div>
+                <span className="text-sm font-semibold text-foreground">{formatCurrency(p.revenue)}</span>
+              </div>
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                <div className="h-full rounded-full bg-primary" style={{ width: `${(p.revenue / max) * 100}%` }} />
+              </div>
+            </li>
+          ))}
+        </ol>
+      </CardContent>
+    </Card>
+  );
+}

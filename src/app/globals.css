@@ -1,43 +1,128 @@
-@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-@theme {
-  /* RTL logical properties via CSS variables */
-  --breakpoint: 2xl;
-  --breakpoint-sm: 480px;
-  --breakpoint-md: 768px;
-  --breakpoint-lg: 1024px;
-  --breakpoint-xl: 1280px;
-  --breakpoint-2xl: 1536px;
+/*
+ * Skoon design tokens.
+ * Dark is the DEFAULT theme; Light is opt-in via <html class="light">.
+ * Arabic-first (RTL) with logical properties so LTR can be added later.
+ * Fonts loaded via next/font (see app/layout.tsx) and injected as CSS vars.
+ */
 
-  /* Font */
-  --font-sans: "Inter", system-ui, sans-serif;
-}
+@layer base {
+  :root {
+    /* System Arabic font stack — no build-time network fetch, so the offline
+       build is deterministic. Segoe UI / Tahoma render Arabic clearly on
+       Windows; Noto Sans Arabic covers Linux/macOS. */
+    --font-sans: "Segoe UI", Tahoma, "Noto Sans Arabic", system-ui, sans-serif;
 
-/* لغة متعددة: RTL/LTR مخصص بواسطة Tailwind بطريقة آمنة */
-html {
-  dir: rtl;
-}
+    --background: 240 6% 10%;
+    --foreground: 0 0% 98%;
 
-@media (prefers-color-scheme: light) {
-  html {
+    --card: 240 6% 13%;
+    --card-foreground: 0 0% 98%;
+
+    --muted: 240 5% 18%;
+    --muted-foreground: 240 5% 65%;
+
+    --accent: 240 5% 22%;
+    --accent-foreground: 0 0% 98%;
+
+    --primary: 25 95% 55%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 240 5% 22%;
+    --secondary-foreground: 0 0% 98%;
+
+    --destructive: 0 72% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 70% 45%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 55%;
+    --warning-foreground: 30 40% 12%;
+
+    --border: 240 5% 22%;
+    --input: 240 5% 22%;
+    --ring: 25 95% 55%;
+
+    --radius: 0.75rem;
+
+    color-scheme: dark;
+  }
+
+  .light {
+    --background: 30 30% 98%;
+    --foreground: 240 10% 12%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 12%;
+
+    --muted: 240 10% 95%;
+    --muted-foreground: 240 5% 42%;
+
+    --accent: 30 40% 94%;
+    --accent-foreground: 240 10% 12%;
+
+    --primary: 20 90% 48%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 240 10% 94%;
+    --secondary-foreground: 240 10% 12%;
+
+    --destructive: 0 74% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 66% 40%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+
+    --border: 240 10% 88%;
+    --input: 240 10% 88%;
+    --ring: 20 90% 48%;
+
     color-scheme: light;
   }
 }
 
-@media (prefers-color-scheme: dark) {
+@layer base {
+  * {
+    box-sizing: border-box;
+    border-color: hsl(var(--border));
+  }
+
   html {
-    color-scheme: dark;
+    /* Arabic-first RTL. Logical properties (ps/pe/ms/me/start/end) keep LTR ready. */
+    direction: rtl;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    margin: 0;
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: var(--font-sans);
+    font-feature-settings: "ss01";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Visible, consistent focus ring for keyboard users (a11y). */
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
   }
 }
 
-/* أنماط مشتركة */
-* {
-  box-sizing: border-box;
-}
-
-body {
-  margin: 0;
-  font-family: var(--font-sans);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
 }

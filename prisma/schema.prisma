@@ -1,7 +1,7 @@
 // ============================================================================
 // Cafe Management System — Prisma Schema (single source of truth)
-// Stack: Next.js + Prisma + MySQL/MariaDB (InnoDB, utf8mb4_unicode_ci)
-// Rules: BIGINT UNSIGNED PKs · DECIMAL(10,2) money · soft deletes ·
+// Stack: Next.js + TypeScript + Prisma + Supabase PostgreSQL + Supabase Auth
+// Rules: BIGINT PKs · NUMERIC(10,2) money · soft deletes ·
 //        branch scoping · VARCHAR enums (validated in app layer)
 // Every change MUST go through prisma migrate. Do not edit DB by hand.
 // ============================================================================
@@ -11,14 +11,18 @@ generator client {
 }
 
 datasource db {
-  provider = "mysql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
+
+// Phase A: MySQL -> PostgreSQL; Supabase Auth owns credentials (custom-password auth removed).
+// See docs/PHASE-A-POSTGRES-SUPABASE-AUTH.md
 
 // ============================ CORE / AUTH ============================
 
 model CafeBranch {
-  id        BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  id        BigInt   @id @default(autoincrement())
   name      String   @db.VarChar(100)
   code      String   @unique @db.VarChar(20)
   phone     String?  @db.VarChar(20)
@@ -44,7 +48,7 @@ model CafeBranch {
 }
 
 model Role {
-  id          BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  id          BigInt   @id @default(autoincrement())
   slug        String   @unique @db.VarChar(30)
   name        String   @db.VarChar(50)
   description String?  @db.VarChar(255)
@@ -59,7 +63,7 @@ model Role {
 }
 
 model Permission {
-  id        BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  id        BigInt   @id @default(autoincrement())
   slug      String   @unique @db.VarChar(60)
   name      String   @db.VarChar(100)
   groupName String   @map("group") @db.VarChar(50)
@@ -73,8 +77,8 @@ model Permission {
 }
 
 model RolePermission {
-  roleId       BigInt @map("role_id") @db.UnsignedBigInt
-  permissionId BigInt @map("permission_id") @db.UnsignedBigInt
+  roleId       BigInt @map("role_id")
+  permissionId BigInt @map("permission_id")
 
   role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
   permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
@@ -85,23 +89,29 @@ model RolePermission {
 }
 
 model User {
-  id                 BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
-  branchId           BigInt?   @map("branch_id") @db.UnsignedBigInt
-  roleId             BigInt    @map("role_id") @db.UnsignedBigInt
-  name               String    @db.VarChar(100)
-  email              String?   @unique @db.VarChar(150)
-  phone              String?   @db.VarChar(20)
-  passwordHash       String    @map("password_hash") @db.VarChar(255)
-  avatarPath         String?   @map("avatar_path") @db.VarChar(255)
-  pinCode            String?   @map("pin_code") @db.VarChar(10)
-  isActive           Boolean   @default(true) @map("is_active")
-  lastLoginAt        DateTime? @map("last_login_at")
-  failedLoginCount   Int       @default(0) @map("failed_login_count") @db.UnsignedTinyInt
-  lockedUntil        DateTime? @map("locked_until")
-  mustChangePassword Boolean   @default(false) @map("must_change_password")
-  createdAt          DateTime  @default(now()) @map("created_at")
-  updatedAt          DateTime  @updatedAt @map("updated_at")
-  deletedAt          DateTime? @map("deleted_at")
+  // id == Supabase Auth user id (auth.uid()). Assigned by the trusted server-side
+  // provisioning flow so it always matches the Supabase identity. Intentionally NO
+  // Prisma relation to auth.users: Prisma must not manage the Supabase auth schema.
+  id          String    @id @db.Uuid
+  branchId    BigInt?   @map("branch_id")
+  roleId      BigInt    @map("role_id")
+  name        String    @db.VarChar(100)
+  email       String?   @unique @db.VarChar(150)
+  phone       String?   @db.VarChar(20)
+  avatarPath  String?   @map("avatar_path") @db.VarChar(255)
+  // Employee POS PIN — SECURE STORAGE. Stores ONLY a bcrypt hash (never plaintext).
+  // Distinct from Supabase Auth credentials; verified server-side only.
+  // See docs/PIN-SECURITY-DESIGN.md. VarChar(255) leaves room for future pepper/algo change.
+  pinHash     String?   @map("pin_hash") @db.VarChar(255)
+  pinUpdatedAt DateTime? @map("pin_updated_at")
+  isActive    Boolean   @default(true) @map("is_active")
+  lastLoginAt DateTime? @map("last_login_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  // REMOVED (Supabase Auth owns credentials): passwordHash, failedLoginCount,
+  // lockedUntil, mustChangePassword.
 
   role                  Role                   @relation(fields: [roleId], references: [id])
   branch                CafeBranch?            @relation(fields: [branchId], references: [id], onDelete: SetNull)
@@ -119,11 +129,11 @@ model User {
 }
 
 model CafeTable {
-  id          BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
-  branchId    BigInt    @map("branch_id") @db.UnsignedBigInt
+  id          BigInt    @id @default(autoincrement())
+  branchId    BigInt    @map("branch_id")
   number      String    @db.VarChar(20)
   name        String?   @db.VarChar(50)
-  capacity    Int       @default(4) @db.UnsignedTinyInt
+  capacity    Int       @default(4) @db.SmallInt
   publicToken String    @unique @map("public_token") @db.Char(16)
   qrImagePath String?   @map("qr_image_path") @db.VarChar(255)
   isActive    Boolean   @default(true) @map("is_active")
@@ -143,8 +153,8 @@ model CafeTable {
 // ============================ MENU ============================
 
 model Category {
-  id        BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
-  branchId  BigInt    @map("branch_id") @db.UnsignedBigInt
+  id        BigInt    @id @default(autoincrement())
+  branchId  BigInt    @map("branch_id")
   name      String    @db.VarChar(100)
   slug      String    @db.VarChar(120)
   imagePath String?   @map("image_path") @db.VarChar(255)
@@ -163,9 +173,9 @@ model Category {
 }
 
 model Product {
-  id              BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
-  branchId        BigInt    @map("branch_id") @db.UnsignedBigInt
-  categoryId      BigInt    @map("category_id") @db.UnsignedBigInt
+  id              BigInt    @id @default(autoincrement())
+  branchId        BigInt    @map("branch_id")
+  categoryId      BigInt    @map("category_id")
   name            String    @db.VarChar(150)
   description     String?   @db.Text
   imagePath       String?   @map("image_path") @db.VarChar(255)
@@ -174,7 +184,7 @@ model Product {
   isAvailable     Boolean   @default(true) @map("is_available")
   isFeatured      Boolean   @default(false) @map("is_featured")
   sortOrder       Int       @default(0) @map("sort_order")
-  prepTimeMinutes Int       @default(5) @map("prep_time_minutes") @db.UnsignedSmallInt
+  prepTimeMinutes Int       @default(5) @map("prep_time_minutes") @db.SmallInt
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
   deletedAt       DateTime? @map("deleted_at")
@@ -193,13 +203,13 @@ model Product {
 }
 
 model ProductOption {
-  id            BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
-  productId     BigInt    @map("product_id") @db.UnsignedBigInt
+  id            BigInt    @id @default(autoincrement())
+  productId     BigInt    @map("product_id")
   name          String    @db.VarChar(100)
   type          String    @db.VarChar(20)
   isRequired    Boolean   @default(false) @map("is_required")
-  minSelections Int       @default(0) @map("min_selections") @db.TinyInt
-  maxSelections Int       @default(1) @map("max_selections") @db.TinyInt
+  minSelections Int       @default(0) @map("min_selections") @db.SmallInt
+  maxSelections Int       @default(1) @map("max_selections") @db.SmallInt
   sortOrder     Int       @default(0) @map("sort_order")
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
@@ -214,8 +224,8 @@ model ProductOption {
 }
 
 model ProductOptionValue {
-  id              BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
-  productOptionId BigInt    @map("product_option_id") @db.UnsignedBigInt
+  id              BigInt    @id @default(autoincrement())
+  productOptionId BigInt    @map("product_option_id")
   value           String    @db.VarChar(100)
   priceAdjustment Decimal   @default(0) @map("price_adjustment") @db.Decimal(10, 2)
   isDefault       Boolean   @default(false) @map("is_default")
@@ -232,7 +242,7 @@ model ProductOptionValue {
 }
 
 model Addon {
-  id        BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  id        BigInt   @id @default(autoincrement())
   name      String   @db.VarChar(100)
   price     Decimal  @db.Decimal(10, 2)
   isActive  Boolean  @default(true) @map("is_active")
@@ -247,8 +257,8 @@ model Addon {
 }
 
 model ProductAddon {
-  productId BigInt @map("product_id") @db.UnsignedBigInt
-  addonId   BigInt @map("addon_id") @db.UnsignedBigInt
+  productId BigInt @map("product_id")
+  addonId   BigInt @map("addon_id")
 
   product Product @relation("addonProduct", fields: [productId], references: [id], onDelete: Cascade)
   addon   Addon   @relation("addonAddon", fields: [addonId], references: [id], onDelete: Cascade)
@@ -261,9 +271,9 @@ model ProductAddon {
 // ============================ ORDERS ============================
 
 model Order {
-  id             BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
-  branchId       BigInt    @map("branch_id") @db.UnsignedBigInt
-  cafeTableId    BigInt    @map("cafe_table_id") @db.UnsignedBigInt
+  id             BigInt    @id @default(autoincrement())
+  branchId       BigInt    @map("branch_id")
+  cafeTableId    BigInt    @map("cafe_table_id")
   orderNumber    String    @unique @map("order_number") @db.VarChar(20)
   orderRef       String    @unique @map("order_ref") @db.Char(24)
   status         String    @default("NEW") @db.VarChar(20)
@@ -287,7 +297,7 @@ model Order {
   completedAt    DateTime? @map("completed_at")
   cancelledAt    DateTime? @map("cancelled_at")
   cancelReason   String?   @map("cancel_reason") @db.VarChar(255)
-  createdById    BigInt?   @map("created_by") @db.UnsignedBigInt
+  createdById    String?   @map("created_by") @db.Uuid
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
@@ -308,16 +318,16 @@ model Order {
 }
 
 model OrderItem {
-  id              BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
-  orderId         BigInt   @map("order_id") @db.UnsignedBigInt
-  productId       BigInt   @map("product_id") @db.UnsignedBigInt
+  id              BigInt   @id @default(autoincrement())
+  orderId         BigInt   @map("order_id")
+  productId       BigInt   @map("product_id")
   productName     String   @map("product_name") @db.VarChar(150)
   unitPrice       Decimal  @map("unit_price") @db.Decimal(10, 2)
-  quantity        Int      @db.UnsignedSmallInt
+  quantity        Int      @db.SmallInt
   lineTotal       Decimal  @map("line_total") @db.Decimal(10, 2)
   optionsSnapshot Json?    @map("options_snapshot")
   notes           String?  @db.VarChar(255)
-  prepTimeMinutes Int      @default(0) @map("prep_time_minutes") @db.UnsignedSmallInt
+  prepTimeMinutes Int      @default(0) @map("prep_time_minutes") @db.SmallInt
   isVoided        Boolean  @default(false) @map("is_voided")
   voidReason      String?  @map("void_reason") @db.VarChar(255)
   createdAt       DateTime @default(now()) @map("created_at")
@@ -335,12 +345,12 @@ model OrderItem {
 }
 
 model OrderItemAddon {
-  id          BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
-  orderItemId BigInt   @map("order_item_id") @db.UnsignedBigInt
-  addonId     BigInt   @map("addon_id") @db.UnsignedBigInt
+  id          BigInt   @id @default(autoincrement())
+  orderItemId BigInt   @map("order_item_id")
+  addonId     BigInt   @map("addon_id")
   addonName   String   @map("addon_name") @db.VarChar(100)
   price       Decimal  @db.Decimal(10, 2)
-  quantity    Int      @default(1) @db.UnsignedTinyInt
+  quantity    Int      @default(1) @db.SmallInt
   createdAt   DateTime @default(now()) @map("created_at")
 
   orderItem OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
@@ -352,10 +362,10 @@ model OrderItemAddon {
 }
 
 model OrderItemOption {
-  id              BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
-  orderItemId     BigInt   @map("order_item_id") @db.UnsignedBigInt
-  productOptionId BigInt   @map("product_option_id") @db.UnsignedBigInt
-  optionValueId   BigInt   @map("option_value_id") @db.UnsignedBigInt
+  id              BigInt   @id @default(autoincrement())
+  orderItemId     BigInt   @map("order_item_id")
+  productOptionId BigInt   @map("product_option_id")
+  optionValueId   BigInt   @map("option_value_id")
   optionName      String   @map("option_name") @db.VarChar(100)
   valueLabel      String   @map("value_label") @db.VarChar(100)
   priceAdjustment Decimal  @map("price_adjustment") @db.Decimal(10, 2)
@@ -370,11 +380,11 @@ model OrderItemOption {
 }
 
 model OrderStatusHistory {
-  id          BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
-  orderId     BigInt   @map("order_id") @db.UnsignedBigInt
+  id          BigInt   @id @default(autoincrement())
+  orderId     BigInt   @map("order_id")
   fromStatus  String?  @map("from_status") @db.VarChar(20)
   toStatus    String   @map("to_status") @db.VarChar(20)
-  changedById BigInt?  @map("changed_by") @db.UnsignedBigInt
+  changedById String?  @map("changed_by") @db.Uuid
   note        String?  @db.VarChar(255)
   createdAt   DateTime @default(now()) @map("created_at")
 
@@ -388,9 +398,9 @@ model OrderStatusHistory {
 // ============================ PAYMENTS ============================
 
 model Payment {
-  id              BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
-  orderId         BigInt   @map("order_id") @db.UnsignedBigInt
-  branchId        BigInt   @map("branch_id") @db.UnsignedBigInt
+  id              BigInt   @id @default(autoincrement())
+  orderId         BigInt   @map("order_id")
+  branchId        BigInt   @map("branch_id")
   method          String   @db.VarChar(20)
   amount          Decimal  @db.Decimal(10, 2)
   amountDue       Decimal  @map("amount_due") @db.Decimal(10, 2)
@@ -399,7 +409,7 @@ model Payment {
   transactionRef  String?  @map("transaction_ref") @db.VarChar(100)
   gateway         String?  @db.VarChar(30)
   gatewayResponse Json?    @map("gateway_response")
-  paidById        BigInt?  @map("paid_by") @db.UnsignedBigInt
+  paidById        String?  @map("paid_by") @db.Uuid
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
@@ -416,8 +426,8 @@ model Payment {
 // ==================== INVENTORY (schema ready, dormant in v1) ====================
 
 model InventoryItem {
-  id           BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
-  branchId     BigInt    @map("branch_id") @db.UnsignedBigInt
+  id           BigInt    @id @default(autoincrement())
+  branchId     BigInt    @map("branch_id")
   name         String    @db.VarChar(100)
   sku          String?   @db.VarChar(50)
   unit         String    @db.VarChar(20)
@@ -440,8 +450,8 @@ model InventoryItem {
 }
 
 model Recipe {
-  id            BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
-  productId     BigInt    @unique @map("product_id") @db.UnsignedBigInt
+  id            BigInt    @id @default(autoincrement())
+  productId     BigInt    @unique @map("product_id")
   yieldQuantity Decimal   @default(1) @map("yield_quantity") @db.Decimal(10, 2)
   isActive      Boolean   @default(true) @map("is_active")
   createdAt     DateTime  @default(now()) @map("created_at")
@@ -455,9 +465,9 @@ model Recipe {
 }
 
 model RecipeItem {
-  id              BigInt  @id @default(autoincrement()) @db.UnsignedBigInt
-  recipeId        BigInt  @map("recipe_id") @db.UnsignedBigInt
-  inventoryItemId BigInt  @map("inventory_item_id") @db.UnsignedBigInt
+  id              BigInt  @id @default(autoincrement())
+  recipeId        BigInt  @map("recipe_id")
+  inventoryItemId BigInt  @map("inventory_item_id")
   quantity        Decimal @db.Decimal(10, 2)
   wastePercent    Decimal @default(0) @map("waste_percent") @db.Decimal(5, 2)
 
@@ -469,16 +479,16 @@ model RecipeItem {
 }
 
 model InventoryTransaction {
-  id              BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
-  inventoryItemId BigInt   @map("inventory_item_id") @db.UnsignedBigInt
-  branchId        BigInt   @map("branch_id") @db.UnsignedBigInt
+  id              BigInt   @id @default(autoincrement())
+  inventoryItemId BigInt   @map("inventory_item_id")
+  branchId        BigInt   @map("branch_id")
   type            String   @db.VarChar(20)
   quantity        Decimal  @db.Decimal(10, 2)
   quantityAfter   Decimal  @map("quantity_after") @db.Decimal(10, 2)
   referenceType   String?  @map("reference_type") @db.VarChar(30)
-  referenceId     BigInt?  @map("reference_id") @db.UnsignedBigInt
+  referenceId     BigInt?  @map("reference_id")
   unitCost        Decimal? @map("unit_cost") @db.Decimal(10, 2)
-  createdById     BigInt?  @map("created_by") @db.UnsignedBigInt
+  createdById     String?  @map("created_by") @db.Uuid
   notes           String?  @db.VarChar(255)
   createdAt       DateTime @default(now()) @map("created_at")
 
@@ -494,8 +504,8 @@ model InventoryTransaction {
 // ============================ DISCOUNTS ============================
 
 model Discount {
-  id                BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
-  branchId          BigInt?   @map("branch_id") @db.UnsignedBigInt
+  id                BigInt    @id @default(autoincrement())
+  branchId          BigInt?   @map("branch_id")
   name              String    @db.VarChar(100)
   code              String?   @db.VarChar(30)
   type              String    @db.VarChar(20)
@@ -507,7 +517,7 @@ model Discount {
   startsAt          DateTime? @map("starts_at")
   endsAt            DateTime? @map("ends_at")
   isActive          Boolean   @default(true) @map("is_active")
-  createdById       BigInt?   @map("created_by") @db.UnsignedBigInt
+  createdById       String?   @map("created_by") @db.Uuid
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
   deletedAt         DateTime? @map("deleted_at")
@@ -523,9 +533,9 @@ model Discount {
 }
 
 model DiscountRedemption {
-  id         BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
-  discountId BigInt   @map("discount_id") @db.UnsignedBigInt
-  orderId    BigInt   @map("order_id") @db.UnsignedBigInt
+  id         BigInt   @id @default(autoincrement())
+  discountId BigInt   @map("discount_id")
+  orderId    BigInt   @map("order_id")
   amount     Decimal  @db.Decimal(10, 2)
   createdAt  DateTime @default(now()) @map("created_at")
 
@@ -540,12 +550,12 @@ model DiscountRedemption {
 // ============================ SETTINGS & AUDIT ============================
 
 model AppSetting {
-  id          BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
-  branchId    BigInt   @default(0) @map("branch_id") @db.UnsignedBigInt
+  id          BigInt   @id @default(autoincrement())
+  branchId    BigInt   @default(0) @map("branch_id")
   key         String   @db.VarChar(80)
   value       String?  @db.Text
   type        String   @default("string") @db.VarChar(20)
-  updatedById BigInt?  @map("updated_by") @db.UnsignedBigInt
+  updatedById String?  @map("updated_by") @db.Uuid
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
@@ -556,12 +566,12 @@ model AppSetting {
 }
 
 model AuditLog {
-  id         BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
-  userId     BigInt?  @map("user_id") @db.UnsignedBigInt
-  branchId   BigInt?  @map("branch_id") @db.UnsignedBigInt
+  id         BigInt   @id @default(autoincrement())
+  userId     String?  @map("user_id") @db.Uuid
+  branchId   BigInt?  @map("branch_id")
   action     String   @db.VarChar(60)
   entityType String   @map("entity_type") @db.VarChar(50)
-  entityId   BigInt?  @map("entity_id") @db.UnsignedBigInt
+  entityId   BigInt?  @map("entity_id")
   oldValues  Json?    @map("old_values")
   newValues  Json?    @map("new_values")
   ipAddress  String?  @map("ip_address") @db.VarChar(45)
