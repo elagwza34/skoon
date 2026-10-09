@@ -1,0 +1,43 @@
+@import "tailwindcss";
+
+@theme {
+  /* RTL logical properties via CSS variables */
+  --breakpoint: 2xl;
+  --breakpoint-sm: 480px;
+  --breakpoint-md: 768px;
+  --breakpoint-lg: 1024px;
+  --breakpoint-xl: 1280px;
+  --breakpoint-2xl: 1536px;
+
+  /* Font */
+  --font-sans: "Inter", system-ui, sans-serif;
+}
+
+/* لغة متعددة: RTL/LTR مخصص بواسطة Tailwind بطريقة آمنة */
+html {
+  dir: rtl;
+}
+
+@media (prefers-color-scheme: light) {
+  html {
+    color-scheme: light;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  html {
+    color-scheme: dark;
+  }
+}
+
+/* أنماط مشتركة */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}

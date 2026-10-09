@@ -1,0 +1,579 @@
+// ============================================================================
+// Cafe Management System — Prisma Schema (single source of truth)
+// Stack: Next.js + Prisma + MySQL/MariaDB (InnoDB, utf8mb4_unicode_ci)
+// Rules: BIGINT UNSIGNED PKs · DECIMAL(10,2) money · soft deletes ·
+//        branch scoping · VARCHAR enums (validated in app layer)
+// Every change MUST go through prisma migrate. Do not edit DB by hand.
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================ CORE / AUTH ============================
+
+model CafeBranch {
+  id        BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  name      String   @db.VarChar(100)
+  code      String   @unique @db.VarChar(20)
+  phone     String?  @db.VarChar(20)
+  address   String?  @db.VarChar(255)
+  timezone  String   @default("Africa/Cairo") @db.VarChar(50)
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  users                 User[]
+  cafeTables            CafeTable[]
+  categories            Category[]
+  products              Product[]
+  orders                Order[]
+  payments              Payment[]
+  discounts             Discount[]
+  inventoryItems        InventoryItem[]
+  inventoryTransactions InventoryTransaction[]
+  auditLogs             AuditLog[]
+
+  @@index([isActive])
+  @@map("branches")
+}
+
+model Role {
+  id          BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  slug        String   @unique @db.VarChar(30)
+  name        String   @db.VarChar(50)
+  description String?  @db.VarChar(255)
+  isSystem    Boolean  @default(false) @map("is_system")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  permissions RolePermission[]
+  users       User[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id        BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  slug      String   @unique @db.VarChar(60)
+  name      String   @db.VarChar(100)
+  groupName String   @map("group") @db.VarChar(50)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  rolePermissions RolePermission[]
+
+  @@index([groupName])
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       BigInt @map("role_id") @db.UnsignedBigInt
+  permissionId BigInt @map("permission_id") @db.UnsignedBigInt
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@index([permissionId])
+  @@map("role_permission")
+}
+
+model User {
+  id                 BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  branchId           BigInt?   @map("branch_id") @db.UnsignedBigInt
+  roleId             BigInt    @map("role_id") @db.UnsignedBigInt
+  name               String    @db.VarChar(100)
+  email              String?   @unique @db.VarChar(150)
+  phone              String?   @db.VarChar(20)
+  passwordHash       String    @map("password_hash") @db.VarChar(255)
+  avatarPath         String?   @map("avatar_path") @db.VarChar(255)
+  pinCode            String?   @map("pin_code") @db.VarChar(10)
+  isActive           Boolean   @default(true) @map("is_active")
+  lastLoginAt        DateTime? @map("last_login_at")
+  failedLoginCount   Int       @default(0) @map("failed_login_count") @db.UnsignedTinyInt
+  lockedUntil        DateTime? @map("locked_until")
+  mustChangePassword Boolean   @default(false) @map("must_change_password")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+  deletedAt          DateTime? @map("deleted_at")
+
+  role                  Role                   @relation(fields: [roleId], references: [id])
+  branch                CafeBranch?            @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  createdOrders         Order[]                @relation("orderCreatedBy")
+  statusChanges         OrderStatusHistory[]   @relation("statusChangedBy")
+  payments              Payment[]              @relation("paymentPaidBy")
+  createdDiscounts      Discount[]             @relation("discountCreatedBy")
+  inventoryTransactions InventoryTransaction[] @relation("txnCreatedBy")
+  auditLogs             AuditLog[]
+  updatedSettings       AppSetting[]           @relation("settingUpdatedBy")
+
+  @@index([roleId])
+  @@index([branchId, isActive])
+  @@map("users")
+}
+
+model CafeTable {
+  id          BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  branchId    BigInt    @map("branch_id") @db.UnsignedBigInt
+  number      String    @db.VarChar(20)
+  name        String?   @db.VarChar(50)
+  capacity    Int       @default(4) @db.UnsignedTinyInt
+  publicToken String    @unique @map("public_token") @db.Char(16)
+  qrImagePath String?   @map("qr_image_path") @db.VarChar(255)
+  isActive    Boolean   @default(true) @map("is_active")
+  sortOrder   Int       @default(0) @map("sort_order")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  branch CafeBranch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  orders Order[]
+
+  @@unique([branchId, number])
+  @@index([branchId, isActive])
+  @@map("cafe_tables")
+}
+
+// ============================ MENU ============================
+
+model Category {
+  id        BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  branchId  BigInt    @map("branch_id") @db.UnsignedBigInt
+  name      String    @db.VarChar(100)
+  slug      String    @db.VarChar(120)
+  imagePath String?   @map("image_path") @db.VarChar(255)
+  isActive  Boolean   @default(true) @map("is_active")
+  sortOrder Int       @default(0) @map("sort_order")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  branch   CafeBranch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  products Product[]  @relation("categoryProducts")
+
+  @@unique([branchId, slug])
+  @@index([branchId, isActive, sortOrder])
+  @@map("categories")
+}
+
+model Product {
+  id              BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  branchId        BigInt    @map("branch_id") @db.UnsignedBigInt
+  categoryId      BigInt    @map("category_id") @db.UnsignedBigInt
+  name            String    @db.VarChar(150)
+  description     String?   @db.Text
+  imagePath       String?   @map("image_path") @db.VarChar(255)
+  price           Decimal   @db.Decimal(10, 2)
+  isActive        Boolean   @default(true) @map("is_active")
+  isAvailable     Boolean   @default(true) @map("is_available")
+  isFeatured      Boolean   @default(false) @map("is_featured")
+  sortOrder       Int       @default(0) @map("sort_order")
+  prepTimeMinutes Int       @default(5) @map("prep_time_minutes") @db.UnsignedSmallInt
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at")
+
+  branch       CafeBranch      @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  category     Category        @relation("categoryProducts", fields: [categoryId], references: [id])
+  options      ProductOption[]
+  addonsAsMain ProductAddon[]  @relation("addonProduct")
+  recipes      Recipe[]
+  orderItems   OrderItem[]
+
+  @@index([categoryId, isActive, sortOrder])
+  @@index([branchId, isActive])
+  @@index([isAvailable])
+  @@map("products")
+}
+
+model ProductOption {
+  id            BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  productId     BigInt    @map("product_id") @db.UnsignedBigInt
+  name          String    @db.VarChar(100)
+  type          String    @db.VarChar(20)
+  isRequired    Boolean   @default(false) @map("is_required")
+  minSelections Int       @default(0) @map("min_selections") @db.TinyInt
+  maxSelections Int       @default(1) @map("max_selections") @db.TinyInt
+  sortOrder     Int       @default(0) @map("sort_order")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  deletedAt     DateTime? @map("deleted_at")
+
+  product          Product              @relation(fields: [productId], references: [id], onDelete: Cascade)
+  values           ProductOptionValue[]
+  orderItemOptions OrderItemOption[]
+
+  @@index([productId, sortOrder])
+  @@map("product_options")
+}
+
+model ProductOptionValue {
+  id              BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  productOptionId BigInt    @map("product_option_id") @db.UnsignedBigInt
+  value           String    @db.VarChar(100)
+  priceAdjustment Decimal   @default(0) @map("price_adjustment") @db.Decimal(10, 2)
+  isDefault       Boolean   @default(false) @map("is_default")
+  sortOrder       Int       @default(0) @map("sort_order")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at")
+
+  productOption    ProductOption     @relation(fields: [productOptionId], references: [id], onDelete: Cascade)
+  orderItemOptions OrderItemOption[]
+
+  @@index([productOptionId, sortOrder])
+  @@map("product_option_values")
+}
+
+model Addon {
+  id        BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  name      String   @db.VarChar(100)
+  price     Decimal  @db.Decimal(10, 2)
+  isActive  Boolean  @default(true) @map("is_active")
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  productAddons   ProductAddon[]   @relation("addonAddon")
+  orderItemAddons OrderItemAddon[]
+
+  @@map("addons")
+}
+
+model ProductAddon {
+  productId BigInt @map("product_id") @db.UnsignedBigInt
+  addonId   BigInt @map("addon_id") @db.UnsignedBigInt
+
+  product Product @relation("addonProduct", fields: [productId], references: [id], onDelete: Cascade)
+  addon   Addon   @relation("addonAddon", fields: [addonId], references: [id], onDelete: Cascade)
+
+  @@id([productId, addonId])
+  @@index([addonId])
+  @@map("product_addon_map")
+}
+
+// ============================ ORDERS ============================
+
+model Order {
+  id             BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  branchId       BigInt    @map("branch_id") @db.UnsignedBigInt
+  cafeTableId    BigInt    @map("cafe_table_id") @db.UnsignedBigInt
+  orderNumber    String    @unique @map("order_number") @db.VarChar(20)
+  orderRef       String    @unique @map("order_ref") @db.Char(24)
+  status         String    @default("NEW") @db.VarChar(20)
+  paymentStatus  String    @default("UNPAID") @map("payment_status") @db.VarChar(20)
+  orderType      String    @default("DINE_IN") @map("order_type") @db.VarChar(20)
+  customerName   String?   @map("customer_name") @db.VarChar(100)
+  customerPhone  String?   @map("customer_phone") @db.VarChar(20)
+  notes          String?   @db.Text
+  itemsSubtotal  Decimal   @map("items_subtotal") @db.Decimal(10, 2)
+  discountType   String?   @map("discount_type") @db.VarChar(20)
+  discountValue  Decimal   @default(0) @map("discount_value") @db.Decimal(10, 2)
+  discountAmount Decimal   @default(0) @map("discount_amount") @db.Decimal(10, 2)
+  taxRate        Decimal   @default(0) @map("tax_rate") @db.Decimal(5, 2)
+  taxAmount      Decimal   @default(0) @map("tax_amount") @db.Decimal(10, 2)
+  total          Decimal   @db.Decimal(10, 2)
+  source         String    @db.VarChar(20)
+  isArchived     Boolean   @default(false) @map("is_archived")
+  acceptedAt     DateTime? @map("accepted_at")
+  readyAt        DateTime? @map("ready_at")
+  servedAt       DateTime? @map("served_at")
+  completedAt    DateTime? @map("completed_at")
+  cancelledAt    DateTime? @map("cancelled_at")
+  cancelReason   String?   @map("cancel_reason") @db.VarChar(255)
+  createdById    BigInt?   @map("created_by") @db.UnsignedBigInt
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  branch        CafeBranch           @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  cafeTable     CafeTable            @relation(fields: [cafeTableId], references: [id], onDelete: Restrict)
+  createdBy     User?                @relation("orderCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  items         OrderItem[]
+  payments      Payment[]
+  statusHistory OrderStatusHistory[]
+  redemptions   DiscountRedemption[]
+
+  @@index([branchId, status])
+  @@index([cafeTableId, status])
+  @@index([branchId, createdAt])
+  @@index([status])
+  @@index([paymentStatus])
+  @@map("orders")
+}
+
+model OrderItem {
+  id              BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  orderId         BigInt   @map("order_id") @db.UnsignedBigInt
+  productId       BigInt   @map("product_id") @db.UnsignedBigInt
+  productName     String   @map("product_name") @db.VarChar(150)
+  unitPrice       Decimal  @map("unit_price") @db.Decimal(10, 2)
+  quantity        Int      @db.UnsignedSmallInt
+  lineTotal       Decimal  @map("line_total") @db.Decimal(10, 2)
+  optionsSnapshot Json?    @map("options_snapshot")
+  notes           String?  @db.VarChar(255)
+  prepTimeMinutes Int      @default(0) @map("prep_time_minutes") @db.UnsignedSmallInt
+  isVoided        Boolean  @default(false) @map("is_voided")
+  voidReason      String?  @map("void_reason") @db.VarChar(255)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  order   Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product           @relation(fields: [productId], references: [id], onDelete: Restrict)
+  addons  OrderItemAddon[]
+  options OrderItemOption[]
+
+  @@index([orderId])
+  @@index([productId])
+  @@index([orderId, isVoided])
+  @@map("order_items")
+}
+
+model OrderItemAddon {
+  id          BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  orderItemId BigInt   @map("order_item_id") @db.UnsignedBigInt
+  addonId     BigInt   @map("addon_id") @db.UnsignedBigInt
+  addonName   String   @map("addon_name") @db.VarChar(100)
+  price       Decimal  @db.Decimal(10, 2)
+  quantity    Int      @default(1) @db.UnsignedTinyInt
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  orderItem OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  addon     Addon     @relation(fields: [addonId], references: [id], onDelete: Restrict)
+
+  @@index([orderItemId])
+  @@index([addonId])
+  @@map("order_item_addons")
+}
+
+model OrderItemOption {
+  id              BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  orderItemId     BigInt   @map("order_item_id") @db.UnsignedBigInt
+  productOptionId BigInt   @map("product_option_id") @db.UnsignedBigInt
+  optionValueId   BigInt   @map("option_value_id") @db.UnsignedBigInt
+  optionName      String   @map("option_name") @db.VarChar(100)
+  valueLabel      String   @map("value_label") @db.VarChar(100)
+  priceAdjustment Decimal  @map("price_adjustment") @db.Decimal(10, 2)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  orderItem     OrderItem          @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  productOption ProductOption      @relation(fields: [productOptionId], references: [id], onDelete: Restrict)
+  optionValue   ProductOptionValue @relation(fields: [optionValueId], references: [id], onDelete: Restrict)
+
+  @@index([orderItemId])
+  @@map("order_item_options")
+}
+
+model OrderStatusHistory {
+  id          BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  orderId     BigInt   @map("order_id") @db.UnsignedBigInt
+  fromStatus  String?  @map("from_status") @db.VarChar(20)
+  toStatus    String   @map("to_status") @db.VarChar(20)
+  changedById BigInt?  @map("changed_by") @db.UnsignedBigInt
+  note        String?  @db.VarChar(255)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  order     Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  changedBy User? @relation("statusChangedBy", fields: [changedById], references: [id], onDelete: SetNull)
+
+  @@index([orderId, createdAt])
+  @@map("order_status_history")
+}
+
+// ============================ PAYMENTS ============================
+
+model Payment {
+  id              BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  orderId         BigInt   @map("order_id") @db.UnsignedBigInt
+  branchId        BigInt   @map("branch_id") @db.UnsignedBigInt
+  method          String   @db.VarChar(20)
+  amount          Decimal  @db.Decimal(10, 2)
+  amountDue       Decimal  @map("amount_due") @db.Decimal(10, 2)
+  changeAmount    Decimal  @default(0) @map("change_amount") @db.Decimal(10, 2)
+  status          String   @db.VarChar(20)
+  transactionRef  String?  @map("transaction_ref") @db.VarChar(100)
+  gateway         String?  @db.VarChar(30)
+  gatewayResponse Json?    @map("gateway_response")
+  paidById        BigInt?  @map("paid_by") @db.UnsignedBigInt
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  order  Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  branch CafeBranch @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  paidBy User?      @relation("paymentPaidBy", fields: [paidById], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@index([branchId, createdAt])
+  @@index([method])
+  @@map("payments")
+}
+
+// ==================== INVENTORY (schema ready, dormant in v1) ====================
+
+model InventoryItem {
+  id           BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  branchId     BigInt    @map("branch_id") @db.UnsignedBigInt
+  name         String    @db.VarChar(100)
+  sku          String?   @db.VarChar(50)
+  unit         String    @db.VarChar(20)
+  currentStock Decimal   @default(0) @map("current_stock") @db.Decimal(10, 2)
+  minStock     Decimal   @default(0) @map("min_stock") @db.Decimal(10, 2)
+  unitCost     Decimal   @default(0) @map("unit_cost") @db.Decimal(10, 2)
+  isTracked    Boolean   @default(true) @map("is_tracked")
+  isActive     Boolean   @default(true) @map("is_active")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+
+  branch       CafeBranch             @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  recipeItems  RecipeItem[]
+  transactions InventoryTransaction[]
+
+  @@unique([branchId, sku])
+  @@index([branchId, isActive])
+  @@map("inventory_items")
+}
+
+model Recipe {
+  id            BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  productId     BigInt    @unique @map("product_id") @db.UnsignedBigInt
+  yieldQuantity Decimal   @default(1) @map("yield_quantity") @db.Decimal(10, 2)
+  isActive      Boolean   @default(true) @map("is_active")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  deletedAt     DateTime? @map("deleted_at")
+
+  product Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  items   RecipeItem[]
+
+  @@map("recipes")
+}
+
+model RecipeItem {
+  id              BigInt  @id @default(autoincrement()) @db.UnsignedBigInt
+  recipeId        BigInt  @map("recipe_id") @db.UnsignedBigInt
+  inventoryItemId BigInt  @map("inventory_item_id") @db.UnsignedBigInt
+  quantity        Decimal @db.Decimal(10, 2)
+  wastePercent    Decimal @default(0) @map("waste_percent") @db.Decimal(5, 2)
+
+  recipe        Recipe        @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+
+  @@unique([recipeId, inventoryItemId])
+  @@map("recipe_items")
+}
+
+model InventoryTransaction {
+  id              BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  inventoryItemId BigInt   @map("inventory_item_id") @db.UnsignedBigInt
+  branchId        BigInt   @map("branch_id") @db.UnsignedBigInt
+  type            String   @db.VarChar(20)
+  quantity        Decimal  @db.Decimal(10, 2)
+  quantityAfter   Decimal  @map("quantity_after") @db.Decimal(10, 2)
+  referenceType   String?  @map("reference_type") @db.VarChar(30)
+  referenceId     BigInt?  @map("reference_id") @db.UnsignedBigInt
+  unitCost        Decimal? @map("unit_cost") @db.Decimal(10, 2)
+  createdById     BigInt?  @map("created_by") @db.UnsignedBigInt
+  notes           String?  @db.VarChar(255)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  branch        CafeBranch    @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  createdBy     User?         @relation("txnCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([inventoryItemId, createdAt])
+  @@index([branchId, type, createdAt])
+  @@map("inventory_transactions")
+}
+
+// ============================ DISCOUNTS ============================
+
+model Discount {
+  id                BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  branchId          BigInt?   @map("branch_id") @db.UnsignedBigInt
+  name              String    @db.VarChar(100)
+  code              String?   @db.VarChar(30)
+  type              String    @db.VarChar(20)
+  value             Decimal   @db.Decimal(10, 2)
+  minOrderTotal     Decimal?  @map("min_order_total") @db.Decimal(10, 2)
+  maxDiscountAmount Decimal?  @map("max_discount_amount") @db.Decimal(10, 2)
+  usageLimit        Int?      @map("usage_limit")
+  usageCount        Int       @default(0) @map("usage_count")
+  startsAt          DateTime? @map("starts_at")
+  endsAt            DateTime? @map("ends_at")
+  isActive          Boolean   @default(true) @map("is_active")
+  createdById       BigInt?   @map("created_by") @db.UnsignedBigInt
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  deletedAt         DateTime? @map("deleted_at")
+
+  branch      CafeBranch?          @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  createdBy   User?                @relation("discountCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  redemptions DiscountRedemption[]
+
+  @@index([branchId, isActive])
+  @@index([code])
+  @@index([startsAt, endsAt])
+  @@map("discounts")
+}
+
+model DiscountRedemption {
+  id         BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  discountId BigInt   @map("discount_id") @db.UnsignedBigInt
+  orderId    BigInt   @map("order_id") @db.UnsignedBigInt
+  amount     Decimal  @db.Decimal(10, 2)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  discount Discount @relation(fields: [discountId], references: [id], onDelete: Cascade)
+  order    Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@unique([discountId, orderId])
+  @@index([orderId])
+  @@map("discount_redemptions")
+}
+
+// ============================ SETTINGS & AUDIT ============================
+
+model AppSetting {
+  id          BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  branchId    BigInt   @default(0) @map("branch_id") @db.UnsignedBigInt
+  key         String   @db.VarChar(80)
+  value       String?  @db.Text
+  type        String   @default("string") @db.VarChar(20)
+  updatedById BigInt?  @map("updated_by") @db.UnsignedBigInt
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  updatedBy User? @relation("settingUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@unique([branchId, key])
+  @@map("app_settings")
+}
+
+model AuditLog {
+  id         BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  userId     BigInt?  @map("user_id") @db.UnsignedBigInt
+  branchId   BigInt?  @map("branch_id") @db.UnsignedBigInt
+  action     String   @db.VarChar(60)
+  entityType String   @map("entity_type") @db.VarChar(50)
+  entityId   BigInt?  @map("entity_id") @db.UnsignedBigInt
+  oldValues  Json?    @map("old_values")
+  newValues  Json?    @map("new_values")
+  ipAddress  String?  @map("ip_address") @db.VarChar(45)
+  userAgent  String?  @map("user_agent") @db.VarChar(255)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user   User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  branch CafeBranch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([entityType, entityId])
+  @@index([branchId, createdAt])
+  @@index([action, createdAt])
+  @@map("audit_logs")
+}
