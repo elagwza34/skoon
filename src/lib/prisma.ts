@@ -4,7 +4,54 @@ const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
 }
 
-export const prisma =
-  globalForPrisma.prisma ?? new PrismaClient()
+/**
+ * Build the client, with a readable error if it cannot be created.
+ *
+ * `serverExternalPackages` keeps `@prisma/client` out of the bundle, so Node
+ * `require`s it at runtime and it must have been generated on the host
+ * (`prisma generate`, which `postinstall` runs). If it was not — or the query
+ * engine cannot start on that platform — constructing the client throws. We
+ * surface a clear, secret-free message rather than an opaque crash.
+ */
+function createClient(): PrismaClient {
+  try {
+    return new PrismaClient()
+  } catch (err) {
+    const detail = (err as Error).message || String(err)
+    throw new Error(
+      `Prisma client could not be created on this server. ` +
+        `Usually this means "prisma generate" did not run in the deployed ` +
+        `environment, or the query engine cannot start on this platform. ` +
+        `Original: ${detail}`,
+    )
+  }
+}
 
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma
+/**
+ * Lazily create the client on FIRST USE — never at import time.
+ *
+ * The previous `export const prisma = new PrismaClient()` ran during module
+ * evaluation, which happens while Next.js builds the server-component module
+ * graph — BEFORE any React error boundary or our `getStaffSession()` try/catch
+ * could run. A construction failure therefore escaped every handler and died as
+ * a bare 500 with an opaque digest. Deferring construction moves any failure
+ * onto a normal call stack where our boundary can render a readable message.
+ *
+ * The Proxy keeps every existing `prisma.user.find…` / `prisma.$transaction`
+ * call site working unchanged while deferring the underlying construction.
+ */
+export function getPrisma(): PrismaClient {
+  if (!globalForPrisma.prisma) {
+    globalForPrisma.prisma = createClient()
+  }
+  return globalForPrisma.prisma
+}
+
+export const prisma = new Proxy({} as PrismaClient, {
+  get(_target, prop) {
+    const client = getPrisma() as unknown as Record<string | symbol, unknown>
+    const value = client[prop]
+    return typeof value === 'function' ? value.bind(client) : value
+  },
+})
+

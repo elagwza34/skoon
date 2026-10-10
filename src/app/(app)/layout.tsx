@@ -25,6 +25,11 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   try {
     session = await getStaffSession()
   } catch (err) {
+    // Next.js throws a special "dynamic server usage" error to bail out of
+    // static prerendering when a route reads `cookies()`. That signal MUST
+    // propagate — swallowing it would break static/dynamic detection. Only
+    // genuine failures are rendered as a panel.
+    if (isDynamicBailout(err)) throw err
     const detail = (err as Error).message || 'Unknown error'
     console.error('[skoon] getStaffSession failed:', detail)
     return <ConfigErrorPanel detail={detail} />
@@ -35,6 +40,15 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     redirect(authUser ? '/login?reason=unprovisioned' : '/login')
   }
   return <AppShell user={{ name: session.name, role: session.role }}>{children}</AppShell>
+}
+
+/** True for Next.js' internal static-opt-out signal (must not be swallowed). */
+function isDynamicBailout(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false
+  const e = err as { message?: string; digest?: string }
+  return (
+    typeof e.message === 'string' && e.message.includes('Dynamic server usage')
+  ) || e.digest === 'DYNAMIC_SERVER_USAGE'
 }
 
 /** Rendered when session resolution itself failed (usually env/DB config). */

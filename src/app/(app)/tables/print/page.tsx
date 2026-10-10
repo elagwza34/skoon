@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma'
 import { toDataURL } from 'qrcode'
+import { PrintButton } from '@/components/tables/print-button'
 
 export const metadata = {
   title: 'طباعة رموز QR — Skoon',
@@ -57,13 +58,7 @@ export default async function TablePrintPage() {
         <p className="mt-1 text-sm text-muted-foreground">
           إجمالي الطاولات: <strong>{tablesWithQr.length}</strong>
         </p>
-        <button
-          type="button"
-          onClick={() => typeof window !== 'undefined' && window.print()}
-          className="mt-3 inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-        >
-          طباعة
-        </button>
+        <PrintButton />
       </div>
 
       {/* QR grid */}
