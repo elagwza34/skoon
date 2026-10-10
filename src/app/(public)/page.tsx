@@ -45,7 +45,7 @@ export default function LandingPage() {
           <span className="text-muted-foreground">
             امسح رمز الـ QR الموجود على الطاولة بكاميرا الموبايل — هيفتح لك المنيو مربوط بطاولتك تلقائياً.
           </span>
-          <Link href="/tables">
+          <Link href="/select-table">
             <Button variant="outline" size="sm" className="mt-1 w-full">
               أو اختار طاولتك يدوياً
             </Button>

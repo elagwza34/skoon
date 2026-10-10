@@ -9,8 +9,10 @@ export const dynamic = 'force-dynamic'
 /**
  * Step 2 — manual table picker for guests without a QR scan.
  * Links carry the table's `publicToken` (never the numeric id).
+ * Route is `/select-table` (NOT `/tables`) to avoid colliding with the staff
+ * tables page under the (app) group — route groups are URL-invisible.
  */
-export default async function TablesPage() {
+export default async function SelectTablePage() {
   const tables = await prisma.cafeTable.findMany({
     where: { isActive: true, deletedAt: null },
     orderBy: [{ sortOrder: 'asc' }, { number: 'asc' }],

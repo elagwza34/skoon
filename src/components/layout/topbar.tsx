@@ -13,6 +13,7 @@ import { branches, demoUser } from "@/lib/demo";
 import { demoNotifications } from "@/lib/demo/dashboard";
 import { formatDate } from "@/lib/format";
 import { ROLE } from "@/lib/authz";
+import { logoutAction } from "@/app/login/actions";
 
 /**
  * Topbar — page title + today's date (client-mounted to avoid hydration
@@ -43,33 +44,29 @@ function TodayDate() {
 
 export interface TopbarProps {
   onMenu: () => void;
+  /** Signed-in staff identity (server-resolved). Falls back to demo display. */
+  user?: { name: string; role: string };
 }
 
-export function Topbar({ onMenu }: TopbarProps) {
+export function Topbar({ onMenu, user }: TopbarProps) {
   const pathname = usePathname();
   const title = titleForPath(pathname);
   const [branchId, setBranchId] = useState(String(branches[0].id));
-  const [notice, setNotice] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!notice) return;
-    const t = setTimeout(() => setNotice(null), 3500);
-    return () => clearTimeout(t);
-  }, [notice]);
+  // Real signed-in account when provided; demo values keep preview mode usable.
+  const account = user ?? { name: demoUser.name, role: demoUser.role as string };
+  const initials =
+    account.name
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((w) => w[0])
+      .join("") || "?";
 
   const branchOptions = branches.map((b) => ({ value: String(b.id), label: b.name, icon: "branch" as const }));
 
   return (
     <header className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur">
-      {notice ? (
-        <div className="flex items-center justify-between gap-3 bg-primary/15 px-4 py-2 text-sm text-primary">
-          <span>{notice}</span>
-          <button type="button" onClick={() => setNotice(null)} aria-label="إخفاء التنبيه" className="rounded p-1 hover:bg-accent">
-            <Icon name="close" size={16} />
-          </button>
-        </div>
-      ) : null}
-
       <div className="flex items-center gap-3 px-4 py-3 lg:px-6">
         <button
           type="button"
@@ -138,17 +135,17 @@ export function Topbar({ onMenu }: TopbarProps) {
                 aria-label="قائمة الحساب"
                 className="inline-flex items-center gap-2 rounded-md p-1 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                <Avatar name={demoUser.name} initials={demoUser.initials} size="md" />
+                <Avatar name={account.name} initials={initials} size="md" />
               </button>
             )}
           >
             {(close) => (
               <div>
                 <div className="flex items-center gap-3 border-b border-border px-4 py-3">
-                  <Avatar name={demoUser.name} initials={demoUser.initials} size="md" />
+                  <Avatar name={account.name} initials={initials} size="md" />
                   <div className="flex min-w-0 flex-col leading-tight">
-                    <span className="truncate text-sm font-semibold text-foreground">{demoUser.name}</span>
-                    <span className="text-xs text-muted-foreground">{ROLE_LABEL[demoUser.role]}</span>
+                    <span className="truncate text-sm font-semibold text-foreground">{account.name}</span>
+                    <span className="text-xs text-muted-foreground">{ROLE_LABEL[account.role] ?? account.role}</span>
                   </div>
                 </div>
                 <div className="p-1">
@@ -160,17 +157,15 @@ export function Topbar({ onMenu }: TopbarProps) {
                     <Icon name="settings" size={16} className="text-muted-foreground" />
                     الإعدادات
                   </Link>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      close();
-                      setNotice("تم تسجيل الخروج — هذه معاينة بدون مصادقة حقيقية.");
-                    }}
-                    className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-destructive hover:bg-accent"
-                  >
-                    <Icon name="logout" size={16} />
-                    تسجيل الخروج
-                  </button>
+                  <form action={logoutAction}>
+                    <button
+                      type="submit"
+                      className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-destructive hover:bg-accent"
+                    >
+                      <Icon name="logout" size={16} />
+                      تسجيل الخروج
+                    </button>
+                  </form>
                 </div>
               </div>
             )}

@@ -10,7 +10,14 @@ import { Topbar } from "@/components/layout/topbar";
  * mobile), a sticky topbar, and the routed content. Closing the drawer on
  * navigation keeps mobile navigation predictable.
  */
-export function AppShell({ children }: { children: ReactNode }) {
+export function AppShell({
+  children,
+  user,
+}: {
+  children: ReactNode;
+  /** Signed-in staff identity resolved server-side in the (app) layout. */
+  user?: { name: string; role: string };
+}) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
 
@@ -23,7 +30,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     <div className="flex min-h-screen bg-background">
       <Sidebar open={open} onClose={() => setOpen(false)} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <Topbar onMenu={() => setOpen((o) => !o)} />
+        <Topbar onMenu={() => setOpen((o) => !o)} user={user} />
         <main className="flex-1 p-4 lg:p-6">{children}</main>
       </div>
     </div>

@@ -27,7 +27,7 @@ export default async function OrderTypePage({
             : 'هنجهز طلبك للاستلام من الكاشير.'}
         </p>
       </div>
-      <Link href={isDineIn ? '/tables' : '/menu'}>
+      <Link href={isDineIn ? '/select-table' : '/menu'}>
         <Button size="lg" className="w-full">
           {isDineIn ? 'اختار الطاولة' : 'افتح المنيو'}
         </Button>
