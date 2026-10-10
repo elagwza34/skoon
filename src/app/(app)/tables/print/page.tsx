@@ -1,0 +1,105 @@
+import { prisma } from '@/lib/prisma'
+import { toDataURL } from 'qrcode'
+
+export const metadata = {
+  title: 'طباعة رموز QR — Skoon',
+}
+
+export default async function TablePrintPage() {
+  const tables = await prisma.cafeTable.findMany({
+    where: { isActive: true },
+    orderBy: { number: 'asc' },
+    include: {
+      branch: { select: { name: true } },
+    },
+  })
+
+  const baseUrl =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.APP_URL ||
+    'http://localhost:3000'
+
+  const tablesWithQr = await Promise.all(
+    tables.map(async (table) => {
+      const url = `${baseUrl}/menu/${table.publicToken}`
+      const qrDataUrl = await toDataURL(url, {
+        width: 400,
+        margin: 2,
+        errorCorrectionLevel: 'M',
+        color: { dark: '#1a1a1a', light: '#ffffff' },
+      })
+      return { ...table, url, qrDataUrl }
+    })
+  )
+
+  return (
+    <div className="min-h-screen bg-background p-6 text-foreground" dir="rtl">
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
+            @media print {
+              body * { visibility: hidden; }
+              .print-area, .print-area * { visibility: visible; }
+              .print-area { position: absolute; inset: 0; padding: 0; }
+              .no-print { display: none !important; }
+              .qr-card { break-inside: avoid; page-break-inside: avoid; }
+            }
+          `,
+        }}
+      />
+
+      {/* Header — hidden when printing */}
+      <div className="no-print mx-auto mb-6 max-w-4xl">
+        <h1 className="text-2xl font-bold">طباعة رموز QR للطاولات</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          كل رمز QR يفتح منيو الطاولة مباشرة. اضغط <kbd className="rounded border px-1.5 py-0.5 text-xs">Ctrl</kbd> + <kbd className="rounded border px-1.5 py-0.5 text-xs">P</kbd> أو استخدم زر الطباعة بالأسفل.
+        </p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          إجمالي الطاولات: <strong>{tablesWithQr.length}</strong>
+        </p>
+        <button
+          type="button"
+          onClick={() => typeof window !== 'undefined' && window.print()}
+          className="mt-3 inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        >
+          طباعة
+        </button>
+      </div>
+
+      {/* QR grid */}
+      {tablesWithQr.length === 0 ? (
+        <div className="no-print mx-auto max-w-md rounded-lg border border-dashed p-8 text-center text-muted-foreground">
+          <p>لا توجد طاولات نشطة. أضف طاولات من صفحة الطاولات أولاً.</p>
+        </div>
+      ) : (
+        <div className="print-area mx-auto grid max-w-5xl grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
+          {tablesWithQr.map((table) => (
+            <div
+              key={table.id}
+              className="qr-card flex flex-col items-center rounded-xl border bg-card p-4 text-center shadow-sm"
+            >
+              <div className="mb-2 text-lg font-bold">طاولة {table.number}</div>
+              {table.branch?.name && (
+                <div className="mb-2 text-xs text-muted-foreground">{table.branch.name}</div>
+              )}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={table.qrDataUrl}
+                alt={`رمز QR للطاولة ${table.number}`}
+                width={160}
+                height={160}
+                className="h-40 w-40 rounded border bg-white p-1"
+              />
+              <div className="mt-2 break-all text-[10px] leading-tight text-muted-foreground">
+                {table.url}
+              </div>
+              <div className="mt-1 text-[10px] text-muted-foreground">
+                امسح الرمز لعرض المنيو
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
