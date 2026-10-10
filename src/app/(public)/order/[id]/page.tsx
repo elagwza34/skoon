@@ -4,25 +4,17 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/componen
 import { Button } from '@/components/ui/button'
 import { Icon } from '@/components/ui/icon'
 import { EmptyState } from '@/components/ui/empty-state'
-import { cn } from '@/lib/utils'
 import { formatCurrency } from '@/lib/format'
 import { getPublicOrder } from '@/lib/public-orders'
+import { OrderStatusTracker } from '@/components/order/order-status-tracker'
 
 export const dynamic = 'force-dynamic'
-
-const STATUS_LABEL: Record<string, string> = {
-  new: 'تم استلام طلبك',
-  preparing: 'جاري التحضير',
-  ready: 'طلبك جاهز',
-  served: 'تم التقديم',
-  completed: 'مكتمل',
-  cancelled: 'تم إلغاء الطلب',
-}
 
 /**
  * Customer order confirmation / tracking — /order/[id]?n=<orderNumber>.
  * The `n` (order number) is a required guard alongside the id so the integer id
- * alone can't be enumerated to view other customers' orders.
+ * alone can't be enumerated to view other customers' orders. The status header
+ * is a client tracker that live-updates as staff advance the order (Phase F).
  */
 export default async function OrderPage({
   params,
@@ -39,29 +31,16 @@ export default async function OrderPage({
   if (!order) notFound()
 
   const isCancelled = order.status === 'cancelled'
-  const statusLabel = STATUS_LABEL[order.status] ?? 'تم استلام طلبك'
 
   return (
     <div className="flex flex-col gap-4">
-      <Card className={cn(isCancelled ? 'border-destructive/40' : 'border-success/40')}>
-        <CardContent className="flex flex-col items-center gap-2 p-6 text-center">
-          <span
-            className={cn(
-              'flex h-14 w-14 items-center justify-center rounded-full',
-              isCancelled ? 'bg-destructive/10 text-destructive' : 'bg-success/10 text-success',
-            )}
-          >
-            <Icon name={isCancelled ? 'close' : 'check'} size={28} />
-          </span>
-          <h1 className="text-xl font-bold">{statusLabel}</h1>
-          <p className="text-sm text-muted-foreground">
-            {order.branchName} · طاولة {order.tableNumber}
-          </p>
-          <span className="mt-1 rounded-full border border-border bg-card px-3 py-1 text-xs text-muted-foreground">
-            رقم الطلب: {order.orderNumber}
-          </span>
-        </CardContent>
-      </Card>
+      <OrderStatusTracker
+        id={order.id}
+        orderNumber={order.orderNumber}
+        initialStatus={order.status}
+        branchName={order.branchName}
+        tableNumber={order.tableNumber}
+      />
 
       <Card>
         <CardHeader>
