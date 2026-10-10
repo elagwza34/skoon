@@ -39,28 +39,46 @@ export async function middleware(request: NextRequest) {
   // Create a response we can attach refreshed session cookies to.
   let response = NextResponse.next({ request })
 
-  const { NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY } = getPublicEnv()
-
-  const supabase = createServerClient(NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, {
-    cookies: {
-      getAll() {
-        return request.cookies.getAll()
-      },
-      setAll(cookiesToSet) {
-        cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
-        response = NextResponse.next({ request })
-        cookiesToSet.forEach(({ name, value, options }) => response.cookies.set(name, value, options))
-      },
-    },
-  })
-
-  // Refresh the session (validates/rotates JWT and updates cookies).
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
   const { pathname, search } = request.nextUrl
   const publicPath = isPublicPath(pathname)
+
+  // FAIL-CLOSED but NEVER THROW. A missing/invalid public env var used to make
+  // `getPublicEnv()` throw here, which 500'd EVERY route (including the public
+  // landing page). Instead: no session + staff path → bounce to /login with a
+  // config reason; public path → just render.
+  let supabase: ReturnType<typeof createServerClient> | null = null
+  let configBroken = false
+  try {
+    const { NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY } = getPublicEnv()
+    supabase = createServerClient(NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll()
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
+          response = NextResponse.next({ request })
+          cookiesToSet.forEach(({ name, value, options }) => response.cookies.set(name, value, options))
+        },
+      },
+    })
+  } catch (err) {
+    configBroken = true
+    // Names/messages only — getPublicEnv() never includes secret values.
+    console.error('[skoon] middleware public env invalid:', (err as Error).message)
+  }
+
+  let user: { id: string } | null = null
+  if (supabase) {
+    // Refresh the session (validates/rotates JWT and updates cookies).
+    try {
+      const { data } = await supabase.auth.getUser()
+      user = data.user
+    } catch (err) {
+      console.error('[skoon] middleware auth.getUser failed:', (err as Error).message)
+      user = null
+    }
+  }
 
   if (!user && !publicPath) {
     // Unauthenticated on a staff path → bounce to login, preserving the target.
@@ -69,6 +87,9 @@ export async function middleware(request: NextRequest) {
     loginUrl.search = ''
     const next = pathname + search
     if (next !== '/') loginUrl.searchParams.set('next', next)
+    // Surface *why* when it is a missing/invalid env configuration, so the
+    // login page can explain it instead of silently failing.
+    if (configBroken) loginUrl.searchParams.set('reason', 'config')
     return NextResponse.redirect(loginUrl)
   }
 

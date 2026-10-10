@@ -15,12 +15,49 @@ import { getAuthUser, getStaffSession } from '@/lib/session'
  *  - Signed in but no `public.users` row → /login?reason=unprovisioned so the
  *    page can explain (and so middleware's "signed-in → /login" bounce does not
  *    loop back to /dashboard).
+ *
+ * A thrown error (e.g. DATABASE_URL missing, Prisma engine unreachable on the
+ * host) is caught and rendered as an explanatory panel instead of a bare 500
+ * digest — otherwise the failure is invisible without host logs.
  */
 export default async function AppLayout({ children }: { children: ReactNode }) {
-  const session = await getStaffSession()
+  let session
+  try {
+    session = await getStaffSession()
+  } catch (err) {
+    const detail = (err as Error).message || 'Unknown error'
+    console.error('[skoon] getStaffSession failed:', detail)
+    return <ConfigErrorPanel detail={detail} />
+  }
+
   if (!session) {
     const authUser = await getAuthUser()
     redirect(authUser ? '/login?reason=unprovisioned' : '/login')
   }
   return <AppShell user={{ name: session.name, role: session.role }}>{children}</AppShell>
+}
+
+/** Rendered when session resolution itself failed (usually env/DB config). */
+function ConfigErrorPanel({ detail }: { detail: string }) {
+  return (
+    <div className="flex min-h-[60vh] items-center justify-center p-6" dir="rtl">
+      <div className="w-full max-w-lg rounded-2xl border border-destructive/30 bg-card p-6 text-center shadow-sm">
+        <div className="mb-3 text-3xl" aria-hidden>⚠️</div>
+        <h1 className="mb-2 text-lg font-bold">تعذّر الاتصال بقاعدة البيانات</h1>
+        <p className="mb-4 text-sm leading-relaxed text-muted-foreground">
+          تم تسجيل الدخول، لكن قراءة صلاحيات الموظف فشلت. غالباً سبب ذلك متغيرات
+          بيئة ناقصة أو غير صحيحة على السيرفر.
+        </p>
+        <div className="mb-5 rounded-lg border border-destructive/25 bg-destructive/5 p-3 text-start" dir="ltr">
+          <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words text-xs text-destructive">{detail}</pre>
+        </div>
+        <a
+          href="/login"
+          className="inline-block rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition hover:opacity-90"
+        >
+          الذهاب لصفحة الدخول
+        </a>
+      </div>
+    </div>
+  )
 }

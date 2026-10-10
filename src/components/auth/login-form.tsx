@@ -59,6 +59,13 @@ export function LoginForm({ next, reason }: { next?: string; reason?: string }) 
               </p>
             ) : null}
 
+            {reason === 'config' ? (
+              <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                إعدادات الموقع غير مكتملة على السيرفر (متغيّرات بيئة ناقصة). راجع
+                إعدادات البيئة ثم أعد المحاولة.
+              </p>
+            ) : null}
+
             {state.error ? (
               <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
                 {state.error}
