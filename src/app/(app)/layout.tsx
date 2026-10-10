@@ -65,6 +65,12 @@ function ConfigErrorPanel({ detail }: { detail: string }) {
         <div className="mb-5 rounded-lg border border-destructive/25 bg-destructive/5 p-3 text-start" dir="ltr">
           <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words text-xs text-destructive">{detail}</pre>
         </div>
+        <p className="mb-5 text-xs leading-relaxed text-muted-foreground" dir="rtl">
+          السبب الأرجح: متغيّر <code className="rounded bg-muted px-1 py-0.5" dir="ltr">DATABASE_URL</code>{' '}
+          غير مضبوط على السيرفر (لازم يبدأ بـ <code className="rounded bg-muted px-1 py-0.5" dir="ltr">postgresql://</code>).
+          ملاحظة: ملف <code className="rounded bg-muted px-1 py-0.5" dir="ltr">.env</code> المحلي لا يُرفع مع الكود —
+          لازم تحط المتغيّرات في إعدادات البيئة على الاستضافة.
+        </p>
         <a
           href="/login"
           className="inline-block rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition hover:opacity-90"
