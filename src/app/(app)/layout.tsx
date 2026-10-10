@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { redirect } from 'next/navigation'
 import { AppShell } from '@/components/layout/app-shell'
 import { getAuthUser, getStaffSession } from '@/lib/session'
+import { describeDbEnv } from '@/lib/prisma'
 
 /**
  * Authenticated staff route group. Defense-in-depth: the layout itself verifies
@@ -62,6 +63,9 @@ function ConfigErrorPanel({ detail }: { detail: string }) {
           تم تسجيل الدخول، لكن قراءة صلاحيات الموظف فشلت. غالباً سبب ذلك متغيرات
           بيئة ناقصة أو غير صحيحة على السيرفر.
         </p>
+        <div className="mb-4 rounded-lg border border-warning/40 bg-warning/10 p-3 text-start text-xs text-warning" dir="ltr">
+          {describeDbEnv()}
+        </div>
         <div className="mb-5 rounded-lg border border-destructive/25 bg-destructive/5 p-3 text-start" dir="ltr">
           <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words text-xs text-destructive">{detail}</pre>
         </div>

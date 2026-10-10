@@ -55,3 +55,35 @@ export const prisma = new Proxy({} as PrismaClient, {
   },
 })
 
+/**
+ * Safe, secret-free diagnosis of the DATABASE_URL environment variable.
+ *
+ * Prisma validates the datasource URL only at first query, so a misconfigured
+ * host surfaces as a low-level "must start with postgresql://" error with no hint
+ * of WHAT the value actually is. This reports only non-sensitive metadata —
+ * presence, length bucket, and the scheme (text before `://`) — never the value,
+ * host, credentials, or path. It lets an operator distinguish "unset" from
+ * "still mysql://" from "present but malformed" at a glance.
+ */
+export function describeDbEnv(): string {
+  const raw = process.env.DATABASE_URL
+
+  if (raw === undefined || raw.trim() === '') {
+    return 'DATABASE_URL: NOT SET (empty or missing on this server)'
+  }
+
+  const value = raw.trim().replace(/^["']|["']$/g, '') // tolerate stray quotes
+  const scheme = value.includes('://') ? value.slice(0, value.indexOf('://')) : '(no "://")'
+
+  // Length in coarse buckets — enough to spot a truncated paste, not a leak.
+  const len = value.length
+  const bucket = len < 20 ? 'very short' : len < 60 ? 'short' : len < 200 ? 'normal' : 'long'
+
+  const verdict =
+    scheme === 'postgresql' || scheme === 'postgres'
+      ? 'looks valid (postgres scheme)'
+      : `INVALID — expected scheme "postgresql", got "${scheme}"`
+
+  return `DATABASE_URL: set, scheme="${scheme}", length≈${bucket}. ${verdict}`
+}
+
