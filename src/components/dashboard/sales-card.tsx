@@ -4,12 +4,11 @@ import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Segmented } from "@/components/ui/segmented";
 import { AreaChart } from "@/components/ui/chart";
-import { salesSeriesByRange } from "@/lib/demo/dashboard";
 import { formatCurrency } from "@/lib/format";
 
 /**
- * SalesCard — the main dashboard chart with a demo time filter. Switching the
- * range swaps the (fabricated) series; the tooltip shows the formatted value.
+ * SalesCard — the main dashboard chart with a time filter. Series are REAL
+ * sales totals computed server-side (see dashboard-stats) and passed in.
  */
 type Range = "day" | "week" | "month";
 
@@ -19,9 +18,9 @@ const RANGES: { value: Range; label: string }[] = [
   { value: "month", label: "الشهر" },
 ];
 
-export function SalesCard() {
+export function SalesCard({ seriesByRange }: { seriesByRange: Record<Range, { label: string; value: number }[]> }) {
   const [range, setRange] = useState<Range>("day");
-  const series = salesSeriesByRange[range];
+  const series = seriesByRange[range];
   const total = series.reduce((s, d) => s + d.value, 0);
 
   const points = series.map((d) => ({
@@ -35,7 +34,7 @@ export function SalesCard() {
       <CardHeader className="flex-row items-start justify-between gap-4">
         <div>
           <CardTitle>المبيعات</CardTitle>
-          <CardDescription>إجمالي {formatCurrency(total)} — بيانات تجريبية</CardDescription>
+          <CardDescription>إجمالي {formatCurrency(total)}</CardDescription>
         </div>
         <Segmented options={RANGES} value={range} onChange={setRange} ariaLabel="نطاق الوقت" />
       </CardHeader>

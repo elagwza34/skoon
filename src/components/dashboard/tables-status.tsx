@@ -20,12 +20,19 @@ const DOT: Record<TableStatus, string> = {
   cleaning: "bg-muted-foreground",
 };
 
-export function TablesStatus() {
+export function TablesStatus({
+  tables,
+  tableCounts,
+}: {
+  tables: { number: string; status: "available" | "occupied"; capacity: number }[];
+  tableCounts: { available: number; occupied: number; cleaning: number };
+}) {
+
   return (
     <Card>
       <CardHeader>
         <CardTitle>حالة الطاولات</CardTitle>
-        <CardDescription>{tableCounts.occupied} مشغولة · {tableCounts.available} متاحة · {tableCounts.cleaning} تنظيف — بيانات تجريبية</CardDescription>
+        <CardDescription>{tableCounts.occupied} مشغولة · {tableCounts.available} متاحة · {tableCounts.cleaning} تنظيف — </CardDescription>
       </CardHeader>
       <CardContent>
         <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
@@ -40,9 +47,9 @@ export function TablesStatus() {
                 <span className="text-sm font-bold">{t.number}</span>
               </span>
               <span className="text-[11px]">
-                {t.status === "occupied" && t.guests != null
-                  ? `${formatNumber(t.guests)}/${formatNumber(t.capacity)}`
-                  : TABLE_STATUS_META[t.status].label}
+                 {t.status === "occupied"
+                   ? `مشغولة - ${formatNumber(t.capacity)} مقعد`
+                   : TABLE_STATUS_META[t.status].label}
               </span>
             </div>
           ))}

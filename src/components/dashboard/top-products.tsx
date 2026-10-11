@@ -1,13 +1,18 @@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { topProducts } from "@/lib/demo/dashboard";
+
 import { formatCurrency, formatNumber } from "@/lib/format";
 
 /**
  * TopProducts — best sellers for the demo day with a proportional bar.
  * Presentational (server) component fed by local demo data.
  */
-export function TopProducts() {
-  const max = Math.max(...topProducts.map((p) => p.revenue));
+export function TopProducts({
+  products,
+}: {
+  products: { name: string; emoji: string; qty: number; revenue: number }[];
+}) {
+
+  const max = Math.max(...products.map((p) => p.revenue));
 
   return (
     <Card>
@@ -17,7 +22,7 @@ export function TopProducts() {
       </CardHeader>
       <CardContent>
         <ol className="flex flex-col gap-3">
-          {topProducts.map((p, i) => (
+          {products.map((p, i) => (
             <li key={p.name} className="flex flex-col gap-1.5">
               <div className="flex items-center gap-2.5">
                 <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-accent text-base">{p.emoji}</span>

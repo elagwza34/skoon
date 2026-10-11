@@ -1,42 +1,50 @@
+import { redirect } from "next/navigation";
+import { getStaffSession } from "@/lib/session";
+import { getDashboardStats } from "@/lib/dashboard-stats";
 import { StatCard } from "@/components/ui/stat";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { DonutChart } from "@/components/ui/chart";
-import { DemoBanner } from "@/components/dashboard/demo-banner";
 import { SalesCard } from "@/components/dashboard/sales-card";
 import { RecentOrdersTable } from "@/components/dashboard/recent-orders-table";
 import { TopProducts } from "@/components/dashboard/top-products";
 import { TablesStatus } from "@/components/dashboard/tables-status";
 import { QuickActions } from "@/components/dashboard/quick-actions";
-import {
-  totalSalesToday,
-  totalSalesYesterday,
-  ordersToday,
-  ordersYesterday,
-  avgOrderValue,
-  ordersInPreparation,
-  statusDistribution,
-} from "@/lib/demo/dashboard";
 import { formatCurrency, formatNumber, formatPercent } from "@/lib/format";
 
-/** Signed percent change between two demo totals. */
+/** Signed percent change between two numbers. */
 function pctDelta(now: number, before: number): { delta: string; dir: "up" | "down" } {
   const change = before === 0 ? 0 : ((now - before) / before) * 100;
   return { delta: formatPercent(Math.abs(change)), dir: change >= 0 ? "up" : "down" };
 }
 
-const salesDelta = pctDelta(totalSalesToday, totalSalesYesterday);
-const ordersDelta = pctDelta(ordersToday, ordersYesterday);
+export default async function DashboardPage() {
+  const session = await getStaffSession();
+  if (!session) redirect("/login");
 
-export default function DashboardPage() {
+  const stats = await getDashboardStats(session);
+
+  const salesDelta = pctDelta(stats.totalSalesToday, stats.totalSalesYesterday);
+  const ordersDelta = pctDelta(stats.ordersToday, stats.ordersYesterday);
+
   return (
     <div className="flex flex-col gap-5">
-      <DemoBanner />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold">لوحة التحكم</h1>
+          <p className="text-sm text-muted-foreground">جميع الأرقام مأخوذة من قاعدة البيانات الحقيقية، وتحدّث هيكلها تلقائياً.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-info/10 px-3 py-1 text-xs font-semibold text-info">
+            <span className="h-1.5 w-1.5 rounded-full bg-info animate-pulse" aria-hidden="true" />
+            حي (محدث تلقائياً)
+          </span>
+        </div>
+      </div>
 
-      {/* KPIs */}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="مبيعات اليوم"
-          value={formatCurrency(totalSalesToday)}
+          value={formatCurrency(stats.totalSalesToday)}
           icon="trendingUp"
           delta={salesDelta.delta}
           deltaDirection={salesDelta.dir}
@@ -44,44 +52,41 @@ export default function DashboardPage() {
         />
         <StatCard
           label="عدد الطلبات"
-          value={formatNumber(ordersToday)}
+          value={formatNumber(stats.ordersToday)}
           icon="orders"
           delta={ordersDelta.delta}
           deltaDirection={ordersDelta.dir}
           hint="مقارنة بالأمس"
         />
-        <StatCard label="متوسط قيمة الطلب" value={formatCurrency(avgOrderValue)} icon="reports" hint="لكل طلب" />
-        <StatCard label="قيد التحضير" value={formatNumber(ordersInPreparation)} icon="kitchen" hint="طلبات نشطة" />
+        <StatCard label="متوسط قيمة الطلب" value={formatCurrency(stats.avgOrderValue)} icon="reports" hint="لكل طلب" />
+        <StatCard label="قيد التحضير" value={formatNumber(stats.ordersInPreparation)} icon="kitchen" hint="طلبات نشطة" />
       </div>
 
-      {/* Chart + status distribution */}
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="lg:col-span-2">
-          <SalesCard />
+          <SalesCard seriesByRange={stats.salesSeriesByRange} />
         </div>
         <Card>
           <CardHeader>
             <CardTitle>توزيع حالات الطلبات</CardTitle>
-            <CardDescription>اليوم — بيانات تجريبية</CardDescription>
+            <CardDescription>اليوم — من قاعدة البيانات</CardDescription>
           </CardHeader>
           <CardContent>
-            <DonutChart data={statusDistribution} centerValue={formatNumber(ordersToday)} centerLabel="طلب" />
+            <DonutChart data={stats.statusDistribution} centerValue={formatNumber(stats.ordersToday)} centerLabel="طلب" />
           </CardContent>
         </Card>
       </div>
 
-      {/* Recent orders + top products */}
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="lg:col-span-2">
-          <RecentOrdersTable />
+          <RecentOrdersTable orders={stats.recentOrders} />
         </div>
-        <TopProducts />
+        <TopProducts products={stats.topProducts} />
       </div>
 
-      {/* Tables + quick actions */}
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="lg:col-span-2">
-          <TablesStatus />
+          <TablesStatus tables={stats.tables} tableCounts={stats.tableCounts} />
         </div>
         <QuickActions />
       </div>

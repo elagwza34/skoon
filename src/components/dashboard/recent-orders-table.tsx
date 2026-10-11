@@ -5,8 +5,9 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Segmented } from "@/components/ui/segmented";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
-import { recentOrders, sourceLabel } from "@/lib/demo/orders";
+import { sourceLabel } from "@/lib/demo/orders";
 import { ORDER_STATUS_META, ORDER_STATUSES, type OrderStatusKey } from "@/lib/demo/orders";
+import type { RecentOrder } from "@/lib/demo/orders";
 import { formatCurrency, formatRelative } from "@/lib/format";
 
 /**
@@ -21,16 +22,16 @@ const FILTERS: { value: Filter; label: string }[] = [
   ...ORDER_STATUSES.filter((s) => s !== "cancelled").map((s) => ({ value: s as Filter, label: ORDER_STATUS_META[s].label })),
 ];
 
-export function RecentOrdersTable() {
+export function RecentOrdersTable({ orders }: { orders: RecentOrder[] }) {
   const [filter, setFilter] = useState<Filter>("all");
-  const rows = recentOrders.filter((o) => filter === "all" || o.status === filter);
+  const rows = orders.filter((o) => filter === "all" || o.status === filter);
 
   return (
     <Card>
       <CardHeader className="flex-row items-start justify-between gap-4">
         <div>
           <CardTitle>أحدث الطلبات</CardTitle>
-          <CardDescription>آخر ما ورد في الفرع — بيانات تجريبية</CardDescription>
+          <CardDescription>آخر ما ورد في الفرع — </CardDescription>
         </div>
         <Segmented options={FILTERS} value={filter} onChange={setFilter} ariaLabel="تصفية حسب الحالة" />
       </CardHeader>
