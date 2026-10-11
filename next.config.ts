@@ -3,9 +3,10 @@ import type { NextConfig } from "next";
 /**
  * Skoon — Next.js configuration.
  *
- * Kept intentionally minimal for the UI-preview phase. No production hosting,
- * image, or auth settings are assumed here yet (they belong to a later,
- * approved deployment phase).
+ * Kept intentionally minimal for the UI-preview phase. No production hosting
+ * or auth settings are assumed here yet (they belong to a later, approved
+ * deployment phase). The only exception is `images.remotePatterns`, which is
+ * required for any external <Image> to render at all — see the note there.
  */
 const nextConfig: NextConfig = {
   reactStrictMode: true,
