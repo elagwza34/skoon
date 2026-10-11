@@ -7,42 +7,59 @@ import { Card, CardContent } from '@/components/ui/card'
  * Visitor landing page for https://skoon.awexen.com
  *
  * Design:
- *  - Purple background image fills the entire screen
+ *  - Purple background image covers the entire screen
  *  - Orange overlay on top of the background
  *  - Content centred on the page
- *  - External image links from Pixeles (بيكسيلز) for A/B testing
+ *  - External image links from Pexels (www.pexels.com) for A/B testing
  *  - Cairo font (loaded via next/font in app/layout.tsx)
  *  - 8px rounded corners on cards and buttons
  */
 
-// External icon images from Pixeles CDN (بيكسيلز)
-const LOGO = 'https://skoon.awexen.com/images/logo.png'
-const COFFEE_ICON = 'https://skoon.awexen.com/images/icons/coffee.png'
-const DINING_ICON = 'https://skoon.awexen.com/images/icons/dining.png'
-const TAKEAWAY_ICON = 'https://skoon.awexen.com/images/icons/takeaway.png'
-const BACKGROUND = 'https://skoon.awexen.com/images/background.jpg'
+/*
+ * All imagery is served from the Pexels CDN (images.pexels.com), which is
+ * allow-listed under `images.remotePatterns` in next.config.ts. Without that
+ * allow-list next/image refuses to optimise the URL and the browser renders a
+ * broken image — so any new host must be added there too.
+ *
+ * `w=` caps the source width so Next only ever optimises what it needs.
+ */
+const pexels = (id: string, w = 600) =>
+  `https://images.pexels.com/photos/${id}/pexels-photo-${id}.jpeg?auto=compress&cs=tinysrgb&w=${w}`
 
-// Pixeles (بيكسيلز) external image links for A/B testing
+const photoPage = (id: string) => `https://www.pexels.com/photo/${id}/`
+
+/** Background — a coffee/latte shot wide enough to cover a full desktop viewport. */
+const BACKGROUND = pexels('302899', 1920)
+
+/** Pexels external image links (A/B testing picker). */
 const PIXEL_IMAGES = [
-  { id: 'pixel-1', src: 'https://picxes.com/images/original/coffee-1.jpg', alt: 'قهوة 1' },
-  { id: 'pixel-2', src: 'https://picxes.com/images/original/coffee-2.jpg', alt: 'قهوة 2' },
-  { id: 'pixel-3', src: 'https://picxes.com/images/original/coffee-3.jpg', alt: 'قهوة 3' },
-  { id: 'pixel-4', src: 'https://picxes.com/images/original/coffee-4.jpg', alt: 'قهوة 4' },
-  { id: 'pixel-5', src: 'https://picxes.com/images/original/coffee-5.jpg', alt: 'قهوة 5' },
-  { id: 'pixel-6', src: 'https://picxes.com/images/original/coffee-6.jpg', alt: 'قهوة 6' },
-]
+  { id: '312418', alt: 'قهوة مُحضّرة يدويًا' },
+  { id: '851555', alt: 'لاتيه بالفن' },
+  { id: '374890', alt: 'حبوب قهوة طازجة' },
+  { id: '324028', alt: 'كوب قهوة دافئ' },
+  { id: '3738679', alt: 'ركن القهوة' },
+  { id: '2061820', alt: 'تحضير الإسبريسو' },
+].map((img) => ({ ...img, src: pexels(img.id), href: photoPage(img.id) }))
+
+/** Feature-card imagery (Pexels) replaces the old per-icon assets. */
+const COFFEE_ICON = pexels('312418', 128)
+const DINING_ICON = pexels('941861', 128)
+const TAKEAWAY_ICON = pexels('2396220', 128)
 
 export default function LandingPage() {
   return (
     <div className="relative min-h-screen overflow-hidden bg-purple-900">
-      {/* Background image with orange overlay — fills the entire screen */}
-      <div className="fixed inset-0 z-0">
+      {/* Background image with orange overlay — covers the entire screen.
+          `fill` + object-cover stretches the photo across the whole viewport at
+          any aspect ratio; `fixed` keeps it put while the page scrolls. */}
+      <div className="fixed inset-0 z-0 bg-purple-950">
         <Image
           src={BACKGROUND}
           alt="Purple coffee background"
           fill
           priority
-          className="object-fill"
+          sizes="100vw"
+          className="object-cover"
         />
         <div className="absolute inset-0 bg-orange-500/35 mix-blend-multiply" />
       </div>
@@ -50,37 +67,31 @@ export default function LandingPage() {
       {/* Centred content */}
       <div className="relative min-h-screen flex items-center justify-center px-4 py-12 z-10">
         <div className="max-w-4xl mx-auto text-white text-center">
-          {/* Logo */}
-          <Link href="/" className="flex justify-center mb-8">
-            <Image
-              src={LOGO}
-              alt="سكون"
-              width={120}
-              height={120}
-              className="rounded-8xl"
-            />
-          </Link>
-
           {/* Title */}
-          <h1 className="text-3xl font-bold mb-2">سكون</h1>
-          <p className="text-lg text-orange-300 mb-8">القهوة، نكهة الحماس</p>
+          <h1 className="text-4xl font-bold mb-2 drop-shadow-lg">سكون</h1>
+          <p className="text-lg text-orange-300 mb-8 drop-shadow">القهوة، نكهة الحماس</p>
 
-          {/* Image links from Pixeles (بيكسيلز) for A/B testing */}
+          {/* External Pexels image links for A/B testing */}
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-12">
             {PIXEL_IMAGES.map((img) => (
-              <div key={img.id} className="group cursor-pointer">
-                <Link href={img.src} target="_blank" rel="noopener noreferrer">
-                  <div className="relative rounded-8xl overflow-hidden border border-white/30 bg-white/10 hover:bg-white/20 transition-colors">
+              <div key={img.id} className="group">
+                <Link
+                  href={img.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block"
+                >
+                  <div className="relative rounded-lg overflow-hidden border border-white/30 bg-white/10 shadow-md transition-transform group-hover:scale-105">
                     <Image
                       src={img.src}
                       alt={img.alt}
                       width={300}
                       height={200}
-                      className="w-full h-32 object-cover group-hover:scale-105 transition-transform"
+                      className="w-full h-32 object-cover"
                     />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent" />
-                    <div className="absolute bottom-0 left-0 right-0 p-2 text-xs text-white/90">
-                      صورة من Pixeles (بيكسيلز)
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
+                    <div className="absolute bottom-0 inset-x-0 p-2 text-xs text-white/90">
+                      {img.alt}
                     </div>
                   </div>
                 </Link>
@@ -96,7 +107,7 @@ export default function LandingPage() {
                 alt="قهوة طازجة"
                 width={64}
                 height={64}
-                className="mx-auto mb-4 rounded-8xl"
+                className="mx-auto mb-4 rounded-lg"
               />
               <h3 className="text-lg font-semibold mb-2">قهوة طازجة</h3>
               <p className="text-sm text-gray-300">أفضل قهوة في المدينة. مُحضّرة بشكل يدري.</p>
@@ -108,7 +119,7 @@ export default function LandingPage() {
                 alt="أوضاع طعام"
                 width={64}
                 height={64}
-                className="mx-auto mb-4 rounded-8xl"
+                className="mx-auto mb-4 rounded-lg"
               />
               <h3 className="text-lg font-semibold mb-2">أوضاع طعام</h3>
               <p className="text-sm text-gray-300">قريبة منك بكل سهولة. الطلب في دقيقة.</p>
@@ -120,7 +131,7 @@ export default function LandingPage() {
                 alt="Takeaway"
                 width={64}
                 height={64}
-                className="mx-auto mb-4 rounded-8xl"
+                className="mx-auto mb-4 rounded-lg"
               />
               <h3 className="text-lg font-semibold mb-2">Takeaway</h3>
               <p className="text-sm text-gray-300">خذ طبقك المُحضّر معك وأسرّه.</p>
@@ -129,7 +140,7 @@ export default function LandingPage() {
 
           {/* CTA */}
           <Link href="/order-type">
-            <Button size="lg" className="rounded-8xl px-8 py-6 text-lg bg-white text-purple-900 hover:bg-orange-400 hover:text-purple-900">
+            <Button size="lg" className="rounded-lg px-8 py-6 text-lg bg-white text-purple-900 hover:bg-orange-400 hover:text-purple-900 shadow-lg">
               ابدأ طلبك الآن
             </Button>
           </Link>
