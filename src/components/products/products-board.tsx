@@ -1,0 +1,360 @@
+'use client'
+
+import { useMemo, useState, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Badge } from '@/components/ui/badge'
+import { Segmented } from '@/components/ui/segmented'
+import { EmptyState } from '@/components/ui/empty-state'
+import { Icon } from '@/components/ui/icon'
+import { formatCurrency } from '@/lib/format'
+import { cn } from '@/lib/utils'
+import type { StaffCatalog } from '@/lib/staff-catalog'
+
+/**
+ * Products board — real branch catalog from the DB.
+ * Search + category filter client-side; availability toggle via API.
+ */
+interface ProductDraft {
+  id?: string
+  name: string
+  description: string
+  price: string
+  categoryId: string
+  isAvailable: boolean
+}
+
+const EMPTY_DRAFT: ProductDraft = { name: '', description: '', price: '', categoryId: '', isAvailable: true }
+
+export function ProductsBoard({ catalog, canEdit, canToggle }: { catalog: StaffCatalog; canEdit: boolean; canToggle?: boolean }) {
+  const router = useRouter()
+  const [query, setQuery] = useState('')
+  const [category, setCategory] = useState('all')
+  const [pendingId, setPendingId] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
+  const [, startTransition] = useTransition()
+
+  // Product create/edit form state (owner/manager)
+  const [showForm, setShowForm] = useState(false)
+  const [draft, setDraft] = useState<ProductDraft>(EMPTY_DRAFT)
+  const [saving, setSaving] = useState(false)
+
+  // Category management state (owner/manager)
+  const [newCategory, setNewCategory] = useState('')
+  const [catBusy, setCatBusy] = useState(false)
+
+  const options = useMemo(
+    () => [
+      { value: 'all', label: 'الكل' },
+      ...catalog.categories.map((c) => ({ value: c.id, label: `${c.name} (${c.productsCount})` })),
+    ],
+    [catalog.categories],
+  )
+
+  const rows = useMemo(() => {
+    const q = query.trim()
+    return catalog.products.filter(
+      (p) =>
+        (category === 'all' || p.categoryId === category) &&
+        (!q || p.name.includes(q)),
+    )
+  }, [catalog.products, category, query])
+
+  function refresh() {
+    startTransition(() => router.refresh())
+  }
+
+  async function toggle(id: string) {
+    setPendingId(id)
+    setError(null)
+    setSuccess(null)
+    try {
+      const res = await fetch(`/api/staff/products/${id}/toggle`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error ?? 'فشل التحديث')
+      refresh()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'فشل التحديث')
+    } finally {
+      setPendingId(null)
+    }
+  }
+
+  function openCreate() {
+    setError(null)
+    setSuccess(null)
+    setDraft({ ...EMPTY_DRAFT, categoryId: catalog.categories[0]?.id ?? '' })
+    setShowForm(true)
+  }
+
+  function openEdit(p: StaffCatalog['products'][number]) {
+    setError(null)
+    setSuccess(null)
+    setDraft({
+      id: p.id,
+      name: p.name,
+      description: p.description ?? '',
+      price: p.price,
+      categoryId: p.categoryId,
+      isAvailable: p.isAvailable,
+    })
+    setShowForm(true)
+  }
+
+  async function saveProduct() {
+    if (saving) return
+    const priceNum = Number(draft.price)
+    if (!Number.isFinite(priceNum) || priceNum <= 0) {
+      setError('السعر يجب أن يكون رقماً موجباً')
+      return
+    }
+    if (!draft.categoryId) {
+      setError('اختر التصنيف')
+      return
+    }
+    if (!draft.name.trim()) {
+      setError('اسم المنتج مطلوب')
+      return
+    }
+    setSaving(true)
+    setError(null)
+    setSuccess(null)
+    try {
+      const isEdit = Boolean(draft.id)
+      const body = {
+        name: draft.name.trim(),
+        description: draft.description.trim() || undefined,
+        price: priceNum,
+        categoryId: draft.categoryId,
+        isAvailable: draft.isAvailable,
+      }
+      const res = await fetch(isEdit ? `/api/staff/products/${draft.id}` : '/api/staff/products', {
+        method: isEdit ? 'PATCH' : 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error ?? 'فشل الحفظ')
+      setShowForm(false)
+      setSuccess(isEdit ? 'تم تحديث المنتج' : 'تم إضافة المنتج')
+      refresh()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'فشل الحفظ')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function addCategory() {
+    if (catBusy) return
+    const name = newCategory.trim()
+    if (!name) return
+    setCatBusy(true)
+    setError(null)
+    setSuccess(null)
+    try {
+      const res = await fetch('/api/staff/categories', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error ?? 'فشل إضافة التصنيف')
+      setNewCategory('')
+      setSuccess('تم إضافة التصنيف')
+      refresh()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'فشل إضافة التصنيف')
+    } finally {
+      setCatBusy(false)
+    }
+  }
+
+  async function deleteCategory(id: string) {
+    if (catBusy) return
+    setCatBusy(true)
+    setError(null)
+    setSuccess(null)
+    try {
+      const res = await fetch(`/api/staff/categories/${id}`, { method: 'DELETE' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error ?? 'فشل حذف التصنيف')
+      setSuccess('تم حذف التصنيف')
+      refresh()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'فشل حذف التصنيف')
+    } finally {
+      setCatBusy(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <Input
+          icon="search" value={query} onChange={(e) => setQuery(e.target.value)}
+          placeholder="ابحث عن منتج…" aria-label="بحث المنتجات" className="max-w-xs"
+        />
+        <Segmented options={options} value={category} onChange={setCategory} ariaLabel="تصفية التصنيف" />
+        {canEdit ? (
+          <Button size="sm" className="ms-auto" onClick={openCreate}>
+            <Icon name="plus" size={16} /> منتج جديد
+          </Button>
+        ) : null}
+      </div>
+
+      {success ? (
+        <p className="rounded-md bg-success/10 px-3 py-2 text-sm text-success">{success}</p>
+      ) : null}
+      {error ? (
+        <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>
+      ) : null}
+
+      {canEdit && showForm ? (
+        <Card className="border-primary/40">
+          <CardHeader>
+            <CardTitle>{draft.id ? 'تعديل منتج' : 'منتج جديد'}</CardTitle>
+          </CardHeader>
+          <CardContent className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="text-muted-foreground">الاسم</span>
+              <Input
+                value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                placeholder="اسم المنتج" aria-label="اسم المنتج" maxLength={150}
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="text-muted-foreground">السعر (ج.م)</span>
+              <Input
+                type="number" inputMode="decimal" step="0.01" min="0"
+                value={draft.price} onChange={(e) => setDraft({ ...draft, price: e.target.value })}
+                placeholder="0.00" aria-label="سعر المنتج"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="text-muted-foreground">التصنيف</span>
+              <select
+                value={draft.categoryId} onChange={(e) => setDraft({ ...draft, categoryId: e.target.value })}
+                aria-label="تصنيف المنتج"
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
+              >
+                <option value="" disabled>اختر التصنيف…</option>
+                {catalog.categories.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </label>
+            <label className="flex items-center gap-2 self-end pb-2 text-sm">
+              <input
+                type="checkbox" checked={draft.isAvailable}
+                onChange={(e) => setDraft({ ...draft, isAvailable: e.target.checked })}
+                className="h-4 w-4 accent-[hsl(var(--primary))]"
+              />
+              <span className="text-muted-foreground">متاح للطلب</span>
+            </label>
+            <label className="flex flex-col gap-1 text-sm sm:col-span-2">
+              <span className="text-muted-foreground">الوصف (اختياري)</span>
+              <Input
+                value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })}
+                placeholder="وصف مختصر" aria-label="وصف المنتج" maxLength={500}
+              />
+            </label>
+            <div className="flex items-center gap-2 sm:col-span-2">
+              <Button size="sm" disabled={saving} onClick={saveProduct}>
+                <Icon name="check" size={16} /> {saving ? 'جاري الحفظ…' : 'حفظ'}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setShowForm(false)} disabled={saving}>
+                إلغاء
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {canEdit ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>التصنيفات</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                value={newCategory} onChange={(e) => setNewCategory(e.target.value)}
+                placeholder="تصنيف جديد…" aria-label="اسم تصنيف جديد" maxLength={100} className="max-w-xs"
+              />
+              <Button size="sm" variant="outline" disabled={catBusy || !newCategory.trim()} onClick={addCategory}>
+                <Icon name="plus" size={16} /> إضافة
+              </Button>
+            </div>
+            {catalog.categories.length === 0 ? (
+              <p className="text-sm text-muted-foreground">لا توجد تصنيفات بعد.</p>
+            ) : (
+              <ul className="flex flex-wrap gap-2">
+                {catalog.categories.map((c) => (
+                  <li key={c.id} className="flex items-center gap-2 rounded-md border border-border px-2 py-1 text-sm">
+                    <span className="text-foreground">{c.name}</span>
+                    <Badge tone="muted">{c.productsCount}</Badge>
+                    <button
+                      type="button" onClick={() => deleteCategory(c.id)} disabled={catBusy}
+                      aria-label={`حذف تصنيف ${c.name}`}
+                      className="text-muted-foreground hover:text-destructive disabled:opacity-50"
+                    >
+                      <Icon name="trash" size={14} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {rows.length === 0 ? (
+        <EmptyState icon="products" title="لا توجد منتجات مطابقة" description="جرّب بحثاً أو تصنيفاً آخر." />
+      ) : (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {rows.map((p) => (
+            <Card key={p.id} className={cn(!p.isAvailable && 'opacity-70')}>
+              <CardHeader className="flex-row items-start justify-between gap-2">
+                <div className="flex min-w-0 flex-col">
+                  <CardTitle className="truncate text-base">{p.name}</CardTitle>
+                  <span className="text-xs text-muted-foreground">{p.categoryName}</span>
+                </div>
+                <Badge tone={p.isAvailable ? 'success' : 'muted'}>
+                  {p.isAvailable ? 'متاح' : 'غير متاح'}
+                </Badge>
+              </CardHeader>
+              <CardContent className="flex items-center justify-between gap-2">
+                <span className="text-base font-bold text-primary">{formatCurrency(Number(p.price))}</span>
+                {canEdit || canToggle ? (
+                  <div className="flex items-center gap-2">
+                    {canEdit ? (
+                      <Button
+                        size="sm" variant="ghost" onClick={() => openEdit(p)}
+                        aria-label={`تعديل ${p.name}`}
+                      >
+                        <Icon name="settings" size={14} /> تعديل
+                      </Button>
+                    ) : null}
+                    {canToggle ? (
+                      <Button
+                        size="sm" variant="outline" disabled={pendingId === p.id}
+                        onClick={() => toggle(p.id)}
+                      >
+                        <Icon name={p.isAvailable ? 'close' : 'check'} size={14} />
+                        {pendingId === p.id ? 'جاري الحفظ…' : p.isAvailable ? 'إخفاء' : 'إظهار'}
+                      </Button>
+                    ) : null}
+                  </div>
+                ) : null}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
