@@ -48,6 +48,7 @@ export interface StaffOrderRow {
   id: string
   number: string
   status: string
+  paymentStatus: string
   total: number
   customerName: string | null
   source: string
@@ -77,6 +78,7 @@ export async function listStaffOrders(
       id: true,
       orderNumber: true,
       status: true,
+      paymentStatus: true,
       total: true,
       customerName: true,
       source: true,
@@ -94,6 +96,7 @@ export async function listStaffOrders(
     id: o.id.toString(),
     number: o.orderNumber,
     status: o.status,
+    paymentStatus: o.paymentStatus,
     total: Number(o.total),
     customerName: o.customerName,
     source: o.source,
