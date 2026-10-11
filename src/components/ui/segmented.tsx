@@ -33,7 +33,7 @@ export function Segmented<T extends string>({
       role="group"
       aria-label={ariaLabel}
       className={cn(
-        'inline-flex items-center gap-1 rounded-lg border border-border bg-card p-1',
+        'inline-flex max-w-full flex-wrap items-center gap-1 rounded-lg border border-border bg-card p-1',
         className,
       )}
     >

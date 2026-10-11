@@ -63,7 +63,7 @@ export default async function DashboardPage() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <div className="lg:col-span-2">
+        <div className="min-w-0 lg:col-span-2">
           <SalesCard seriesByRange={stats.salesSeriesByRange} />
         </div>
         <Card>
@@ -78,14 +78,14 @@ export default async function DashboardPage() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <div className="lg:col-span-2">
+        <div className="min-w-0 lg:col-span-2">
           <RecentOrdersTable orders={stats.recentOrders} />
         </div>
         <TopProducts products={stats.topProducts} />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <div className="lg:col-span-2">
+        <div className="min-w-0 lg:col-span-2">
           <TablesStatus tables={stats.tables} tableCounts={stats.tableCounts} />
         </div>
         <QuickActions />

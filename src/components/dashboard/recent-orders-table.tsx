@@ -28,7 +28,7 @@ export function RecentOrdersTable({ orders }: { orders: RecentOrder[] }) {
 
   return (
     <Card>
-      <CardHeader className="flex-row items-start justify-between gap-4">
+      <CardHeader className="flex-col items-start gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
         <div>
           <CardTitle>أحدث الطلبات</CardTitle>
           <CardDescription>آخر ما ورد في الفرع — </CardDescription>
