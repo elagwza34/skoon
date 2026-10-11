@@ -13,10 +13,13 @@ import { Topbar } from "@/components/layout/topbar";
 export function AppShell({
   children,
   user,
+  branchName,
 }: {
   children: ReactNode;
   /** Signed-in staff identity resolved server-side in the (app) layout. */
   user?: { name: string; role: string };
+  /** Current branch label resolved server-side (null = owner, all branches). */
+  branchName?: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
@@ -28,7 +31,7 @@ export function AppShell({
 
   return (
     <div className="flex min-h-screen bg-background">
-      <Sidebar open={open} onClose={() => setOpen(false)} />
+      <Sidebar open={open} onClose={() => setOpen(false)} branchName={branchName} />
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar onMenu={() => setOpen((o) => !o)} user={user} />
         <main className="flex-1 p-4 lg:p-6">{children}</main>

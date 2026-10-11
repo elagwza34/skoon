@@ -24,6 +24,12 @@ import {
   PIN_MIN_LENGTH,
   PIN_MAX_LENGTH,
 } from '../src/lib/security/pin'
+import { PAYMENT_METHODS } from '../src/lib/staff-payments-write'
+import {
+  SETTING_DEFS,
+  SettingsError,
+} from '../src/lib/staff-settings-write'
+import { StaffProvisionError } from '../src/lib/staff-provision-write'
 
 // --- env.ts (public) -------------------------------------------------------
 test('getPublicEnv: returns values when valid', () => {
@@ -149,4 +155,57 @@ test('pin: length constants are sane', () => {
 test('authz: ROLE constants stable', () => {
   assert.equal(ROLE.OWNER, 'owner')
   assert.equal(ROLE.MANAGER, 'manager')
+})
+
+// --- staff-payments-write (pure constants) ----------------------------------
+test('payments: PAYMENT_METHODS are the three supported methods', () => {
+  assert.deepEqual([...PAYMENT_METHODS], ['cash', 'card', 'online'])
+  // V1 rule: no partial payments, so methods stay minimal and server-priced.
+  assert.equal(PAYMENT_METHODS.length, 3)
+})
+
+// --- staff-settings-write (allowlisted key validation) ----------------------
+test('settings: currency definition accepts EGP, rejects lowercase', () => {
+  const d = SETTING_DEFS.currency
+  assert.equal(d.kind, 'string')
+  assert.equal(d.validate('EGP'), null)
+  assert.notEqual(d.validate('egp'), null)
+  assert.notEqual(d.validate('EG'), null)
+})
+
+test('settings: tax_rate bounds are 0..100', () => {
+  const d = SETTING_DEFS.tax_rate
+  assert.equal(d.kind, 'number')
+  assert.equal(d.validate(14), null)
+  assert.equal(d.validate(0), null)
+  assert.equal(d.validate(100), null)
+  assert.notEqual(d.validate(-1), null)
+  assert.notEqual(d.validate(101), null)
+})
+
+test('settings: tax_enabled is boolean-kind (zero-arg validator)', () => {
+  const d = SETTING_DEFS.tax_enabled
+  assert.equal(d.kind, 'boolean')
+  assert.equal(d.validate(), null)
+})
+
+test('settings: exactly the six allowlisted keys are writable', () => {
+  assert.deepEqual(Object.keys(SETTING_DEFS).sort(), [
+    'currency',
+    'phone',
+    'store_name',
+    'tax_enabled',
+    'tax_name',
+    'tax_rate',
+  ])
+})
+
+// --- error classes carry HTTP status ----------------------------------------
+test('errors: SettingsError and StaffProvisionError carry status codes', () => {
+  const a = new SettingsError('x', 403)
+  const b = new StaffProvisionError('y', 503)
+  assert.equal(a.status, 403)
+  assert.equal(b.status, 503)
+  assert.equal(a.name, 'SettingsError')
+  assert.equal(b.name, 'StaffProvisionError')
 })

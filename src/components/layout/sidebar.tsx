@@ -5,13 +5,12 @@ import { usePathname } from "next/navigation";
 import { navGroups } from "@/lib/navigation";
 import { Icon } from "@/components/ui/icon";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
-import { activeBranch } from "@/lib/demo";
 import { cn } from "@/lib/utils";
 
 /**
  * Sidebar — brand mark, grouped navigation, current-branch card and the
- * dark/light toggle. Highlights the active route and collapses to an
- * off-canvas drawer on small screens (managed by AppShell).
+ * dark/light toggle. Branch identity comes from the signed-in session
+ * (AppShell prop) — no fabricated branch data.
  */
 
 function isActive(href: string, pathname: string): boolean {
@@ -22,9 +21,11 @@ function isActive(href: string, pathname: string): boolean {
 export interface SidebarProps {
   open: boolean;
   onClose: () => void;
+  /** Current branch label (server-resolved session). */
+  branchName?: string | null;
 }
 
-export function Sidebar({ open, onClose }: SidebarProps) {
+export function Sidebar({ open, onClose, branchName }: SidebarProps) {
   const pathname = usePathname();
 
   return (
@@ -110,11 +111,8 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             <Icon name="branch" size={18} className="text-muted-foreground" />
             <div className="flex min-w-0 flex-col leading-tight">
               <span className="text-[11px] text-muted-foreground">الفرع الحالي</span>
-              <span className="truncate text-sm font-medium text-foreground">{activeBranch.name}</span>
+              <span className="truncate text-sm font-medium text-foreground">{branchName ?? "كل الفروع"}</span>
             </div>
-            <span className="ms-auto rounded bg-accent px-1.5 py-0.5 text-[11px] text-muted-foreground">
-              {activeBranch.code}
-            </span>
           </div>
           <ThemeToggle variant="full" className="w-full justify-start" />
         </div>

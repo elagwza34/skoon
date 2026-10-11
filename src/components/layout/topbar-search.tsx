@@ -1,19 +1,16 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Input } from "@/components/ui/input";
 import { Icon, type IconName } from "@/components/ui/icon";
-import { products } from "@/lib/demo";
-import { recentOrders, sourceLabel } from "@/lib/demo/orders";
 import { formatCurrency } from "@/lib/format";
 
 /**
- * TopbarSearch — a real, functional search over the demo data (products and
- * recent orders). It demonstrates the intended search behaviour without any
- * backend: typing filters local records and navigating from a result works.
- * Replace the `useMemo` source with a real query later; the UI need not change.
+ * TopbarSearch — real, branch-scoped search over products + orders.
+ * Queries /api/staff/search (server enforces session + branch scope).
+ * Debounced; empty/error states handled with Arabic messages.
  */
 
 interface SearchResult {
@@ -27,29 +24,48 @@ interface SearchResult {
 export function TopbarSearch() {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
+  const [results, setResults] = useState<SearchResult[]>([]);
+  const [loading, setLoading] = useState(false);
   const router = useRouter();
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const results = useMemo<SearchResult[]>(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return [];
-    const out: SearchResult[] = [];
-    for (const p of products) {
-      if (p.name.toLowerCase().includes(q)) {
-        out.push({ id: `p-${p.id}`, label: p.name, hint: formatCurrency(p.price), icon: "products", href: "/products" });
-      }
+  useEffect(() => {
+    if (timer.current) clearTimeout(timer.current);
+    const q = query.trim();
+    if (!q) {
+      setResults([]);
+      setLoading(false);
+      return;
     }
-    for (const o of recentOrders) {
-      if (o.number.toLowerCase().includes(q) || o.table.includes(q)) {
-        out.push({
-          id: `o-${o.id}`,
-          label: o.number,
-          hint: `${o.table} · ${sourceLabel(o.source)}`,
-          icon: "orders",
-          href: "/orders",
-        });
+    setLoading(true);
+    timer.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/staff/search?q=${encodeURIComponent(q)}`);
+        if (!res.ok) throw new Error("search failed");
+        const data = await res.json();
+        const out: SearchResult[] = [];
+        for (const p of data.products ?? []) {
+          out.push({
+            id: `p-${p.id}`, label: p.name,
+            hint: formatCurrency(Number(p.price)), icon: "products", href: "/products",
+          });
+        }
+        for (const o of data.orders ?? []) {
+          out.push({
+            id: `o-${o.id}`, label: o.number,
+            hint: `طاولة ${o.tableNumber}`, icon: "orders", href: "/orders",
+          });
+        }
+        setResults(out.slice(0, 6));
+      } catch {
+        setResults([]);
+      } finally {
+        setLoading(false);
       }
-    }
-    return out.slice(0, 6);
+    }, 300);
+    return () => {
+      if (timer.current) clearTimeout(timer.current);
+    };
   }, [query]);
 
   function go(href: string) {
@@ -79,7 +95,9 @@ export function TopbarSearch() {
 
       {open && query.trim() ? (
         <div className="absolute inset-x-0 top-full z-40 mt-2 overflow-hidden rounded-lg border border-border bg-card shadow-lg animate-fade-in">
-          {results.length ? (
+          {loading ? (
+            <p className="px-4 py-3 text-sm text-muted-foreground">جاري البحث…</p>
+          ) : results.length ? (
             <ul className="max-h-80 overflow-y-auto p-1">
               {results.map((r) => (
                 <li key={r.id}>

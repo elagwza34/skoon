@@ -5,13 +5,14 @@ import type { IconName } from '@/components/ui/icon'
  *
  * Keeping this separate from the Sidebar component means the Topbar can derive
  * the current page title from the URL, and future i18n only needs to touch here.
+ * Badge counts are live data only — no fabricated numbers.
  */
 
 export interface NavItem {
   href: string
   label: string
   icon: IconName
-  /** Optional demo badge count (clearly part of the preview, not real data). */
+  /** Live badge count (real data). Absent = no badge. */
   badge?: number
 }
 
@@ -27,9 +28,10 @@ export const navGroups: NavGroup[] = [
   {
     title: 'العمليات',
     items: [
-      { href: '/orders', label: 'الطلبات', icon: 'orders', badge: 15 },
+      { href: '/orders', label: 'الطلبات', icon: 'orders' },
       { href: '/pos', label: 'الكاشير POS', icon: 'pos' },
-      { href: '/kitchen', label: 'المطبخ', icon: 'kitchen', badge: 5 },
+      { href: '/kitchen', label: 'المطبخ', icon: 'kitchen' },
+      { href: '/waiter', label: 'الويتر', icon: 'waiter' },
       { href: '/tables', label: 'الطاولات', icon: 'tables' },
     ],
   },

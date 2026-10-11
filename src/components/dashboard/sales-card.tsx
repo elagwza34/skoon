@@ -39,7 +39,7 @@ export function SalesCard({ seriesByRange }: { seriesByRange: Record<Range, { la
         <Segmented options={RANGES} value={range} onChange={setRange} ariaLabel="نطاق الوقت" />
       </CardHeader>
       <CardContent>
-        <AreaChart data={points} ariaLabel="رسم بياني للمبيعات التجريبية" />
+        <AreaChart data={points} ariaLabel="رسم بياني للمبيعات" />
       </CardContent>
     </Card>
   );

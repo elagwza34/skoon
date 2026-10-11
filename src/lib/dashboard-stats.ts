@@ -1,7 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import { ROLE } from '@/lib/authz'
 import type { StaffSession } from '@/lib/session'
-import type { RecentOrder } from '@/lib/demo/orders'
+import type { RecentOrder } from '@/lib/order-status'
 
 /**
  * Dashboard statistics — REAL data from the database, server-only.

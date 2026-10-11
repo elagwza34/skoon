@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { redirect } from 'next/navigation'
 import { AppShell } from '@/components/layout/app-shell'
 import { getAuthUser, getStaffSession } from '@/lib/session'
-import { describeDbEnv } from '@/lib/prisma'
+import { describeDbEnv, prisma } from '@/lib/prisma'
 
 /**
  * Authenticated staff route group. Defense-in-depth: the layout itself verifies
@@ -40,7 +40,20 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     const authUser = await getAuthUser()
     redirect(authUser ? '/login?reason=unprovisioned' : '/login')
   }
-  return <AppShell user={{ name: session.name, role: session.role }}>{children}</AppShell>
+
+  let branchName: string | null = null
+  if (session.branchId) {
+    try {
+      const branch = await prisma.cafeBranch.findUnique({
+        where: { id: BigInt(session.branchId) },
+        select: { name: true },
+      })
+      branchName = branch?.name ?? null
+    } catch {
+      branchName = null
+    }
+  }
+  return <AppShell user={{ name: session.name, role: session.role }} branchName={branchName}>{children}</AppShell>
 }
 
 /** True for Next.js' internal static-opt-out signal (must not be swallowed). */

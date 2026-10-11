@@ -14,6 +14,7 @@ export type IconName =
   | 'orders'
   | 'pos'
   | 'kitchen'
+  | 'waiter'
   | 'tables'
   | 'products'
   | 'inventory'
@@ -74,6 +75,13 @@ export const ICON_PATHS: Record<IconName, React.ReactNode> = {
       <path d="M6 3v6a3 3 0 0 0 6 0V3" />
       <path d="M9 12v9" />
       <path d="M17 3c-1.5 2-2 3.5-2 6 0 1.5.5 2.5 2 3v9" />
+    </>
+  ),
+  waiter: (
+    <>
+      <circle cx="12" cy="7" r="3.5" />
+      <path d="M5 21c0-3.9 3.1-6.5 7-6.5s7 2.6 7 6.5" />
+      <path d="M12 10.5V14" />
     </>
   ),
   tables: (

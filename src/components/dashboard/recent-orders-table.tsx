@@ -5,9 +5,9 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Segmented } from "@/components/ui/segmented";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
-import { sourceLabel } from "@/lib/demo/orders";
-import { ORDER_STATUS_META, ORDER_STATUSES, type OrderStatusKey } from "@/lib/demo/orders";
-import type { RecentOrder } from "@/lib/demo/orders";
+import { sourceLabel } from "@/lib/order-status";
+import { ORDER_STATUS_META, ORDER_STATUSES, type OrderStatusKey } from "@/lib/order-status";
+import type { RecentOrder } from "@/lib/order-status";
 import { formatCurrency, formatRelative } from "@/lib/format";
 
 /**

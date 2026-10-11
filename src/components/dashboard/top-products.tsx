@@ -3,8 +3,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { formatCurrency, formatNumber } from "@/lib/format";
 
 /**
- * TopProducts — best sellers for the demo day with a proportional bar.
- * Presentational (server) component fed by local demo data.
+ * TopProducts — best sellers with a proportional bar.
+ * Presentational (server) component fed by real DB aggregates.
  */
 export function TopProducts({
   products,
@@ -12,15 +12,18 @@ export function TopProducts({
   products: { name: string; emoji: string; qty: number; revenue: number }[];
 }) {
 
-  const max = Math.max(...products.map((p) => p.revenue));
+  const max = Math.max(1, ...products.map((p) => p.revenue));
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>الأكثر مبيعاً</CardTitle>
-        <CardDescription>حسب الإيراد — بيانات تجريبية</CardDescription>
+        <CardDescription>حسب الإيراد — من قاعدة البيانات</CardDescription>
       </CardHeader>
       <CardContent>
+        {products.length === 0 ? (
+          <p className="py-4 text-center text-sm text-muted-foreground">لا توجد مبيعات اليوم بعد.</p>
+        ) : (
         <ol className="flex flex-col gap-3">
           {products.map((p, i) => (
             <li key={p.name} className="flex flex-col gap-1.5">
@@ -38,6 +41,7 @@ export function TopProducts({
             </li>
           ))}
         </ol>
+        )}
       </CardContent>
     </Card>
   );

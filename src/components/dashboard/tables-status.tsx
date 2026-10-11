@@ -1,12 +1,20 @@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { tables, tableCounts, TABLE_STATUS_META, type TableStatus } from "@/lib/demo/dashboard";
 import { formatNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 /**
- * TablesStatus — a snapshot of table occupancy for the demo branch: summary
+ * TablesStatus — a snapshot of table occupancy for the branch: summary
  * counts plus a colour-coded grid. Presentational (server) component.
+ * All data comes from the real database via getDashboardStats().
  */
+
+export type TableStatus = "available" | "occupied" | "cleaning";
+
+export const TABLE_STATUS_META: Record<TableStatus, { label: string; tone: "success" | "warning" | "muted" }> = {
+  available: { label: "متاحة", tone: "success" },
+  occupied: { label: "مشغولة", tone: "warning" },
+  cleaning: { label: "تحتاج تنظيف", tone: "muted" },
+};
 
 const CHIP: Record<TableStatus, string> = {
   available: "border-success/40 bg-success/10 text-success",
@@ -32,7 +40,7 @@ export function TablesStatus({
     <Card>
       <CardHeader>
         <CardTitle>حالة الطاولات</CardTitle>
-        <CardDescription>{tableCounts.occupied} مشغولة · {tableCounts.available} متاحة · {tableCounts.cleaning} تنظيف — </CardDescription>
+        <CardDescription>{tableCounts.occupied} مشغولة · {tableCounts.available} متاحة — من قاعدة البيانات</CardDescription>
       </CardHeader>
       <CardContent>
         <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
