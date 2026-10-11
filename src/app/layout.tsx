@@ -28,7 +28,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
-      <body className={`${cairo.className} min-h-screen bg-background font-sans text-foreground antialiased`}>
+      <body className={`${cairo.className} min-h-dvh bg-background font-sans text-foreground antialiased`}>
         <ThemeProvider>{children}</ThemeProvider>
       </body>
     </html>

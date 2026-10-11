@@ -29,8 +29,20 @@ export function AppShell({
     setOpen(false);
   }, [pathname]);
 
+  // Lock background scroll while the mobile drawer is open so the page behind
+  // doesn't jump (a common cause of the "layout looks broken" feeling on iOS
+  // Safari, where the dynamic toolbar shifts the 100vh viewport).
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [open]);
+
   return (
-    <div className="flex min-h-screen bg-background">
+    <div className="flex min-h-dvh bg-background">
       <Sidebar open={open} onClose={() => setOpen(false)} branchName={branchName} />
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar onMenu={() => setOpen((o) => !o)} user={user} />
