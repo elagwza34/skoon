@@ -11,10 +11,8 @@
 
 @layer base {
   :root {
-    /* System Arabic font stack — no build-time network fetch, so the offline
-       build is deterministic. Segoe UI / Tahoma render Arabic clearly on
-       Windows; Noto Sans Arabic covers Linux/macOS. */
-    --font-sans: "Segoe UI", Tahoma, "Noto Sans Arabic", system-ui, sans-serif;
+    /* Cairo — the primary Arabic typeface throughout the app. */
+    --font-sans: "Cairo", "Segoe UI", Tahoma, "Noto Sans Arabic", system-ui, sans-serif;
 
     --background: 240 6% 10%;
     --foreground: 0 0% 98%;
@@ -47,7 +45,8 @@
     --input: 240 5% 22%;
     --ring: 25 95% 55%;
 
-    --radius: 0.75rem;
+    /* 8px (0.5rem) rounded corners for cards and buttons. */
+    --radius: 0.5rem;
 
     color-scheme: dark;
   }
