@@ -7,37 +7,48 @@ import { Card, CardContent } from '@/components/ui/card'
  * Visitor landing page for https://skoon.awexen.com
  *
  * Design:
- *  - Purple background image with orange overlay
+ *  - Purple background image fills the entire screen
+ *  - Orange overlay on top of the background
  *  - Content centred on the page
- *  - External icon images (rotated for design A/B)
+ *  - External image links from Pixeles (بيكسيلز) for A/B testing
  *  - Cairo font (loaded via next/font in app/layout.tsx)
  *  - 8px rounded corners on cards and buttons
  */
 
-// External icon images (coming from the CDN — rotate for A/B testing)
+// External icon images from Pixeles CDN (بيكسيلز)
 const LOGO = 'https://skoon.awexen.com/images/logo.png'
 const COFFEE_ICON = 'https://skoon.awexen.com/images/icons/coffee.png'
 const DINING_ICON = 'https://skoon.awexen.com/images/icons/dining.png'
 const TAKEAWAY_ICON = 'https://skoon.awexen.com/images/icons/takeaway.png'
 const BACKGROUND = 'https://skoon.awexen.com/images/background.jpg'
 
+// Pixeles (بيكسيلز) external image links for A/B testing
+const PIXEL_IMAGES = [
+  { id: 'pixel-1', src: 'https://picxes.com/images/original/coffee-1.jpg', alt: 'قهوة 1' },
+  { id: 'pixel-2', src: 'https://picxes.com/images/original/coffee-2.jpg', alt: 'قهوة 2' },
+  { id: 'pixel-3', src: 'https://picxes.com/images/original/coffee-3.jpg', alt: 'قهوة 3' },
+  { id: 'pixel-4', src: 'https://picxes.com/images/original/coffee-4.jpg', alt: 'قهوة 4' },
+  { id: 'pixel-5', src: 'https://picxes.com/images/original/coffee-5.jpg', alt: 'قهوة 5' },
+  { id: 'pixel-6', src: 'https://picxes.com/images/original/coffee-6.jpg', alt: 'قهوة 6' },
+]
+
 export default function LandingPage() {
   return (
     <div className="relative min-h-screen overflow-hidden bg-purple-900">
-      {/* Background image with orange overlay */}
-      <div className="absolute inset-0">
+      {/* Background image with orange overlay — fills the entire screen */}
+      <div className="fixed inset-0 z-0">
         <Image
           src={BACKGROUND}
           alt="Purple coffee background"
           fill
           priority
-          className="object-cover"
+          className="object-fill"
         />
         <div className="absolute inset-0 bg-orange-500/35 mix-blend-multiply" />
       </div>
 
       {/* Centred content */}
-      <div className="relative min-h-screen flex items-center justify-center px-4 py-12">
+      <div className="relative min-h-screen flex items-center justify-center px-4 py-12 z-10">
         <div className="max-w-4xl mx-auto text-white text-center">
           {/* Logo */}
           <Link href="/" className="flex justify-center mb-8">
@@ -53,6 +64,29 @@ export default function LandingPage() {
           {/* Title */}
           <h1 className="text-3xl font-bold mb-2">سكون</h1>
           <p className="text-lg text-orange-300 mb-8">القهوة، نكهة الحماس</p>
+
+          {/* Image links from Pixeles (بيكسيلز) for A/B testing */}
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-12">
+            {PIXEL_IMAGES.map((img) => (
+              <div key={img.id} className="group cursor-pointer">
+                <Link href={img.src} target="_blank" rel="noopener noreferrer">
+                  <div className="relative rounded-8xl overflow-hidden border border-white/30 bg-white/10 hover:bg-white/20 transition-colors">
+                    <Image
+                      src={img.src}
+                      alt={img.alt}
+                      width={300}
+                      height={200}
+                      className="w-full h-32 object-cover group-hover:scale-105 transition-transform"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent" />
+                    <div className="absolute bottom-0 left-0 right-0 p-2 text-xs text-white/90">
+                      صورة من Pixeles (بيكسيلز)
+                    </div>
+                  </div>
+                </Link>
+              </div>
+            ))}
+          </div>
 
           {/* Feature cards (8px rounded corners) */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
