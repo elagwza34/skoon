@@ -1,6 +1,6 @@
 'use client'
 
-import { useActionState } from 'react'
+import { useActionState, useEffect, useState } from 'react'
 import Image from 'next/image'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -8,13 +8,56 @@ import { Input } from '@/components/ui/input'
 import { Icon } from '@/components/ui/icon'
 import { loginAction, type LoginState } from '@/app/login/actions'
 
+/** Browser-only key for the auto-fill credential store (cleartext JSON). */
+const CREDENTIAL_KEY = 'skoon/login-credentials'
+
 /**
  * Staff login form — client component bound to the `loginAction` server action.
  * Shows a generic credential error (anti-enumeration) and an explanatory note
  * when bounced with `reason=unprovisioned` (signed in but no `public.users` row).
+ *
+ * @remarks
+ * Auto-fill: on mount the form re-hydrates from `localStorage` under
+ * `skoon/login-credentials` and each keystroke persists `{ email, password }`
+ * back to the same key. Design intent: returning staff can log in without
+ * retyping. Credentials are stored in cleartext in the browser (intentional —
+ * the server-side auth layer remains the security boundary).
  */
 export function LoginForm({ next, reason }: { next?: string; reason?: string }) {
   const [state, formAction, pending] = useActionState<LoginState, FormData>(loginAction, {})
+
+  const [email, setEmail] = useState<string>('')
+  const [password, setPassword] = useState<string>('')
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(CREDENTIAL_KEY)
+      if (!raw) return
+      const parsed = JSON.parse(raw) as { email?: string; password?: string }
+      if (typeof parsed.email === 'string' && parsed.email) setEmail(parsed.email)
+      if (typeof parsed.password === 'string' && parsed.password) setPassword(parsed.password)
+    } catch {
+      // Ignore malformed stored credentials; start with a clean form.
+    }
+  }, [])
+
+  function persistCredentials() {
+    try {
+      window.localStorage.setItem(CREDENTIAL_KEY, JSON.stringify({ email, password }))
+    } catch {
+      // Storage full or unavailable — silent no-op.
+    }
+  }
+
+  function onEmailChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setEmail(e.target.value)
+    persistCredentials()
+  }
+
+  function onPasswordChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setPassword(e.target.value)
+    persistCredentials()
+  }
 
   return (
     <div className="flex min-h-dvh items-center justify-center bg-background p-4" dir="rtl">
@@ -39,10 +82,11 @@ export function LoginForm({ next, reason }: { next?: string; reason?: string }) 
               <Input
                 type="email"
                 name="email"
-                autoComplete="email"
                 placeholder="you@skoon.app"
                 required
                 dir="ltr"
+                value={email}
+                onChange={onEmailChange}
               />
             </label>
 
@@ -51,10 +95,11 @@ export function LoginForm({ next, reason }: { next?: string; reason?: string }) 
               <Input
                 type="password"
                 name="password"
-                autoComplete="current-password"
                 placeholder="••••••••"
                 required
                 dir="ltr"
+                value={password}
+                onChange={onPasswordChange}
               />
             </label>
 
