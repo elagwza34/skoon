@@ -33,13 +33,18 @@ export default async function SelectTablePage() {
               : 'دوس على رقم طاولتك عشان تفتح المنيو.'}
           </p>
         </div>
+        {/* Equal-height cards: every card renders the same 3 rows (number, name,
+            capacity). Tables without a name get a fixed-height placeholder so
+            short cards don't shrink and the grid stays uniform. */}
         <div className="grid grid-cols-3 gap-3">
           {tables.map((t) => (
-            <Link key={t.publicToken} href={`/menu/${t.publicToken}`}>
-              <Card className="border-white/30 bg-white/10 transition-colors hover:border-orange-400/70 hover:bg-white/20">
-                <CardContent className="flex flex-col items-center gap-1 p-4 text-center text-white">
-                  <span className="text-2xl font-bold">{t.number}</span>
-                  {t.name ? <span className="text-xs text-white/70">{t.name}</span> : null}
+            <Link key={t.publicToken} href={`/menu/${t.publicToken}`} className="h-full">
+              <Card className="flex h-full flex-col justify-center border-white/30 bg-white/10 transition-colors hover:border-orange-400/70 hover:bg-white/20">
+                <CardContent className="flex min-h-[104px] flex-col items-center justify-center gap-1 p-4 text-center text-white">
+                  <span className="text-2xl font-bold leading-none">{t.number}</span>
+                  <span className="h-4 text-xs leading-4 text-white/70" aria-hidden={!t.name}>
+                    {t.name ?? ' '}
+                  </span>
                   <span className="text-[11px] text-white/70">{t.capacity} مقاعد</span>
                 </CardContent>
               </Card>

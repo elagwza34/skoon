@@ -152,7 +152,7 @@ export function MenuOrderView({ menu }: { menu: PublicMenu }) {
             <span className="text-xs text-white/70">{menu.table.branchName}</span>
             <span className="text-lg font-bold">طاولة {menu.table.number} · {menu.table.capacity} مقاعد</span>
           </div>
-          <Link href={`/order-type?type=dine_in`} className="text-sm text-white/90 hover:underline">
+          <Link href="/order-type" className="text-sm text-white/90 hover:underline">
             تغيير
           </Link>
         </header>
