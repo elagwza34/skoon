@@ -103,7 +103,18 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(dashUrl)
   }
 
-  return response
+  // Expose the resolved pathname to server components (e.g. the (app) layout's
+  // role-based route guard) which cannot read the URL directly. Safe: this is
+  // the same normalized pathname middleware already computed.
+  // IMPORTANT: it must go on the REQUEST headers (not just the response) so
+  // server components can read it via next/headers — response headers are not
+  // visible to server components.
+  const requestHeaders = new Headers(request.headers)
+  requestHeaders.set('x-pathname', pathname)
+  const responseWithPath = NextResponse.next({ request: { headers: requestHeaders } })
+  // Preserve any refreshed auth cookies that were set on `response` above.
+  response.cookies.getAll().forEach((c) => responseWithPath.cookies.set(c))
+  return responseWithPath
 }
 
 export const config = {

@@ -48,7 +48,7 @@ function TodayDate() {
 export interface TopbarProps {
   onMenu: () => void;
   /** Signed-in staff identity (server-resolved, required in production). */
-  user?: { name: string; role: string };
+  user?: { name: string; role: string; permissions?: string[] };
   /** Live notifications (real data). Empty = show honest empty state. */
   notifications?: TopbarNotification[];
 }

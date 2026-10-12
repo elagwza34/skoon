@@ -2,15 +2,15 @@
 //
 // What it does:
 //   - Upserts the 5 canonical roles (owner/manager/waiter/kitchen/cashier).
-//   - Upserts the 18 documented permissions (docs/DATABASE-DESIGN.md §2.4).
+//   - Upserts the 19 documented permissions (docs/DATABASE-DESIGN.md §2.4).
 //   - Links ALL permissions to the `owner` role only (owner = superuser).
 // What it NEVER does:
 //   - Creates User rows (User.id must equal a Supabase Auth UUID, provisioned
 //     only via the trusted server-side flow — see docs/OWNER-PROVISIONING.md).
 //   - Writes passwords, PINs, or any secret (pinHash stays NULL).
 //   - Deletes or modifies existing rows (upsert with empty update).
-// Non-owner role grants are intentionally left EMPTY pending approval of the
-// role-permission matrix (least-privilege default; documented, not invented).
+// Non-owner role grants follow the least-privilege matrix documented in
+// docs/CAFE-SYSTEM-ARCHITECTURE.md §5.3 (see ROLE_PERMISSIONS below).
 import { PrismaClient } from '@prisma/client'
 
 const prisma = new PrismaClient()
@@ -28,6 +28,7 @@ const PERMISSIONS: { slug: string; name: string; groupName: string }[] = [
   { slug: 'orders.update', name: 'تعديل الطلبات', groupName: 'orders' },
   { slug: 'orders.cancel', name: 'إلغاء الطلبات', groupName: 'orders' },
   { slug: 'orders.refund', name: 'استرداد المدفوعات', groupName: 'orders' },
+  { slug: 'orders.payment', name: 'تحصيل الدفع', groupName: 'orders' },
   { slug: 'orders.kitchen_status', name: 'تحديث حالة المطبخ', groupName: 'orders' },
   { slug: 'orders.serve', name: 'تقديم الطلبات', groupName: 'orders' },
   { slug: 'menu.view', name: 'عرض المنيو', groupName: 'menu' },
@@ -43,6 +44,25 @@ const PERMISSIONS: { slug: string; name: string; groupName: string }[] = [
   { slug: 'settings.manage', name: 'إدارة الإعدادات', groupName: 'settings' },
   { slug: 'audit.view', name: 'عرض سجل التدقيق', groupName: 'audit' },
 ]
+
+// Non-owner role grants follow the least-privilege matrix in
+// docs/CAFE-SYSTEM-ARCHITECTURE.md §5.3. Owner keeps ALL permissions
+// (superuser, bypasses every check); the others get only what they need.
+const ROLE_PERMISSIONS: Record<string, string[]> = {
+  manager: [
+    'orders.view', 'orders.update', 'orders.cancel', 'orders.payment', 'orders.kitchen_status', 'orders.serve',
+    'menu.view', 'menu.update',
+    'tables.view', 'tables.manage',
+    'staff.view', 'staff.manage',
+    'reports.view',
+    'inventory.view', 'inventory.manage',
+    'discounts.manage',
+    'settings.manage',
+  ],
+  cashier: ['orders.view', 'orders.update', 'orders.cancel', 'orders.refund', 'orders.payment', 'tables.view'],
+  waiter: ['orders.view', 'orders.update', 'orders.cancel', 'orders.serve', 'tables.view'],
+  kitchen: ['orders.view', 'orders.kitchen_status', 'inventory.view'],
+}
 
 async function main() {
   const roleIds = new Map<string, bigint>()
@@ -65,6 +85,7 @@ async function main() {
     permIds.set(p.slug, row.id)
   }
 
+  // Owner: every permission (superuser).
   const ownerId = roleIds.get('owner')!
   let ownerLinks = 0
   for (const permId of permIds.values()) {
@@ -76,6 +97,23 @@ async function main() {
     ownerLinks++
   }
 
+  // Other roles: least-privilege grants per the documented matrix.
+  let roleLinks = 0
+  for (const [slug, perms] of Object.entries(ROLE_PERMISSIONS)) {
+    const roleId = roleIds.get(slug)
+    if (!roleId) continue
+    for (const permSlug of perms) {
+      const permId = permIds.get(permSlug)
+      if (!permId) continue
+      await prisma.rolePermission.upsert({
+        where: { roleId_permissionId: { roleId, permissionId: permId } },
+        update: {},
+        create: { roleId, permissionId: permId },
+      })
+      roleLinks++
+    }
+  }
+
   // Read-only verification output (no secrets, no PII).
   const [roleCount, permCount, ownerLinkCount, userCount] = await Promise.all([
     prisma.role.count(),
@@ -84,7 +122,7 @@ async function main() {
     prisma.user.count(),
   ])
   console.log(
-    JSON.stringify({ roles: roleCount, permissions: permCount, ownerLinks: ownerLinkCount, users: userCount }),
+    JSON.stringify({ roles: roleCount, permissions: permCount, ownerLinks: ownerLinkCount, roleLinks, users: userCount }),
   )
 }
 

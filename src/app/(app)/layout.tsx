@@ -1,8 +1,16 @@
 import type { ReactNode } from 'react'
 import { redirect } from 'next/navigation'
+import { headers } from 'next/headers'
 import { AppShell } from '@/components/layout/app-shell'
 import { getAuthUser, getStaffSession } from '@/lib/session'
 import { describeDbEnv, prisma } from '@/lib/prisma'
+import { canSeeRoute, isOperationalRole, isOpsPath, homeForRole } from '@/lib/route-access'
+
+/** Read the resolved pathname (set by middleware). Falls back to ''. */
+async function currentPath(): Promise<{ pathname: string }> {
+  const h = await headers()
+  return { pathname: h.get('x-pathname') ?? '' }
+}
 
 /**
  * Authenticated staff route group. Defense-in-depth: the layout itself verifies
@@ -41,6 +49,22 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     redirect(authUser ? '/login?reason=unprovisioned' : '/login')
   }
 
+  // --- Server-side route guard (defense in depth) -------------------------
+  // This is the REAL gate. Hiding a sidebar link is only a UX nicety; typing
+  // the URL directly is blocked here from the trusted DB role/permissions.
+  const pathname = (await currentPath()).pathname
+  if (!canSeeRoute(session.role, session.permissions, pathname)) {
+    redirect(homeForRole(session.role))
+  }
+
+  // Operational roles (waiter/kitchen/cashier) live on a full-screen board
+  // without the admin sidebar. Send them straight to their board when they
+  // land on an admin page they happen to be allowed to open.
+  const home = homeForRole(session.role)
+  if (isOperationalRole(session.role) && !isOpsPath(pathname) && pathname !== home) {
+    redirect(home)
+  }
+
   let branchName: string | null = null
   if (session.branchId) {
     try {
@@ -53,7 +77,22 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
       branchName = null
     }
   }
-  return <AppShell user={{ name: session.name, role: session.role }} branchName={branchName}>{children}</AppShell>
+
+  // Operational roles on their board (POS / kitchen / waiter) get a FULL-SCREEN
+  // view with no admin sidebar — those are work stations, not an admin console.
+  // Everything else is wrapped in the shared AppShell (sidebar + topbar).
+  if (isOperationalRole(session.role) && isOpsPath(pathname)) {
+    return <>{children}</>
+  }
+
+  return (
+    <AppShell
+      user={{ name: session.name, role: session.role, permissions: session.permissions }}
+      branchName={branchName}
+    >
+      {children}
+    </AppShell>
+  )
 }
 
 /** True for Next.js' internal static-opt-out signal (must not be swallowed). */

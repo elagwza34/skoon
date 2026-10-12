@@ -1,5 +1,4 @@
-import { redirect } from 'next/navigation'
-import { getStaffSession } from '@/lib/session'
+import { requirePageAccess } from '@/lib/require-page-access'
 import { getSettingsSnapshot } from '@/lib/staff-settings'
 import { SettingsBoard } from '@/components/settings/settings-board'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -13,8 +12,7 @@ export const dynamic = 'force-dynamic'
  * everything else is read-only.
  */
 export default async function SettingsPage() {
-  const session = await getStaffSession()
-  if (!session) redirect('/login')
+  const session = await requirePageAccess('/settings')
 
   const snapshot = await getSettingsSnapshot(session)
 

@@ -1,4 +1,5 @@
 import Image from 'next/image'
+import { requirePageAccess } from '@/lib/require-page-access'
 import { prisma } from '@/lib/prisma'
 import { toDataURL } from 'qrcode'
 import { PrintButton } from '@/components/tables/print-button'
@@ -8,6 +9,8 @@ export const metadata = {
 }
 
 export default async function TablePrintPage() {
+  await requirePageAccess('/tables')
+
   const tables = await prisma.cafeTable.findMany({
     where: { isActive: true },
     orderBy: { number: 'asc' },

@@ -3,6 +3,8 @@
 import { redirect } from 'next/navigation'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
+import { getStaffSession } from '@/lib/session'
+import { homeForRole } from '@/lib/route-access'
 
 /**
  * Staff sign-in — Supabase Auth (email + password). Identity only.
@@ -42,11 +44,20 @@ export async function loginAction(
   }
 
   const next = formData.get('next')
-  const target =
+  const requested =
     typeof next === 'string' && next.startsWith('/') && !next.startsWith('//')
       ? next
-      : '/dashboard'
-  redirect(target)
+      : null
+
+  // If the user came here to reach a specific page (the middleware set ?next),
+  // honour it; the (app) layout's route guard will bounce them if it's outside
+  // their role. Otherwise land them on the screen for their role (operational
+  // staff go straight to their board, owner/manager to the dashboard).
+  if (!requested) {
+    const session = await getStaffSession()
+    redirect(session ? homeForRole(session.role) : '/dashboard')
+  }
+  redirect(requested)
 }
 
 /** Sign out and return to the login screen. */

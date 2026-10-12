@@ -1,5 +1,4 @@
-import { redirect } from 'next/navigation'
-import { getStaffSession } from '@/lib/session'
+import { requirePageAccess } from '@/lib/require-page-access'
 import { getWaiterWorkspace } from '@/lib/staff-waiter'
 import { WaiterBoard } from '@/components/waiter/waiter-board'
 
@@ -13,8 +12,7 @@ export const metadata = {
  * Waiter — server component. Real branch tables + open orders from the DB.
  */
 export default async function WaiterPage() {
-  const session = await getStaffSession()
-  if (!session) redirect('/login')
+  const session = await requirePageAccess('/waiter')
 
   const workspace = await getWaiterWorkspace(session)
   return <WaiterBoard workspace={workspace} />

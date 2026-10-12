@@ -1,5 +1,4 @@
-import { redirect } from "next/navigation";
-import { getStaffSession } from "@/lib/session";
+import { requirePageAccess } from "@/lib/require-page-access";
 import { getDashboardStats } from "@/lib/dashboard-stats";
 import { StatCard } from "@/components/ui/stat";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -18,8 +17,7 @@ function pctDelta(now: number, before: number): { delta: string; dir: "up" | "do
 }
 
 export default async function DashboardPage() {
-  const session = await getStaffSession();
-  if (!session) redirect("/login");
+  const session = await requirePageAccess("/dashboard");
 
   const stats = await getDashboardStats(session);
 

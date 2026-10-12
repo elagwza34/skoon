@@ -1,5 +1,4 @@
-import { redirect } from 'next/navigation'
-import { getStaffSession } from '@/lib/session'
+import { requirePageAccess } from '@/lib/require-page-access'
 import { getReportsSummary } from '@/lib/staff-reports'
 import { ReportsBoard } from '@/components/reports/reports-board'
 
@@ -11,8 +10,7 @@ export default async function ReportsPage({
 }: {
   searchParams: Promise<{ days?: string }>
 }) {
-  const session = await getStaffSession()
-  if (!session) redirect('/login')
+  const session = await requirePageAccess('/reports')
 
   const { days } = await searchParams
   const summary = await getReportsSummary(session, days)

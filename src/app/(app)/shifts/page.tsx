@@ -1,5 +1,4 @@
-import { redirect } from 'next/navigation'
-import { getStaffSession } from '@/lib/session'
+import { requirePageAccess } from '@/lib/require-page-access'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { EmptyState } from '@/components/ui/empty-state'
 
@@ -11,8 +10,7 @@ export const dynamic = 'force-dynamic'
  * This screen states the blocker instead of rendering fabricated shifts.
  */
 export default async function ShiftsPage() {
-  const session = await getStaffSession()
-  if (!session) redirect('/login')
+  await requirePageAccess('/shifts')
 
   return (
     <Card>

@@ -1,5 +1,4 @@
-import { redirect } from 'next/navigation'
-import { getStaffSession } from '@/lib/session'
+import { requirePageAccess } from '@/lib/require-page-access'
 import { getStaffCustomers } from '@/lib/staff-customers'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -12,8 +11,7 @@ export const dynamic = 'force-dynamic'
  * (customerName on orders; no registered-customers table in v1).
  */
 export default async function CustomersPage() {
-  const session = await getStaffSession()
-  if (!session) redirect('/login')
+  const session = await requirePageAccess('/customers')
 
   const customers = await getStaffCustomers(session)
 

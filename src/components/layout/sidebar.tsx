@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { navGroups } from "@/lib/navigation";
+import { navGroups as DEFAULT_GROUPS, type NavGroup } from "@/lib/navigation";
 import { Icon } from "@/components/ui/icon";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { cn } from "@/lib/utils";
@@ -11,7 +11,8 @@ import { cn } from "@/lib/utils";
 /**
  * Sidebar — brand mark, grouped navigation, current-branch card and the
  * dark/light toggle. Branch identity comes from the signed-in session
- * (AppShell prop) — no fabricated branch data.
+ * (AppShell prop) — no fabricated branch data. The visible links are supplied
+ * pre-filtered by the AppShell from the role's permissions.
  */
 
 function isActive(href: string, pathname: string): boolean {
@@ -24,9 +25,11 @@ export interface SidebarProps {
   onClose: () => void;
   /** Current branch label (server-resolved session). */
   branchName?: string | null;
+  /** Permission-filtered nav groups from the AppShell. Defaults to all. */
+  groups?: NavGroup[];
 }
 
-export function Sidebar({ open, onClose, branchName }: SidebarProps) {
+export function Sidebar({ open, onClose, branchName, groups = DEFAULT_GROUPS }: SidebarProps) {
   const pathname = usePathname();
 
   return (
@@ -67,7 +70,7 @@ export function Sidebar({ open, onClose, branchName }: SidebarProps) {
 
         {/* Navigation */}
         <nav className="flex-1 overflow-y-auto no-scrollbar px-3 pb-4" aria-label="التنقل الرئيسي">
-          {navGroups.map((group, gi) => (
+          {groups.map((group, gi) => (
             <div key={gi} className="flex flex-col gap-0.5">
               {group.title ? (
                 <p className="px-3 pb-1.5 pt-4 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">

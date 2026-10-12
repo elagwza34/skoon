@@ -59,6 +59,30 @@ export const navGroups: NavGroup[] = [
   },
 ]
 
+/** Dashboard widgets shown per permission — owner sees all regardless. */
+export const DASHBOARD_ALLOWED_NAV = [
+  '/dashboard',
+  '/orders',
+  '/pos',
+  '/tables',
+  '/reports',
+  '/products',
+] as const
+
+/**
+ * Nav groups filtered to what this role may see. The route→permission map in
+ * `@/lib/route-access` is the single source of truth, so the sidebar and the
+ * server-side page guard can never disagree.
+ */
+export function navGroupsFor(
+  role: string,
+  canSee: (pathname: string) => boolean,
+): NavGroup[] {
+  return navGroups
+    .map((g) => ({ ...g, items: g.items.filter((i) => canSee(i.href)) }))
+    .filter((g) => g.items.length > 0)
+}
+
 const ALL_ITEMS: NavItem[] = navGroups.flatMap((g) => g.items)
 
 /** Title for the current pathname (used by the Topbar). Falls back to a default. */

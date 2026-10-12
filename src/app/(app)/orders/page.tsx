@@ -1,18 +1,16 @@
-import { redirect } from "next/navigation";
-import { getStaffSession } from "@/lib/session";
-import { listStaffOrders } from "@/lib/staff-orders";
-import { hasAtLeast, ROLE } from "@/lib/authz";
-import { OrdersBoard } from "@/components/orders/orders-board";
+import { requirePageAccess } from '@/lib/require-page-access'
+import { listStaffOrders } from '@/lib/staff-orders'
+import { hasAtLeast, ROLE } from '@/lib/authz'
+import { OrdersBoard } from '@/components/orders/orders-board'
 
 /**
  * Orders — server component. Branch-scoped orders from the real DB.
  * Payment actions are permission-gated here AND re-checked on the server.
  */
-export const dynamic = "force-dynamic";
+export const dynamic = 'force-dynamic'
 
 export default async function OrdersPage() {
-  const session = await getStaffSession();
-  if (!session) redirect("/login");
+  const session = await requirePageAccess('/orders')
 
   const orders = await listStaffOrders(session, { limit: 100 });
   return (

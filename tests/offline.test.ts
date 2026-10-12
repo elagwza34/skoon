@@ -26,10 +26,114 @@ import {
 } from '../src/lib/security/pin'
 import { PAYMENT_METHODS } from '../src/lib/staff-payments-write'
 import { getGuestOrders, saveGuestOrder } from '../src/lib/guest-orders'
+import { SETTING_DEFS, SettingsError } from '../src/lib/staff-settings-write'
 import {
-  SETTING_DEFS,
-  SettingsError,
-} from '../src/lib/staff-settings-write'
+  homeForRole,
+  isOperationalRole,
+  isOpsPath,
+  permissionForPath,
+  canSeeRoute,
+} from '../src/lib/route-access'
+
+// --- Route-access matrix: every role → what they may open ------------------
+
+test('route-access: owner sees every mapped page', () => {
+  for (const path of ['/orders', '/pos', '/kitchen', '/waiter', '/tables', '/products', '/inventory', '/customers', '/staff', '/reports', '/settings', '/shifts']) {
+    assert.equal(canSeeRoute('owner', [], path), true, `owner must open ${path}`)
+  }
+})
+
+test('route-access: waiter sees only orders + tables (+ dashboard)', () => {
+  const perms = ['orders.view', 'orders.update', 'orders.cancel', 'orders.serve', 'tables.view']
+  assert.equal(canSeeRoute('waiter', perms, '/dashboard'), true)
+  assert.equal(canSeeRoute('waiter', perms, '/orders'), true)
+  assert.equal(canSeeRoute('waiter', perms, '/tables'), true)
+  // Not their job:
+  assert.equal(canSeeRoute('waiter', perms, '/reports'), false)
+  assert.equal(canSeeRoute('waiter', perms, '/settings'), false)
+  assert.equal(canSeeRoute('waiter', perms, '/staff'), false)
+  assert.equal(canSeeRoute('waiter', perms, '/products'), false)
+  assert.equal(canSeeRoute('waiter', perms, '/inventory'), false)
+})
+
+test('route-access: kitchen sees only the kitchen board', () => {
+  const perms = ['orders.view', 'orders.kitchen_status', 'inventory.view']
+  assert.equal(canSeeRoute('kitchen', perms, '/kitchen'), true)
+  assert.equal(canSeeRoute('kitchen', perms, '/orders'), true)
+  assert.equal(canSeeRoute('kitchen', perms, '/reports'), false)
+  assert.equal(canSeeRoute('kitchen', perms, '/pos'), false)
+})
+
+test('route-access: cashier sees POS + orders, not menu/staff', () => {
+  const perms = ['orders.view', 'orders.update', 'orders.cancel', 'orders.refund', 'orders.payment', 'tables.view']
+  assert.equal(canSeeRoute('cashier', perms, '/pos'), true)
+  assert.equal(canSeeRoute('cashier', perms, '/orders'), true)
+  assert.equal(canSeeRoute('cashier', perms, '/products'), false)
+  assert.equal(canSeeRoute('cashier', perms, '/staff'), false)
+  assert.equal(canSeeRoute('cashier', perms, '/settings'), false)
+})
+
+test('route-access: manager sees the operational + management set', () => {
+  const perms = [
+    'orders.view', 'orders.update', 'orders.cancel', 'orders.payment', 'orders.kitchen_status', 'orders.serve',
+    'menu.view', 'menu.update', 'tables.view', 'tables.manage', 'staff.view', 'staff.manage',
+    'reports.view', 'inventory.view', 'inventory.manage', 'discounts.manage', 'settings.manage',
+  ]
+  for (const path of ['/orders', '/tables', '/products', '/inventory', '/staff', '/reports', '/settings']) {
+    assert.equal(canSeeRoute('manager', perms, path), true, `manager must open ${path}`)
+  }
+})
+
+test('route-access: permissionForPath maps known routes', () => {
+  assert.equal(permissionForPath('/orders'), 'orders.view')
+  assert.equal(permissionForPath('/pos'), 'orders.payment')
+  assert.equal(permissionForPath('/kitchen'), 'orders.kitchen_status')
+  assert.equal(permissionForPath('/waiter'), 'tables.view')
+  assert.equal(permissionForPath('/tables'), 'tables.view')
+  assert.equal(permissionForPath('/products'), 'menu.view')
+  assert.equal(permissionForPath('/inventory'), 'inventory.view')
+  assert.equal(permissionForPath('/staff'), 'staff.view')
+  assert.equal(permissionForPath('/reports'), 'reports.view')
+  assert.equal(permissionForPath('/settings'), 'settings.manage')
+  assert.equal(permissionForPath('/dashboard'), null) // open to all authenticated staff
+})
+
+test('route-access: a granted permission unlocks its page', () => {
+  // Simulate a custom grant: this role gets reports.view only.
+  assert.equal(canSeeRoute('waiter', [], '/reports'), false)
+  assert.equal(canSeeRoute('waiter', ['reports.view'], '/reports'), true)
+})
+
+test('route-access: nested paths inherit their section permission', () => {
+  assert.equal(canSeeRoute('waiter', ['orders.view'], '/orders/123'), true)
+  assert.equal(canSeeRoute('kitchen', ['orders.kitchen_status'], '/kitchen/queue'), true)
+  assert.equal(canSeeRoute('cashier', [], '/settings/branch'), false)
+})
+
+// --- Role home redirect + operational detection ---------------------------
+test('route-access: home per role routes operational staff to their board', () => {
+  assert.equal(homeForRole('waiter'), '/waiter')
+  assert.equal(homeForRole('kitchen'), '/kitchen')
+  assert.equal(homeForRole('cashier'), '/pos')
+  assert.equal(homeForRole('owner'), '/dashboard')
+  assert.equal(homeForRole('manager'), '/dashboard')
+})
+
+test('route-access: operational roles are waiter/kitchen/cashier only', () => {
+  assert.equal(isOperationalRole('waiter'), true)
+  assert.equal(isOperationalRole('kitchen'), true)
+  assert.equal(isOperationalRole('cashier'), true)
+  assert.equal(isOperationalRole('owner'), false)
+  assert.equal(isOperationalRole('manager'), false)
+})
+
+test('route-access: ops boards are the three full-screen paths', () => {
+  assert.equal(isOpsPath('/pos'), true)
+  assert.equal(isOpsPath('/kitchen'), true)
+  assert.equal(isOpsPath('/waiter'), true)
+  assert.equal(isOpsPath('/dashboard'), false)
+  assert.equal(isOpsPath('/orders'), false)
+})
 import { StaffProvisionError } from '../src/lib/staff-provision-write'
 
 // --- env.ts (public) -------------------------------------------------------

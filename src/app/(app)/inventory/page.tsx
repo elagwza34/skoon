@@ -1,5 +1,4 @@
-import { redirect } from 'next/navigation'
-import { getStaffSession } from '@/lib/session'
+import { requirePageAccess } from '@/lib/require-page-access'
 import { getStaffInventory } from '@/lib/staff-inventory'
 import { hasAtLeast, ROLE } from '@/lib/authz'
 import { InventoryBoard } from '@/components/inventory/inventory-board'
@@ -11,8 +10,7 @@ export const dynamic = 'force-dynamic'
  * Manager+ may record movements (server-side branch-scoped). Branch-scoped read.
  */
 export default async function InventoryPage() {
-  const session = await getStaffSession()
-  if (!session) redirect('/login')
+  const session = await requirePageAccess('/inventory')
 
   const { items, movements } = await getStaffInventory(session)
   return <InventoryBoard items={items} movements={movements} canManage={hasAtLeast(session.role, ROLE.MANAGER)} />
