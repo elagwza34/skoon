@@ -18,7 +18,7 @@ export default async function OrderTypePage({
 
   const isDineIn = type === 'dine_in'
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4 pt-4 pb-24">
       <div className="flex flex-col gap-1">
         <h1 className="text-xl font-bold">{isDineIn ? 'الطلب داخل الكافيه' : 'طلب تيك أواي'}</h1>
         <p className="text-sm text-muted-foreground">

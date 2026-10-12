@@ -7,8 +7,8 @@ import type { ReactNode } from 'react'
  */
 export default function PublicLayout({ children }: { children: ReactNode }) {
   return (
-    <div className="min-h-screen bg-background font-sans text-foreground antialiased" dir="rtl">
-      <main className="mx-auto w-full max-w-3xl px-4 pb-24 pt-4">{children}</main>
+    <div className="min-h-dvh bg-background font-sans text-foreground antialiased" dir="rtl">
+      <main className="mx-auto w-full max-w-3xl px-4">{children}</main>
     </div>
   )
 }

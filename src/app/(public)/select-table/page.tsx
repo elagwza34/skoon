@@ -20,7 +20,7 @@ export default async function SelectTablePage() {
   })
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4 pt-4 pb-24">
       <div className="flex flex-col gap-1">
         <h1 className="text-xl font-bold">اختار طاولتك</h1>
         <p className="text-sm text-muted-foreground">

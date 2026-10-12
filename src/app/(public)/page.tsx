@@ -42,7 +42,7 @@ const PIXEL_IMAGES = [
 
 export default function LandingPage() {
   return (
-    <div className="relative min-h-dvh overflow-hidden bg-purple-900">
+    <div className="relative h-dvh overflow-hidden bg-purple-900">
       {/* Background image with orange overlay — covers the entire screen.
           `fill` + object-cover stretches the photo across the whole viewport at
           any aspect ratio; `fixed` keeps it put while the page scrolls. */}
@@ -56,11 +56,13 @@ export default function LandingPage() {
           className="object-cover"
         />
         <div className="absolute inset-0 bg-orange-500/60 mix-blend-multiply" />
-        <div className="absolute inset-0 bg-black/45" />
+        <div className="absolute inset-0 bg-black/90" />
       </div>
 
-      {/* Centred content */}
-      <div className="relative min-h-dvh flex items-center justify-center px-4 py-10 md:py-12 z-10">
+      {/* Centred content — locked to the viewport height so the landing screen
+          never scrolls (h-dvh + overflow-hidden on the root). Spacing is kept
+          tight so the logo, grid and CTA fit even on short phones. */}
+      <div className="relative z-10 flex h-full items-center justify-center px-4">
         <div className="max-w-4xl mx-auto text-white text-center">
           {/* Logo + title */}
           <Image
@@ -69,13 +71,13 @@ export default function LandingPage() {
             width={160}
             height={160}
             priority
-            className="mx-auto mb-4 h-24 w-24 object-contain drop-shadow-lg md:h-32 md:w-32"
+            className="mx-auto mb-2 h-16 w-16 object-contain drop-shadow-lg md:mb-4 md:h-32 md:w-32"
           />
-          <h1 className="text-4xl md:text-5xl font-bold mb-2 drop-shadow-lg">سكون</h1>
-          <p className="text-base md:text-lg text-orange-300 mb-8 drop-shadow">القهوة، نكهة الحماس</p>
+          <h1 className="text-3xl md:text-5xl font-bold mb-1 md:mb-2 drop-shadow-lg">SOKOON</h1>
+          <p className="text-sm md:text-lg text-orange-300 mb-4 md:mb-8 drop-shadow">  المكان اللي تحبة</p>
 
           {/* External Pexels image links for A/B testing */}
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-4 mb-8 md:mb-12">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-2 md:gap-4 mb-4 md:mb-12">
             {PIXEL_IMAGES.map((img) => (
               <div key={img.id} className="group">
                 <Link
@@ -90,7 +92,7 @@ export default function LandingPage() {
                       alt={img.alt}
                       width={300}
                       height={200}
-                      className="w-full h-28 md:h-32 object-cover"
+                      className="w-full h-20 md:h-32 object-cover"
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
                     <div className="absolute bottom-0 inset-x-0 p-2 text-xs text-white/90">
@@ -104,7 +106,7 @@ export default function LandingPage() {
 
           {/* CTA */}
           <Link href="/order-type" className="block">
-            <Button size="lg" className="w-full md:w-auto rounded-lg px-6 py-5 text-base md:px-8 md:py-6 md:text-lg bg-white text-purple-900 hover:bg-orange-400 hover:text-purple-900 shadow-lg">
+            <Button size="lg" className="w-full md:w-auto rounded-lg px-6 py-4 text-base md:px-8 md:py-6 md:text-lg bg-white text-purple-900 hover:bg-orange-400 hover:text-purple-900 shadow-lg">
               ابدأ طلبك الآن
             </Button>
           </Link>
