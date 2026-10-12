@@ -1,0 +1,31 @@
+# Force UTF-8 for all text files so Arabic/Persian content never turns into
+# mojibake regardless of the contributor's locale.
+* text=auto encoding=utf-8
+
+# Explicit UTF-8 for source, config, docs and data files.
+*.ts text encoding=utf-8
+*.tsx text encoding=utf-8
+*.js text encoding=utf-8
+*.cjs text encoding=utf-8
+*.mjs text encoding=utf-8
+*.jsx text encoding=utf-8
+*.json text encoding=utf-8
+*.css text encoding=utf-8
+*.scss text encoding=utf-8
+*.md text encoding=utf-8
+*.prisma text encoding=utf-8
+*.yml text encoding=utf-8
+*.yaml text encoding=utf-8
+*.html text encoding=utf-8
+*.svg text encoding=utf-8
+
+# Never touch binary assets.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.pdf binary
