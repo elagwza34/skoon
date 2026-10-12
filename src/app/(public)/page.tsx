@@ -2,6 +2,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { Button } from '@/components/ui/button'
 import { PublicBackdrop } from '@/components/public/public-backdrop'
+import { ResumeOrderButton } from '@/components/order/resume-order-button'
 import { pexels } from '@/lib/pexels'
 
 /**
@@ -85,6 +86,11 @@ export default function LandingPage() {
               ابدأ طلبك الآن
             </Button>
           </Link>
+
+          {/* Shown only when this browser has a saved order ref. */}
+          <div className="mt-3">
+            <ResumeOrderButton />
+          </div>
         </div>
       </div>
     </div>

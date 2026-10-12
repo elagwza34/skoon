@@ -25,6 +25,7 @@ import {
   PIN_MAX_LENGTH,
 } from '../src/lib/security/pin'
 import { PAYMENT_METHODS } from '../src/lib/staff-payments-write'
+import { getGuestOrders, saveGuestOrder } from '../src/lib/guest-orders'
 import {
   SETTING_DEFS,
   SettingsError,
@@ -208,4 +209,14 @@ test('errors: SettingsError and StaffProvisionError carry status codes', () => {
   assert.equal(b.status, 503)
   assert.equal(a.name, 'SettingsError')
   assert.equal(b.name, 'StaffProvisionError')
+})
+
+// --- guest order resume (node-safe: no window → empty list) -----------------
+test('guest-orders: getGuestOrders returns [] outside the browser', () => {
+  assert.deepEqual(getGuestOrders(), [])
+})
+
+test('guest-orders: saveGuestOrder is a no-op outside the browser', () => {
+  assert.doesNotThrow(() => saveGuestOrder({ id: '1', orderNumber: 'QR-X' }))
+  assert.deepEqual(getGuestOrders(), [])
 })

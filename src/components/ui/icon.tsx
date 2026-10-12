@@ -47,6 +47,7 @@ export type IconName =
   | 'sparkles'
   | 'cart'
   | 'phone'
+  | 'copy'
 
 export const ICON_PATHS: Record<IconName, React.ReactNode> = {
   dashboard: (
@@ -231,6 +232,12 @@ export const ICON_PATHS: Record<IconName, React.ReactNode> = {
   ),
   phone: (
     <path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.3 1.8.6 2.7a2 2 0 0 1-.5 2.1L8 9.7a16 16 0 0 0 6 6l1.2-1.2a2 2 0 0 1 2.1-.5c.9.3 1.8.5 2.7.6a2 2 0 0 1 1.7 2z" />
+  ),
+  copy: (
+    <>
+      <rect x="9" y="9" width="12" height="12" rx="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </>
   ),
 }
 

@@ -11,6 +11,7 @@ import { Icon } from '@/components/ui/icon'
 import { Segmented } from '@/components/ui/segmented'
 import { cn } from '@/lib/utils'
 import { PublicBackdrop } from '@/components/public/public-backdrop'
+import { saveGuestOrder } from '@/lib/guest-orders'
 import type { PublicMenu } from '@/lib/public-menu'
 
 interface CartLine {
@@ -99,7 +100,12 @@ export function MenuOrderView({ menu }: { menu: PublicMenu }) {
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data?.error ?? 'Order failed')
-      router.push(`/order/${data.orderRef}/${data.id}`)
+      if (typeof data?.id !== 'string' || typeof data?.orderNumber !== 'string') {
+        throw new Error('Order failed')
+      }
+      // Persist so the customer can resume tracking after leaving the site.
+      saveGuestOrder({ id: data.id, orderNumber: data.orderNumber })
+      router.push(`/order/${encodeURIComponent(data.id)}?n=${encodeURIComponent(data.orderNumber)}`)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Order failed')
       setBusy(false)
