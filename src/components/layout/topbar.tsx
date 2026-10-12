@@ -13,9 +13,9 @@ import { ROLE } from "@/lib/authz";
 import { logoutAction } from "@/app/login/actions";
 
 /**
- * Topbar â€” page title + today's date, functional branch-scoped search,
+ * Topbar — page title + today's date, functional branch-scoped search,
  * account menu with real signed-in identity. Notifications show live
- * counts when provided (empty state otherwise â€” no fabricated alerts).
+ * counts when provided (empty state otherwise — no fabricated alerts).
  */
 
 const NOTIF_TONE: Record<string, string> = {
@@ -31,17 +31,17 @@ export interface TopbarNotification {
 }
 
 const ROLE_LABEL: Record<string, string> = {
-  [ROLE.OWNER]: "Ù…Ø§Ù„Ùƒ",
-  [ROLE.MANAGER]: "Ù…Ø¯ÙŠØ±",
-  [ROLE.CASHIER]: "ÙƒØ§Ø´ÙŠØ±",
-  [ROLE.WAITER]: "ÙˆÙŠØªØ±",
-  [ROLE.KITCHEN]: "Ù…Ø·Ø¨Ø®",
+  [ROLE.OWNER]: "مالك",
+  [ROLE.MANAGER]: "مدير",
+  [ROLE.CASHIER]: "كاشير",
+  [ROLE.WAITER]: "ويتر",
+  [ROLE.KITCHEN]: "مطبخ",
 };
 
 function TodayDate() {
   const [text, setText] = useState("");
   useEffect(() => setText(formatDate(new Date())), []);
-  if (!text) return <span className="text-sm text-muted-foreground">â€”</span>;
+  if (!text) return <span className="text-sm text-muted-foreground">—</span>;
   return <span className="text-sm text-muted-foreground">{text}</span>;
 }
 
@@ -59,7 +59,7 @@ export function Topbar({ onMenu, user, notifications = [] }: TopbarProps) {
 
   // Signed-in account (server-resolved). Fallback keeps the shell usable
   // only when the layout guard is bypassed in isolation.
-  const account = user ?? { name: "â€”", role: "" };
+  const account = user ?? { name: "—", role: "" };
   const initials =
     account.name
       .split(/\s+/)
@@ -74,7 +74,7 @@ export function Topbar({ onMenu, user, notifications = [] }: TopbarProps) {
         <button
           type="button"
           onClick={onMenu}
-          aria-label="ÙØªØ­ Ø§Ù„Ù‚Ø§Ø¦Ù…Ø©"
+          aria-label="فتح القائمة"
           className="inline-flex h-10 w-10 items-center justify-center rounded-md text-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:hidden"
         >
           <Icon name="menu" size={22} />
@@ -90,14 +90,14 @@ export function Topbar({ onMenu, user, notifications = [] }: TopbarProps) {
             <TopbarSearch />
           </div>
 
-          {/* Notifications â€” live data only; honest empty state when none. */}
+          {/* Notifications — live data only; honest empty state when none. */}
           <Popover
-            ariaLabel="Ø§Ù„Ø¥Ø´Ø¹Ø§Ø±Ø§Øª"
+            ariaLabel="الإشعارات"
             panelClassName="w-80"
             trigger={(p) => (
               <button
                 {...p}
-                aria-label="Ø§Ù„Ø¥Ø´Ø¹Ø§Ø±Ø§Øª"
+                aria-label="الإشعارات"
                 className="relative inline-flex h-10 w-10 items-center justify-center rounded-md text-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <Icon name="bell" size={20} />
@@ -111,9 +111,9 @@ export function Topbar({ onMenu, user, notifications = [] }: TopbarProps) {
           >
             {() => (
               <div className="w-80">
-                <div className="border-b border-border px-4 py-2.5 text-sm font-semibold text-foreground">Ø§Ù„Ø¥Ø´Ø¹Ø§Ø±Ø§Øª</div>
+                <div className="border-b border-border px-4 py-2.5 text-sm font-semibold text-foreground">الإشعارات</div>
                 {notifications.length === 0 ? (
-                  <p className="px-4 py-6 text-center text-sm text-muted-foreground">Ù„Ø§ ØªÙˆØ¬Ø¯ Ø¥Ø´Ø¹Ø§Ø±Ø§Øª Ø¬Ø¯ÙŠØ¯Ø©.</p>
+                  <p className="px-4 py-6 text-center text-sm text-muted-foreground">لا توجد إشعارات جديدة.</p>
                 ) : (
                 <ul className="max-h-80 overflow-y-auto">
                   {notifications.map((n, i) => (
@@ -135,12 +135,12 @@ export function Topbar({ onMenu, user, notifications = [] }: TopbarProps) {
 
           {/* Account */}
           <Popover
-            ariaLabel="Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„Ø­Ø³Ø§Ø¨"
+            ariaLabel="قائمة الحساب"
             panelClassName="w-60"
             trigger={(p) => (
               <button
                 {...p}
-                aria-label="Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„Ø­Ø³Ø§Ø¨"
+                aria-label="قائمة الحساب"
                 className="inline-flex items-center gap-2 rounded-md p-1 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <Avatar name={account.name} initials={initials} size="md" />
@@ -163,7 +163,7 @@ export function Topbar({ onMenu, user, notifications = [] }: TopbarProps) {
                     className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-foreground hover:bg-accent"
                   >
                     <Icon name="settings" size={16} className="text-muted-foreground" />
-                    Ø§Ù„Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª
+                    الإعدادات
                   </Link>
                   <form action={logoutAction}>
                     <button
@@ -171,7 +171,7 @@ export function Topbar({ onMenu, user, notifications = [] }: TopbarProps) {
                       className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-destructive hover:bg-accent"
                     >
                       <Icon name="logout" size={16} />
-                      ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø®Ø±ÙˆØ¬
+                      تسجيل الخروج
                     </button>
                   </form>
                 </div>
