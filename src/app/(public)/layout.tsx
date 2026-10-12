@@ -10,17 +10,17 @@ import Image from 'next/image'
 export default function PublicLayout({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen bg-background font-sans text-foreground antialiased" dir="rtl">
-      <header className="sticky top-0 z-10 border-b border-border bg-card/90 backdrop-blur">
-        <div className="mx-auto flex h-14 max-w-3xl items-center justify-between px-4">
+      <header className="sticky top-0 z-10 border-b border-border bg-card/90 backdrop-blur ">
+        <div className="mx-auto flex h-[100px] max-w-3xl items-center justify-between px-4">
           <Link href="/" className="flex items-center gap-2">
             <Image
               src="/logo.png"
               alt="شعار سكون"
-              width={36}
-              height={36}
-              className="h-9 w-9 object-contain"
+              width={60}
+              height={60}
+              className="h-20 w-20 object-contain"
             />
-            <span className="text-base font-bold">سكون</span>
+            <span className="text-base font-bold"></span>
           </Link>
           <span className="text-xs text-muted-foreground">اطلب من طاولتك</span>
         </div>
