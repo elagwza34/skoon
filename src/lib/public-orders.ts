@@ -12,6 +12,12 @@ const orderItemSchema = z.object({
 const createOrderSchema = z.object({
   token: z.string(),
   customerName: z.string().trim().min(1).max(60),
+  customerPhone: z
+    .string()
+    .trim()
+    .regex(/^[0-9+\-\s()]{6,20}$/, 'Invalid phone')
+    .optional()
+    .or(z.literal('').transform(() => undefined)),
   items: z.array(orderItemSchema).min(1).max(30),
 })
 
@@ -34,7 +40,7 @@ export async function createPublicOrder(input: CreateOrderInput): Promise<Create
   if (!parsed.success) {
     throw new Error(parsed.error.issues[0]?.message ?? 'Invalid order')
   }
-  const { token, customerName, items } = parsed.data
+  const { token, customerName, customerPhone, items } = parsed.data
 
   const table = await getTableByToken(token)
   if (!table) throw new Error('Table not found')
@@ -85,6 +91,7 @@ export async function createPublicOrder(input: CreateOrderInput): Promise<Create
         status: 'new',
         source: 'qr',
         customerName: customerName.trim(),
+        customerPhone: customerPhone?.trim() || null,
         itemsSubtotal,
         discountAmount: '0',
         taxAmount: '0',
