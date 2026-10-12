@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { ROLE, hasAtLeast } from '@/lib/authz'
 import { staffCanAccessBranch, type StaffSession } from '@/lib/session'
+import { notifyRole } from '@/lib/notifications'
 
 /**
  * Payments write — server-only. Money is NEVER accepted from the client.
@@ -126,6 +127,14 @@ export async function finalizeOrderPayment(
     await tx.order.update({
       where: { id: order.id },
       data: { paymentStatus: 'paid' },
+    })
+
+    // The invoice is now collected — nudge the manager (and owner, cross-branch)
+    // so supervision sees the completed sale. Same tx as the payment.
+    await notifyRole(tx, ROLE.MANAGER, order.branchId, {
+      type: 'order.paid',
+      title: `تم تحصيل الفاتورة ${order.orderNumber}`,
+      orderId: order.id,
     })
 
     await tx.auditLog.create({

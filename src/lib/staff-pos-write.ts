@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { ROLE } from '@/lib/authz'
 import { staffCanAccessBranch, type StaffSession } from '@/lib/session'
 import { PosError, posOrderSchema } from '@/lib/staff-pos'
+import { notifyRole } from '@/lib/notifications'
 
 /**
  * Staff POS order creation — server-side pricing, one transaction.
@@ -83,6 +84,13 @@ export async function createPosOrder(session: StaffSession, input: unknown) {
         statusHistory: { create: { toStatus: 'new', changedById: session.id } },
       },
       select: { id: true, orderNumber: true, total: true },
+    })
+    // Ring the branch's waiters — a new POS order needs their attention (or, if
+    // the waiter placed it themselves, it still shows on their own board).
+    await notifyRole(tx, ROLE.WAITER, branchId, {
+      type: 'order.created',
+      title: `طلب جديد ${order.orderNumber}`,
+      orderId: order.id,
     })
     return order
   })

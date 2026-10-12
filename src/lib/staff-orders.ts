@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { ROLE, hasAtLeast, type RoleSlug } from '@/lib/authz'
 import { staffCanAccessBranch, type StaffSession } from '@/lib/session'
+import { notifyRole, type NotificationType } from '@/lib/notifications'
 
 /**
  * Staff order lifecycle — server-only.
@@ -149,7 +150,71 @@ export async function transitionOrderStatus(
     await tx.orderStatusHistory.create({
       data: { orderId: order.id, fromStatus: current, toStatus: to, changedById: session.id },
     })
+    // Notify the staff who must act on the NEW status (same tx — atomic).
+    await emitStatusNotifications(tx, { to, orderId: order.id, branchId: order.branchId, orderNumber: order.orderNumber })
   })
 
   return { id: order.id.toString(), orderNumber: order.orderNumber, status: to }
+}
+
+/**
+ * Waiter pushes a `new` order to the kitchen ("إرسال للمطبخ").
+ *
+ * This is DISTINCT from the new→preparing transition (which the KITCHEN owns).
+ * Sending only flips `sentToKitchenAt` and rings the kitchen bell; the order
+ * stays `new` until a cook accepts it as `preparing`. Branch-scoped to the
+ * caller; the timestamp is stamped atomically with the notification so the
+ * kitchen board and the bell can never disagree.
+ */
+export async function sendOrderToKitchen(session: StaffSession, orderId: string) {
+  if (!/^\d+$/.test(orderId)) throw new OrderError('الطلب غير موجود', 404)
+
+  const order = await prisma.order.findUnique({
+    where: { id: BigInt(orderId) },
+    select: { id: true, branchId: true, status: true, orderNumber: true, sentToKitchenAt: true },
+  })
+  if (!order) throw new OrderError('الطلب غير موجود', 404)
+  if (!staffCanAccessBranch(session, order.branchId)) throw new OrderError('غير مصرح', 403)
+  if (order.status !== 'new') throw new OrderError('لا يمكن إرسال طلب ليس في حالة "جديد" للمطبخ', 409)
+  if (order.sentToKitchenAt) throw new OrderError('تم إرسال الطلب للمطبخ مسبقاً', 409)
+
+  await prisma.$transaction(async (tx) => {
+    await tx.order.update({ where: { id: order.id }, data: { sentToKitchenAt: new Date() } })
+    await notifyRole(tx, ROLE.KITCHEN, order.branchId, {
+      type: 'order.sent_to_kitchen',
+      title: `طلب جديد للمطبخ: ${order.orderNumber}`,
+      orderId: order.id,
+    })
+  })
+
+  return { id: order.id.toString(), orderNumber: order.orderNumber, sent: true }
+}
+
+/**
+ * Fan out the bell for a status transition to the role that acts next:
+ *   preparing  → waiter   ("طلبك قيد التحضير")
+ *   ready      → waiter   ("تم تحضير الطلب — جاهز للتقديم")
+ *   served     → cashier  ("فاتورة قيد التحصيل")
+ *   cancelled  → waiter + manager + kitchen (so the kitchen can drop it too)
+ * The recipients always see it on their own board; the bell is a nudge, not the
+ * source of truth. Best-effort inside the caller's tx — never throws.
+ */
+async function emitStatusNotifications(
+  tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0],
+  input: { to: OrderStatus; orderId: bigint; branchId: bigint; orderNumber: string },
+): Promise<void> {
+  const { to, orderId, branchId, orderNumber } = input
+  const num = orderNumber
+  const targets: { role: RoleSlug; type: NotificationType; title: string }[] = []
+  if (to === 'preparing') targets.push({ role: ROLE.WAITER, type: 'order.preparing', title: `الطلب ${num} قيد التحضير` })
+  if (to === 'ready') targets.push({ role: ROLE.WAITER, type: 'order.ready', title: `الطلب ${num} جاهز للتقديم` })
+  if (to === 'served') targets.push({ role: ROLE.CASHIER, type: 'order.awaiting_payment', title: `الطلب ${num} بانتظار التحصيل` })
+  if (to === 'cancelled') {
+    targets.push({ role: ROLE.WAITER, type: 'order.cancelled', title: `الطلب ${num} أُلغي` })
+    targets.push({ role: ROLE.MANAGER, type: 'order.cancelled', title: `الطلب ${num} أُلغي` })
+    targets.push({ role: ROLE.KITCHEN, type: 'order.cancelled', title: `الطلب ${num} أُلغي` })
+  }
+  for (const t of targets) {
+    await notifyRole(tx, t.role, branchId, { type: t.type, title: t.title, orderId })
+  }
 }

@@ -27,6 +27,8 @@ export interface PopoverProps {
   panelClassName?: string;
   ariaLabel?: string;
   role?: "dialog" | "menu";
+  /** Called each time the panel transitions to open (e.g. to mark-as-read). */
+  onOpen?: () => void;
 }
 
 export function Popover({
@@ -36,6 +38,7 @@ export function Popover({
   panelClassName,
   ariaLabel,
   role = "dialog",
+  onOpen,
 }: PopoverProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -43,6 +46,7 @@ export function Popover({
 
   useEffect(() => {
     if (!open) return;
+    onOpen?.();
     function onPointerDown(e: MouseEvent) {
       if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
     }
@@ -55,7 +59,7 @@ export function Popover({
       document.removeEventListener("mousedown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [open]);
+  }, [open, onOpen]);
 
   const close = () => setOpen(false);
 

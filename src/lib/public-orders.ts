@@ -2,6 +2,8 @@ import { z } from 'zod'
 import { randomBytes } from 'node:crypto'
 import { prisma } from '@/lib/prisma'
 import { getTableByToken } from '@/lib/public-menu'
+import { notifyRole } from '@/lib/notifications'
+import { ROLE } from '@/lib/authz'
 
 const orderItemSchema = z.object({
   productId: z.string().regex(/^\d+$/, 'Invalid product id'),
@@ -110,6 +112,12 @@ export async function createPublicOrder(input: CreateOrderInput): Promise<Create
         statusHistory: { create: { toStatus: 'new' } },
       },
       select: { id: true, orderNumber: true, total: true },
+    })
+    // Ring the waiters of this branch — a customer just placed a QR order.
+    await notifyRole(tx, ROLE.WAITER, BigInt(table.branchId), {
+      type: 'order.created',
+      title: `طلب جديد ${order.orderNumber} من طاولة ${table.number}`,
+      orderId: order.id,
     })
     return order
   })

@@ -8,27 +8,15 @@ import { Icon } from "@/components/ui/icon";
 import { Avatar } from "@/components/ui/avatar";
 import { Popover } from "@/components/ui/popover";
 import { TopbarSearch } from "@/components/layout/topbar-search";
+import { NotificationsBell } from "@/components/layout/notifications-bell";
 import { formatDate } from "@/lib/format";
 import { ROLE } from "@/lib/authz";
 import { logoutAction } from "@/app/login/actions";
 
 /**
- * Topbar — page title + today's date, functional branch-scoped search,
- * account menu with real signed-in identity. Notifications show live
- * counts when provided (empty state otherwise — no fabricated alerts).
+ * Topbar — page title + today's date, functional branch-scoped search, a live
+ * notifications bell, and an account menu with the real signed-in identity.
  */
-
-const NOTIF_TONE: Record<string, string> = {
-  info: "bg-primary text-primary-foreground",
-  warning: "bg-warning text-warning-foreground",
-  success: "bg-success text-success-foreground",
-};
-
-export interface TopbarNotification {
-  title: string;
-  time: string;
-  tone: "info" | "warning" | "success";
-}
 
 const ROLE_LABEL: Record<string, string> = {
   [ROLE.OWNER]: "مالك",
@@ -49,11 +37,9 @@ export interface TopbarProps {
   onMenu: () => void;
   /** Signed-in staff identity (server-resolved, required in production). */
   user?: { name: string; role: string; permissions?: string[] };
-  /** Live notifications (real data). Empty = show honest empty state. */
-  notifications?: TopbarNotification[];
 }
 
-export function Topbar({ onMenu, user, notifications = [] }: TopbarProps) {
+export function Topbar({ onMenu, user }: TopbarProps) {
   const pathname = usePathname();
   const title = titleForPath(pathname);
 
@@ -90,48 +76,8 @@ export function Topbar({ onMenu, user, notifications = [] }: TopbarProps) {
             <TopbarSearch />
           </div>
 
-          {/* Notifications — live data only; honest empty state when none. */}
-          <Popover
-            ariaLabel="الإشعارات"
-            panelClassName="w-80"
-            trigger={(p) => (
-              <button
-                {...p}
-                aria-label="الإشعارات"
-                className="relative inline-flex h-10 w-10 items-center justify-center rounded-md text-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <Icon name="bell" size={20} />
-                {notifications.length > 0 ? (
-                <span className="absolute -top-0.5 -end-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">
-                  {notifications.length}
-                </span>
-                ) : null}
-              </button>
-            )}
-          >
-            {() => (
-              <div className="w-80">
-                <div className="border-b border-border px-4 py-2.5 text-sm font-semibold text-foreground">الإشعارات</div>
-                {notifications.length === 0 ? (
-                  <p className="px-4 py-6 text-center text-sm text-muted-foreground">لا توجد إشعارات جديدة.</p>
-                ) : (
-                <ul className="max-h-80 overflow-y-auto">
-                  {notifications.map((n, i) => (
-                    <li key={i} className="flex items-start gap-3 border-b border-border/50 px-4 py-3 last:border-0">
-                      <span className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${NOTIF_TONE[n.tone]}`}>
-                        <Icon name={n.tone === "warning" ? "flame" : n.tone === "success" ? "check" : "bell"} size={15} />
-                      </span>
-                      <div className="flex min-w-0 flex-col">
-                        <span className="text-sm text-foreground">{n.title}</span>
-                        <span className="text-xs text-muted-foreground">{n.time}</span>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-                )}
-              </div>
-            )}
-          </Popover>
+          {/* Notifications — live, self-fetching bell (works for every role). */}
+          <NotificationsBell />
 
           {/* Account */}
           <Popover

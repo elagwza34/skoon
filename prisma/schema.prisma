@@ -124,6 +124,8 @@ model User {
   updatedSettings       AppSetting[]           @relation("settingUpdatedBy")
 
   @@index([roleId])
+  // Notifications sent to this user (order status transitions, payments).
+  notifications Notification[]
   @@index([branchId, isActive])
   @@map("users")
 }
@@ -294,6 +296,9 @@ model Order {
   acceptedAt     DateTime? @map("accepted_at")
   readyAt        DateTime? @map("ready_at")
   servedAt       DateTime? @map("served_at")
+  // Set by the waiter when they push the order to the kitchen ("إرسال للمطبخ").
+  // Null until sent — the kitchen board only shows orders the waiter dispatched.
+  sentToKitchenAt DateTime? @map("sent_to_kitchen_at")
   completedAt    DateTime? @map("completed_at")
   cancelledAt    DateTime? @map("cancelled_at")
   cancelReason   String?   @map("cancel_reason") @db.VarChar(255)
@@ -308,6 +313,7 @@ model Order {
   payments      Payment[]
   statusHistory OrderStatusHistory[]
   redemptions   DiscountRedemption[]
+  notifications Notification[]
 
   @@index([branchId, status])
   @@index([cafeTableId, status])
@@ -393,6 +399,25 @@ model OrderStatusHistory {
 
   @@index([orderId, createdAt])
   @@map("order_status_history")
+}
+
+model Notification {
+  id        BigInt   @id @default(autoincrement())
+  userId    String   @db.Uuid
+  orderId   BigInt?
+  type      String   @db.VarChar(60)
+  title     String   @db.VarChar(255)
+  body      String?  @db.Text
+  isRead    Boolean  @default(false) @map("is_read")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  order     Order?   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([orderId, isRead])
+  @@index([createdAt])
+  @@map("notifications")
 }
 
 // ============================ PAYMENTS ============================
