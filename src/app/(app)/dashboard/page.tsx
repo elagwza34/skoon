@@ -9,6 +9,7 @@ import { TopProducts } from "@/components/dashboard/top-products";
 import { TablesStatus } from "@/components/dashboard/tables-status";
 import { QuickActions } from "@/components/dashboard/quick-actions";
 import { formatCurrency, formatNumber, formatPercent } from "@/lib/format";
+import { Icon } from "@/components/ui/icon";
 
 /** Signed percent change between two numbers. */
 function pctDelta(now: number, before: number): { delta: string; dir: "up" | "down" } {
@@ -36,6 +37,15 @@ export default async function DashboardPage() {
             <span className="h-1.5 w-1.5 rounded-full bg-info animate-pulse" aria-hidden="true" />
             حي (محدث تلقائياً)
           </span>
+          <form action="/login?next=/dashboard">
+            <button
+              type="submit"
+              className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <Icon name="logout" size={16} />
+              تسجيل الخروج
+            </button>
+          </form>
         </div>
       </div>
 
