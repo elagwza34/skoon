@@ -1,3 +1,4 @@
+import Image from 'next/image'
 import { prisma } from '@/lib/prisma'
 import { toDataURL } from 'qrcode'
 import { PrintButton } from '@/components/tables/print-button'
@@ -51,11 +52,22 @@ export default async function TablePrintPage() {
 
       {/* Header — hidden when printing */}
       <div className="no-print mx-auto mb-6 max-w-4xl">
-        <h1 className="text-2xl font-bold">طباعة رموز QR للطاولات</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          كل رمز QR يفتح منيو الطاولة مباشرة. اضغط <kbd className="rounded border px-1.5 py-0.5 text-xs">Ctrl</kbd> + <kbd className="rounded border px-1.5 py-0.5 text-xs">P</kbd> أو استخدم زر الطباعة بالأسفل.
-        </p>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <div className="flex items-center gap-3">
+          <Image
+            src="/logo.png"
+            alt="شعار سكون"
+            width={56}
+            height={56}
+            className="h-14 w-14 shrink-0 object-contain"
+          />
+          <div>
+            <h1 className="text-2xl font-bold">طباعة رموز QR للطاولات</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              كل رمز QR يفتح منيو الطاولة مباشرة. اضغط <kbd className="rounded border px-1.5 py-0.5 text-xs">Ctrl</kbd> + <kbd className="rounded border px-1.5 py-0.5 text-xs">P</kbd> أو استخدم زر الطباعة بالأسفل.
+            </p>
+          </div>
+        </div>
+        <p className="mt-3 text-sm text-muted-foreground">
           إجمالي الطاولات: <strong>{tablesWithQr.length}</strong>
         </p>
         <PrintButton />
@@ -73,6 +85,13 @@ export default async function TablePrintPage() {
               key={table.id}
               className="qr-card flex flex-col items-center rounded-xl border bg-card p-4 text-center shadow-sm"
             >
+              <Image
+                src="/logo.png"
+                alt="شعار سكون"
+                width={64}
+                height={64}
+                className="mb-2 h-16 w-16 object-contain"
+              />
               <div className="mb-2 text-lg font-bold">طاولة {table.number}</div>
               {table.branch?.name && (
                 <div className="mb-2 text-xs text-muted-foreground">{table.branch.name}</div>

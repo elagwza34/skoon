@@ -1,6 +1,7 @@
 'use client'
 
 import { useActionState } from 'react'
+import Image from 'next/image'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -19,9 +20,13 @@ export function LoginForm({ next, reason }: { next?: string; reason?: string }) 
     <div className="flex min-h-dvh items-center justify-center bg-background p-4" dir="rtl">
       <Card className="w-full max-w-sm">
         <CardHeader className="items-center text-center">
-          <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary text-3xl text-primary-foreground">
-            ☕
-          </span>
+          <Image
+            src="/logo.png"
+            alt="شعار سكون"
+            width={72}
+            height={72}
+            className="mx-auto h-16 w-16 object-contain"
+          />
           <CardTitle className="text-xl">سكون — دخول الفريق</CardTitle>
           <CardDescription>ادخل بحسابك للوصول للوحة التحكم</CardDescription>
         </CardHeader>

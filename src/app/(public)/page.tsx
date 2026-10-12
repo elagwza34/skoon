@@ -62,7 +62,15 @@ export default function LandingPage() {
       {/* Centred content */}
       <div className="relative min-h-dvh flex items-center justify-center px-4 py-10 md:py-12 z-10">
         <div className="max-w-4xl mx-auto text-white text-center">
-          {/* Title */}
+          {/* Logo + title */}
+          <Image
+            src="/logo.png"
+            alt="شعار سكون"
+            width={160}
+            height={160}
+            priority
+            className="mx-auto mb-4 h-24 w-24 object-contain drop-shadow-lg md:h-32 md:w-32"
+          />
           <h1 className="text-4xl md:text-5xl font-bold mb-2 drop-shadow-lg">سكون</h1>
           <p className="text-base md:text-lg text-orange-300 mb-8 drop-shadow">القهوة، نكهة الحماس</p>
 

@@ -9,6 +9,17 @@ const cairo = Cairo({ weight: '400', subsets: ['arabic'], display: 'swap' })
 export const metadata: Metadata = {
   title: 'سكون — علامة تجارية للكافيه',
   description: 'علامة تجارية للكافيه',
+  icons: {
+    icon: '/logo.png',
+    apple: '/logo.png',
+  },
+  openGraph: {
+    title: 'سكون — القهوة، نكهة الحماس',
+    description: 'اعرف منيو سكون واطلب من طاولتك بمسح رمز QR.',
+    images: ['/logo.png'],
+    locale: 'ar_EG',
+    type: 'website',
+  },
 }
 
 export const viewport: Viewport = {

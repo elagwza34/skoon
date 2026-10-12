@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { navGroups } from "@/lib/navigation";
 import { Icon } from "@/components/ui/icon";
@@ -50,9 +51,14 @@ export function Sidebar({ open, onClose, branchName }: SidebarProps) {
       >
         {/* Brand */}
         <div className="flex items-center gap-2.5 px-4 py-4">
-          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <Icon name="utensils" size={20} />
-          </span>
+          <Image
+            src="/logo.png"
+            alt="شعار سكون"
+            width={44}
+            height={44}
+            priority
+            className="h-11 w-11 shrink-0 object-contain"
+          />
           <div className="flex flex-col leading-tight">
             <span className="text-base font-bold text-foreground">سكون</span>
             <span className="text-[11px] text-muted-foreground">نظام إدارة الكافيه</span>
