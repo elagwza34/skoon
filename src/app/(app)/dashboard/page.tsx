@@ -86,7 +86,7 @@ export default async function DashboardPage() {
         <div className="min-w-0 lg:col-span-2">
           <TablesStatus tables={stats.tables} tableCounts={stats.tableCounts} />
         </div>
-        <QuickActions />
+        <QuickActions user={session} />
       </div>
     </div>
   );
