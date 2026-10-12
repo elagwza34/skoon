@@ -29,6 +29,7 @@ const PUBLIC_PREFIXES = [
   '/_next', // Next.js internals
   '/favicon.ico',
   '/robots.txt',
+  '/logo.png', // static brand asset (public/ — must be reachable without a session)
 ]
 
 function isPublicPath(pathname: string): boolean {
