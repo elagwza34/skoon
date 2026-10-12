@@ -1,34 +1,21 @@
 import Link from 'next/link'
 import Image from 'next/image'
 import { Button } from '@/components/ui/button'
+import { PublicBackdrop } from '@/components/public/public-backdrop'
+import { pexels } from '@/lib/pexels'
 
 /**
  * Visitor landing page for https://skoon.awexen.com
  *
  * Design:
- *  - Purple background image covers the entire screen
- *  - Orange overlay on top of the background
- *  - Content centred on the page
+ *  - Full-screen brand backdrop (photo + orange/dark overlay) via PublicBackdrop
+ *  - Content centred on the page, locked to the viewport (no scroll)
  *  - External image links from Pexels (www.pexels.com) for A/B testing
  *  - Cairo font (loaded via next/font in app/layout.tsx)
  *  - 8px rounded corners on cards and buttons
  */
 
-/*
- * All imagery is served from the Pexels CDN (images.pexels.com), which is
- * allow-listed under `images.remotePatterns` in next.config.ts. Without that
- * allow-list next/image refuses to optimise the URL and the browser renders a
- * broken image — so any new host must be added there too.
- *
- * `w=` caps the source width so Next only ever optimises what it needs.
- */
-const pexels = (id: string, w = 600) =>
-  `https://images.pexels.com/photos/${id}/pexels-photo-${id}.jpeg?auto=compress&cs=tinysrgb&w=${w}`
-
 const photoPage = (id: string) => `https://www.pexels.com/photo/${id}/`
-
-/** Background — a coffee/latte shot wide enough to cover a full desktop viewport. */
-const BACKGROUND = pexels('302899', 1920)
 
 /** Pexels external image links (A/B testing picker). */
 const PIXEL_IMAGES = [
@@ -43,21 +30,9 @@ const PIXEL_IMAGES = [
 export default function LandingPage() {
   return (
     <div className="relative h-dvh overflow-hidden bg-purple-900">
-      {/* Background image with orange overlay — covers the entire screen.
-          `fill` + object-cover stretches the photo across the whole viewport at
-          any aspect ratio; `fixed` keeps it put while the page scrolls. */}
-      <div className="fixed inset-0 z-0 bg-purple-950">
-        <Image
-          src={BACKGROUND}
-          alt="Purple coffee background"
-          fill
-          priority
-          sizes="100vw"
-          className="object-cover"
-        />
-        <div className="absolute inset-0 bg-orange-500/60 mix-blend-multiply" />
-        <div className="absolute inset-0 bg-black/90" />
-      </div>
+      {/* Full-screen brand backdrop (photo + orange/dark overlay), shared with
+          the rest of the public order flow via PublicBackdrop. */}
+      <PublicBackdrop />
 
       {/* Centred content — locked to the viewport height so the landing screen
           never scrolls (h-dvh + overflow-hidden on the root). Spacing is kept
