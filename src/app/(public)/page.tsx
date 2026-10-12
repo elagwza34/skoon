@@ -1,7 +1,6 @@
 import Link from 'next/link'
 import Image from 'next/image'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
 
 /**
  * Visitor landing page for https://skoon.awexen.com
@@ -41,11 +40,6 @@ const PIXEL_IMAGES = [
   { id: '2061820', alt: 'تحضير الإسبريسو' },
 ].map((img) => ({ ...img, src: pexels(img.id), href: photoPage(img.id) }))
 
-/** Feature-card imagery (Pexels) replaces the old per-icon assets. */
-const COFFEE_ICON = pexels('312418', 128)
-const DINING_ICON = pexels('941861', 128)
-const TAKEAWAY_ICON = pexels('2396220', 128)
-
 export default function LandingPage() {
   return (
     <div className="relative min-h-dvh overflow-hidden bg-purple-900">
@@ -61,7 +55,8 @@ export default function LandingPage() {
           sizes="100vw"
           className="object-cover"
         />
-        <div className="absolute inset-0 bg-orange-500/35 mix-blend-multiply" />
+        <div className="absolute inset-0 bg-orange-500/60 mix-blend-multiply" />
+        <div className="absolute inset-0 bg-black/45" />
       </div>
 
       {/* Centred content */}
@@ -97,45 +92,6 @@ export default function LandingPage() {
                 </Link>
               </div>
             ))}
-          </div>
-
-          {/* Feature cards (8px rounded corners) */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 mb-8 md:mb-12">
-            <Card className="p-6 text-center bg-white/10 backdrop-blur border-white/20">
-              <Image
-                src={COFFEE_ICON}
-                alt="قهوة طازجة"
-                width={64}
-                height={64}
-                className="mx-auto mb-4 rounded-lg"
-              />
-              <h3 className="text-lg font-semibold mb-2">قهوة طازجة</h3>
-              <p className="text-sm text-gray-300">أفضل قهوة في المدينة. مُحضّرة بشكل يدري.</p>
-            </Card>
-
-            <Card className="p-6 text-center bg-white/10 backdrop-blur border-white/20">
-              <Image
-                src={DINING_ICON}
-                alt="أوضاع طعام"
-                width={64}
-                height={64}
-                className="mx-auto mb-4 rounded-lg"
-              />
-              <h3 className="text-lg font-semibold mb-2">أوضاع طعام</h3>
-              <p className="text-sm text-gray-300">قريبة منك بكل سهولة. الطلب في دقيقة.</p>
-            </Card>
-
-            <Card className="p-6 text-center bg-white/10 backdrop-blur border-white/20">
-              <Image
-                src={TAKEAWAY_ICON}
-                alt="Takeaway"
-                width={64}
-                height={64}
-                className="mx-auto mb-4 rounded-lg"
-              />
-              <h3 className="text-lg font-semibold mb-2">Takeaway</h3>
-              <p className="text-sm text-gray-300">خذ طبقك المُحضّر معك وأسرّه.</p>
-            </Card>
           </div>
 
           {/* CTA */}
