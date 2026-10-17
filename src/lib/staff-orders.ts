@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { ROLE, hasAtLeast, type RoleSlug } from '@/lib/authz'
 import { staffCanAccessBranch, type StaffSession } from '@/lib/session'
 import { notifyRole, type NotificationType } from '@/lib/notifications'
+import { getOpenShift, ShiftError } from '@/lib/staff-shifts'
 
 /**
  * Staff order lifecycle — server-only.
@@ -140,6 +141,11 @@ export async function transitionOrderStatus(
   if (!order) throw new OrderError('Order not found', 404)
   if (!staffCanAccessBranch(session, order.branchId)) throw new OrderError('Forbidden', 403)
 
+  // The acting employee must have an open shift for their branch.
+  if (session.branchId === null) throw new OrderError('غير مصرح — لا فرع مرتبط بالمستخدم', 403)
+  const activeShift = await getOpenShift(session.id, BigInt(session.branchId))
+  if (!activeShift) throw new OrderError('لا توجد وردية مفتوحة لهذا الموظف — افتح وردية أولًا من صفحة الورديات (/shifts)', 409)
+
   const current = order.status as OrderStatus
   const minRole = TRANSITIONS[current]?.[to]
   if (!minRole) throw new OrderError(`لا يمكن نقل الطلب من "${current}" إلى "${to}"`, 409)
@@ -186,6 +192,11 @@ export async function sendOrderToKitchen(session: StaffSession, orderId: string)
   if (!staffCanAccessBranch(session, order.branchId)) throw new OrderError('غير مصرح', 403)
   if (order.status !== 'new') throw new OrderError('لا يمكن إرسال طلب ليس في حالة "جديد" للمطبخ', 409)
   if (order.sentToKitchenAt) throw new OrderError('تم إرسال الطلب للمطبخ مسبقاً', 409)
+
+  // The waiter must have an open shift for their branch.
+  if (session.branchId === null) throw new OrderError('غير مصرح — لا فرع مرتبط بالمستخدم', 403)
+  const activeShift = await getOpenShift(session.id, BigInt(session.branchId))
+  if (!activeShift) throw new OrderError('لا توجد وردية مفتوحة لهذا الويتر — افتح وردية أولًا من صفحة الورديات (/shifts)', 409)
 
   await prisma.$transaction(async (tx) => {
     await tx.order.update({ where: { id: order.id }, data: { sentToKitchenAt: new Date() } })

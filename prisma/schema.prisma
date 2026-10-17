@@ -475,6 +475,11 @@ model Shift {
   status         String    @default("open") @db.VarChar(20)
   openedAt       DateTime  @default(now()) @map("opened_at")
   closedAt       DateTime? @map("closed_at")
+  // Handover / reconciliation fields — recorded when the cashier closes the
+  // till. handoverTo names the receiving manager/authorized employee.
+  handoverNotes  String?   @map("handover_notes") @db.VarChar(1000)
+  handoverTo     String?   @map("handover_to") @db.VarChar(100)
+  handoverCompletedAt DateTime? @map("handover_completed_at")
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 

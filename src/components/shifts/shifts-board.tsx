@@ -11,12 +11,7 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { formatCurrency, formatDateShort, formatTime, formatNumber } from '@/lib/format'
 import type { ShiftBoardData, ShiftView } from '@/lib/staff-shifts'
 
-/**
- * Shifts board — open a till session, watch it live (expected cash, cash
- * in/out, linked orders), close it with a physical count and see the variance.
- * Mutations hit the shifts API, then `router.refresh()` re-renders the
- * server-fetched snapshot.
- */
+const CASH_HANDLING_ROLES = ['cashier', 'manager']
 
 function openedAtLabel(iso: string): string {
   const d = new Date(iso)
@@ -41,12 +36,14 @@ export function ShiftsBoard({ initial }: { initial: ShiftBoardData }) {
   const router = useRouter()
   const [, startTransition] = useTransition()
   const [data, setData] = useState(initial)
-  // The page re-fetches after every mutation/branch switch (router.refresh);
-  // sync the server snapshot into local state when it changes.
   useEffect(() => setData(initial), [initial])
+
+  const isCashHandling = CASH_HANDLING_ROLES.includes(data.userRole)
 
   const [openingCash, setOpeningCash] = useState('')
   const [closingCash, setClosingCash] = useState('')
+  const [handoverNotes, setHandoverNotes] = useState('')
+  const [handoverTo, setHandoverTo] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
@@ -55,8 +52,8 @@ export function ShiftsBoard({ initial }: { initial: ShiftBoardData }) {
 
   async function open() {
     if (busy) return
-    const cash = Number(openingCash)
-    if (!Number.isFinite(cash) || cash < 0) {
+    const cash = isCashHandling ? Number(openingCash) : 0
+    if (isCashHandling && (!Number.isFinite(cash) || cash < 0)) {
       setError('أدخل رصيد افتتاح صحيحًا')
       return
     }
@@ -83,8 +80,8 @@ export function ShiftsBoard({ initial }: { initial: ShiftBoardData }) {
 
   async function close() {
     if (busy || !data.current) return
-    const cash = Number(closingCash)
-    if (!Number.isFinite(cash) || cash < 0) {
+    const cash = isCashHandling ? Number(closingCash) : 0
+    if (isCashHandling && (!Number.isFinite(cash) || cash < 0)) {
       setError('أدخل قيمة جرد الصندوق الصحيحة')
       return
     }
@@ -95,15 +92,21 @@ export function ShiftsBoard({ initial }: { initial: ShiftBoardData }) {
       const res = await fetch(`/api/staff/shifts/${data.current.id}/close`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ closingCash: cash }),
+        body: JSON.stringify({
+          closingCash: cash,
+          handoverNotes: handoverNotes.trim() || null,
+          handoverTo: handoverTo.trim() || null,
+        }),
       })
       const payload = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(payload?.error ?? 'تعذر إغلاق الوردية')
       const diff = Number(payload?.cashDifference ?? 0)
       setClosingCash('')
+      setHandoverNotes('')
+      setHandoverTo('')
       setSuccess(
         diff === 0
-          ? 'تم إغلاق الوردية — الصندوق مطابق'
+          ? 'تم إغلاق الوردية — الرصيد مطابق'
           : diff > 0
             ? `تم إغلاق الوردية — زيادة ${formatCurrency(diff)}`
             : `تم إغلاق الوردية — نقص ${formatCurrency(Math.abs(diff))}`,
@@ -117,7 +120,7 @@ export function ShiftsBoard({ initial }: { initial: ShiftBoardData }) {
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4" dir="rtl">
       {error ? (
         <Card className="border-destructive/40">
           <CardContent className="pt-5 text-sm text-destructive">{error}</CardContent>
@@ -129,7 +132,7 @@ export function ShiftsBoard({ initial }: { initial: ShiftBoardData }) {
         </Card>
       ) : null}
 
-      {data.branches.length > 1 ? (
+      {data.branches.length > 1 && data.userRole === 'owner' ? (
         <div className="flex items-center gap-2 self-end">
           <span className="text-sm text-muted-foreground">الفرع</span>
           <select
@@ -154,59 +157,72 @@ export function ShiftsBoard({ initial }: { initial: ShiftBoardData }) {
               <Badge tone="primary">مفتوحة</Badge>
             </div>
             <CardDescription>
-              فتحها {data.current.openBy} — {openedAtLabel(data.current.openedAt)}
+              فتحها {data.current.openBy} ({data.userRole}) — {openedAtLabel(data.current.openedAt)}
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              <StatCard
-                label="رصيد الافتتاح"
-                value={formatCurrency(Number(data.current.openingCash))}
-                icon="shifts"
-              />
-              <StatCard
-                label="محصَّل نقدي"
-                value={formatCurrency(Number(data.current.cashIn))}
-                icon="plus"
-                hint="دفعات نقدية مكتملة"
-              />
-              <StatCard
-                label="مردود نقدي"
-                value={formatCurrency(Number(data.current.cashOut))}
-                icon="minus"
-                hint="استردادات نقدية"
-              />
+              <StatCard label="رصيد الافتتاح" value={formatCurrency(Number(data.current.openingCash))} icon="shifts" />
+              {isCashHandling ? (
+                <>
+                  <StatCard
+                    label="محصَّل نقدي"
+                    value={formatCurrency(Number(data.current.cashIn))}
+                    icon="plus"
+                    hint="دفعات نقدية مكتملة"
+                  />
+                  <StatCard
+                    label="مردود نقدي"
+                    value={formatCurrency(Number(data.current.cashOut))}
+                    icon="minus"
+                    hint="استردادات نقدية"
+                  />
+                </>
+              ) : null}
               <StatCard
                 label="المتوقع في الصندوق"
                 value={formatCurrency(Number(data.current.expectedCash))}
                 icon="clock"
-                hint="افتتاح + محصَّل − مردود"
+                hint={isCashHandling ? 'افتتاح + محصَّل − مردود' : 'غير متاح لهذا الدور'}
               />
-              <StatCard
-                label="طلبات الوردية"
-                value={formatNumber(data.current.ordersCount)}
-                icon="orders"
-              />
-              <StatCard
-                label="دفعات الوردية"
-                value={formatNumber(data.current.paymentsCount)}
-                icon="pos"
-              />
+              <StatCard label="طلبات الوردية" value={formatNumber(data.current.ordersCount)} icon="orders" />
+              <StatCard label="دفعات الوردية" value={formatNumber(data.current.paymentsCount)} icon="pos" />
             </div>
 
             <div className="flex flex-col gap-3 rounded-lg border border-border p-4 sm:flex-row sm:items-end sm:gap-4">
-              <label className="flex flex-1 flex-col gap-1.5 text-sm">
-                <span className="text-muted-foreground">جرد الصندوق الفعلي (النقدي المعدود)</span>
+              {isCashHandling ? (
+                <label className="flex flex-1 flex-col gap-1.5 text-sm">
+                  <span className="text-muted-foreground">جرد الصندوق الفعلي (النقدي المعدود)</span>
+                  <Input
+                    inputMode="decimal"
+                    placeholder="0.00"
+                    value={closingCash}
+                    onChange={(e) => setClosingCash(e.target.value)}
+                  />
+                </label>
+              ) : null}
+              <label className="flex flex-col gap-1.5 text-sm">
+                <span className="text-muted-foreground">ملاحظات التسليم (اختياري)</span>
                 <Input
-                  inputMode="decimal"
-                  placeholder="0.00"
-                  value={closingCash}
-                  onChange={(e) => setClosingCash(e.target.value)}
+                  placeholder="ملاحظات حول تسليم الوردية"
+                  value={handoverNotes}
+                  onChange={(e) => setHandoverNotes(e.target.value)}
+                />
+              </label>
+              <label className="flex flex-col gap-1.5 text-sm">
+                <span className="text-muted-foreground">المستلم (اختياري)</span>
+                <Input
+                  placeholder="اسم الموظف المستلم"
+                  value={handoverTo}
+                  onChange={(e) => setHandoverTo(e.target.value)}
                 />
               </label>
               <Button variant="destructive" onClick={close} disabled={busy}>
-                {busy ? 'جارٍ الإغلاق…' : 'إغلاق الوردية وتسويتها'}
+                {busy ? 'جارٍ الإغلاق…' : 'إغلاق الوردية وتسجيل التسليم'}
               </Button>
+              <p className="text-xs text-muted-foreground mt-2">
+                يتم تسجيل بيانات التسليم عند الإغلاق. تأكيد الاستلام من قبل الموظف المستلم غير مدعوم حالياً.
+              </p>
             </div>
 
             {data.currentOrders.length > 0 ? (
@@ -239,24 +255,35 @@ export function ShiftsBoard({ initial }: { initial: ShiftBoardData }) {
           <CardHeader>
             <CardTitle>فتح وردية</CardTitle>
             <CardDescription>
-              سجّل رصيد الصندوق عند البدء — لا يمكن إنشاء طلب أو تحصيل دفع قبل فتح الوردية
+              سجّل بداية ورديتك — لا يمكن تنفيذ أي عملية تشغيلية قبل فتح الوردية
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:gap-4">
-              <label className="flex flex-1 flex-col gap-1.5 text-sm">
-                <span className="text-muted-foreground">رصيد الافتتاح (نقدي بالصندوق)</span>
-                <Input
-                  inputMode="decimal"
-                  placeholder="0.00"
-                  value={openingCash}
-                  onChange={(e) => setOpeningCash(e.target.value)}
-                />
-              </label>
+              <div className="flex flex-col gap-1.5 text-sm">
+                <span className="text-muted-foreground">الموظف</span>
+                <span className="text-sm font-medium text-foreground">{data.userRole}</span>
+              </div>
+              {isCashHandling ? (
+                <label className="flex flex-1 flex-col gap-1.5 text-sm">
+                  <span className="text-muted-foreground">رصيد الافتتاح (نقدي بالصندوق)</span>
+                  <Input
+                    inputMode="decimal"
+                    placeholder="0.00"
+                    value={openingCash}
+                    onChange={(e) => setOpeningCash(e.target.value)}
+                  />
+                </label>
+              ) : null}
               <Button onClick={open} disabled={busy}>
                 {busy ? 'جارٍ الفتح…' : 'فتح الوردية'}
               </Button>
             </div>
+            {!isCashHandling ? (
+              <p className="text-xs text-muted-foreground mt-2">
+                دورك لا يتعامل مع النقد المباشر — تُفتح الوردية برصيد افتتاح صفر.
+              </p>
+            ) : null}
           </CardContent>
         </Card>
       )}
@@ -271,7 +298,7 @@ export function ShiftsBoard({ initial }: { initial: ShiftBoardData }) {
             <EmptyState
               icon="shifts"
               title="لا توجد ورديات بعد"
-              description="افتح أول وردية لبدء تسجيل المبيعات النقدية."
+              description="افتح أول وردية لبدء تسجيل نشاطك التشغيلي."
             />
           ) : (
             <div className="overflow-x-auto">

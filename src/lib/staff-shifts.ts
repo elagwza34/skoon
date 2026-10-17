@@ -1,24 +1,22 @@
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
-import { ROLE, hasAtLeast } from '@/lib/authz'
+import { ROLE, hasAtLeast, isOwner } from '@/lib/authz'
 import { staffCanAccessBranch, type StaffSession } from '@/lib/session'
 
 /**
- * Shifts write/read service — server-only. One OPEN till session per branch.
+ * Shifts write/read service — server-only. One OPEN shift per employee per branch.
  *
- * Reconciliation model (MVP P0):
+ * Reconciliation model:
  *   expected = opening + cash received − cash refunded  (payments linked to
  *   this shift; computed live for OPEN shifts, frozen at close)
  *   difference = counted (actual) − expected → positive = excess, negative
  *   = shortage.
  * POS order creation and payment finalization are REJECTED (409) while the
- * branch has no open shift, so money always lands in a till session.
+ * acting employee has no open shift, so money always lands in a till session.
  *
- * Known MVP limits (documented, not blocking):
- *   - One-open-shift-per-branch is checked in app code (no partial unique
- *     index), so two simultaneous "open" posts could race.
- *   - A refund issued AFTER its shift closed changes the cash story of a
- *     shift that is already settled; the audit row keeps the trail honest.
+ * Concurrency: pg_advisory_xact_lock is keyed on (cashierId, branchId) so two
+ * concurrent "open" posts for the same employee+branch cannot both pass.
+ * Different employees in the same branch may have overlapping open shifts.
  */
 
 export class ShiftError extends Error {
@@ -32,6 +30,14 @@ export class ShiftError extends Error {
 
 export type ShiftStatus = 'open' | 'closed'
 
+/** Roles whose shift involves cash handling (opening/closing cash balance). */
+export const CASH_HANDLING_ROLES: readonly string[] = [ROLE.CASHIER, ROLE.MANAGER]
+
+/** True when the role is expected to open/close a physical cash drawer. */
+export function isCashHandlingRole(role: string): boolean {
+  return CASH_HANDLING_ROLES.includes(role)
+}
+
 /** Payment row slice needed for cash math (amounts pre-converted to number). */
 export interface CashPaymentRow {
   method: string
@@ -44,6 +50,7 @@ export interface ShiftView {
   branchId: string
   status: ShiftStatus
   openBy: string
+  cashierId: string
   openingCash: string
   expectedCash: string
   closingCash: string
@@ -54,6 +61,9 @@ export interface ShiftView {
   ordersCount: number
   openedAt: string
   closedAt: string | null
+  handoverNotes: string | null
+  handoverTo: string | null
+  handoverCompletedAt: string | null
 }
 
 export interface ShiftOrderRow {
@@ -66,6 +76,7 @@ export interface ShiftOrderRow {
 
 export interface ShiftBoardData {
   branchId: string
+  userRole: string
   branches: { id: string; name: string }[]
   current: ShiftView | null
   currentOrders: ShiftOrderRow[]
@@ -109,19 +120,29 @@ export function cashDifferenceOf(closingCash: number, expectedCash: number): num
 }
 
 export const openShiftSchema = z.object({
+  // Opening cash is required for cash-handling roles, optional (default 0) otherwise.
   openingCash: z.coerce
     .number()
     .min(0, 'رصيد الافتتاح لا يمكن أن يكون سالبًا')
-    .max(9_999_999, 'رصيد الافتتاح كبير جدًا'),
+    .max(9_999_999, 'رصيد الافتتاح كبير جدًا')
+    .optional()
+    .default(0),
   // Owner (cross-branch) must name the branch; ignored for branch staff.
   branchId: z.coerce.number().int().positive().optional(),
 })
 
 export const closeShiftSchema = z.object({
+  // Closing cash is required for cash-handling roles, optional (default 0) otherwise.
   closingCash: z.coerce
     .number()
     .min(0, 'الجرد لا يمكن أن يكون سالبًا')
-    .max(9_999_999, 'الجرد كبير جدًا'),
+    .max(9_999_999, 'الجرد كبير جدًا')
+    .optional()
+    .default(0),
+  // Optional handover notes from the employee (e.g. handover remarks).
+  handoverNotes: z.string().trim().max(1000).optional().nullable(),
+  // Optional receiving manager / authorized employee name.
+  handoverTo: z.string().trim().max(100).optional().nullable(),
 })
 
 function money(n: number): string {
@@ -132,10 +153,10 @@ function money(n: number): string {
 // Data access
 // ---------------------------------------------------------------------------
 
-/** The branch's currently OPEN shift, or null. */
-export async function getOpenShift(branchId: bigint) {
+/** The employee's currently OPEN shift for a branch, or null. */
+export async function getOpenShift(cashierId: string, branchId: bigint) {
   return prisma.shift.findFirst({
-    where: { branchId, status: 'open' },
+    where: { cashierId, branchId, status: 'open' },
     orderBy: { openedAt: 'desc' },
   })
 }
@@ -161,6 +182,7 @@ function toShiftView(row: ShiftRow, payments: readonly CashPaymentRow[], ordersC
     branchId: row.branchId.toString(),
     status: row.status === 'closed' ? 'closed' : 'open',
     openBy: row.openBy,
+    cashierId: row.cashierId ?? '',
     openingCash: money(Number(row.openingCash)),
     expectedCash: money(expected),
     closingCash: money(Number(row.closingCash)),
@@ -171,6 +193,9 @@ function toShiftView(row: ShiftRow, payments: readonly CashPaymentRow[], ordersC
     ordersCount,
     openedAt: row.openedAt.toISOString(),
     closedAt: row.closedAt ? row.closedAt.toISOString() : null,
+    handoverNotes: row.handoverNotes ?? null,
+    handoverTo: row.handoverTo ?? null,
+    handoverCompletedAt: row.handoverCompletedAt ? row.handoverCompletedAt.toISOString() : null,
   }
 }
 
@@ -187,9 +212,10 @@ function resolveBranchId(session: StaffSession, requested?: number): bigint {
 // Actions
 // ---------------------------------------------------------------------------
 
-/** Open a till session — cashier+. 409 if the branch already has an open shift. */
+/** Open a shift — any non-owner employee. 409 if the employee already has an
+ *  open shift for the same branch. */
 export async function openShift(session: StaffSession, input: unknown): Promise<ShiftView> {
-  if (!hasAtLeast(session.role, ROLE.CASHIER)) throw new ShiftError('غير مصرح', 403)
+  if (isOwner(session.role)) throw new ShiftError('المالك غير مطالب بفتح وردية تشغيلية', 403)
 
   const parsed = openShiftSchema.safeParse(input)
   if (!parsed.success) {
@@ -198,17 +224,21 @@ export async function openShift(session: StaffSession, input: unknown): Promise<
 
   const branchId = resolveBranchId(session, parsed.data.branchId)
 
-  // Serialize opens per branch: pg_advisory_xact_lock is held to COMMIT, so
-  // two concurrent "open" transactions cannot both pass the check below.
+  // Cash-handling roles must declare an opening float; others default to 0.
+  const opening = isCashHandlingRole(session.role) ? parsed.data.openingCash : 0
+
+  // Serialize opens per employee+branch: the advisory lock is held to COMMIT,
+  // so two concurrent "open" transactions for the same employee+branch cannot
+  // both pass the check below. Different employees in the same branch may
+  // overlap.
   const shift = await prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('shift-open:' || ${branchId.toString()}))`
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('shift-open:' || ${session.id} || ':' || ${branchId.toString()}))`
     const existing = await tx.shift.findFirst({
-      where: { branchId, status: 'open' },
+      where: { cashierId: session.id, branchId, status: 'open' },
       orderBy: { openedAt: 'desc' },
     })
-    if (existing) throw new ShiftError('يوجد وردية مفتوحة بالفعل لهذا الفرع', 409)
+    if (existing) throw new ShiftError('لديك بالفعل وردية مفتوحة لهذا الفرع', 409)
 
-    const opening = parsed.data.openingCash
     const created = await tx.shift.create({
       data: {
         branchId,
@@ -226,7 +256,7 @@ export async function openShift(session: StaffSession, input: unknown): Promise<
         action: 'shift.open',
         entityType: 'shift',
         entityId: created.id,
-        newValues: { openingCash: opening.toFixed(2), openBy: session.name },
+        newValues: { openingCash: opening.toFixed(2), openBy: session.name, role: session.role },
       },
     })
     return created
@@ -236,15 +266,16 @@ export async function openShift(session: StaffSession, input: unknown): Promise<
 }
 
 /**
- * Close a till session — cashier+, branch-scoped. Recomputes expected cash
- * from the shift's linked payments, stores counted cash and the variance.
+ * Close a shift — any non-owner employee who owns the shift. Recomputes
+ * expected cash from the shift's linked payments, stores counted cash and the
+ * variance. Cash-handling roles must provide a physical count.
  */
 export async function closeShift(
   session: StaffSession,
   shiftIdRaw: string,
   input: unknown,
 ): Promise<ShiftView> {
-  if (!hasAtLeast(session.role, ROLE.CASHIER)) throw new ShiftError('غير مصرح', 403)
+  if (isOwner(session.role)) throw new ShiftError('غير مصرح', 403)
   if (!/^\d+$/.test(shiftIdRaw)) throw new ShiftError('الوردية غير موجودة', 404)
 
   const parsed = closeShiftSchema.safeParse(input)
@@ -255,24 +286,42 @@ export async function closeShift(
   const shiftId = BigInt(shiftIdRaw)
   const shift = await prisma.shift.findUnique({ where: { id: shiftId } })
   if (!shift) throw new ShiftError('الوردية غير موجودة', 404)
+  if (shift.cashierId !== session.id) throw new ShiftError('لا يمكنك إغلاق وردية ليست ورديتك', 403)
   if (!staffCanAccessBranch(session, shift.branchId)) throw new ShiftError('غير مصرح', 403)
   if (shift.status === 'closed') throw new ShiftError('الوردية مغلقة بالفعل', 409)
 
   const payments = await fetchShiftPayments(shiftId)
   const expected = expectedCashFrom(Number(shift.openingCash), payments)
-  const closing = parsed.data.closingCash
-  const difference = cashDifferenceOf(closing, expected)
+  // Non-cash-handling roles (waiter, kitchen) close operationally — no
+  // physical cash count, no cash reconciliation. Only cash-handling roles
+  // (cashier, manager) enter an actual counted amount and produce a variance.
+  const cashHandling = isCashHandlingRole(session.role)
+  const closing = cashHandling ? parsed.data.closingCash : 0
+  const difference = cashHandling ? cashDifferenceOf(closing, expected) : 0
+
+  // Outstanding work on this shift (non-terminal orders) — recorded in the
+  // handover so the receiving employee knows what remains unresolved.
+  const outstandingOrders = await prisma.order.findMany({
+    where: { shiftId, status: { in: ['new', 'preparing', 'ready'] } },
+    select: { orderNumber: true, status: true, total: true },
+    orderBy: { createdAt: 'asc' },
+  })
 
   const closed = await prisma.$transaction(async (tx) => {
     // Guard inside the transaction: a concurrent close loses the race cleanly.
     const updated = await tx.shift.updateMany({
-      where: { id: shiftId, status: 'open' },
+      where: { id: shiftId, status: 'open', cashierId: session.id },
       data: {
         expectedCash: expected.toFixed(2),
         closingCash: closing.toFixed(2),
         cashDifference: difference.toFixed(2),
         status: 'closed',
         closedAt: new Date(),
+        // Handover / reconciliation record — written at close time so the
+        // closing figures are immutable after this point.
+        handoverNotes: parsed.data.handoverNotes ?? null,
+        handoverTo: parsed.data.handoverTo ?? null,
+        handoverCompletedAt: new Date(),
       },
     })
     if (updated.count === 0) throw new ShiftError('الوردية مغلقة بالفعل', 409)
@@ -288,6 +337,15 @@ export async function closeShift(
           expectedCash: expected.toFixed(2),
           closingCash: closing.toFixed(2),
           cashDifference: difference.toFixed(2),
+          cashHandling,
+          handoverNotes: parsed.data.handoverNotes ?? null,
+          handoverTo: parsed.data.handoverTo ?? null,
+          handoverCompletedAt: new Date().toISOString(),
+          outstandingOrders: outstandingOrders.map((o) => ({
+            orderNumber: o.orderNumber,
+            status: o.status,
+            total: Number(o.total).toFixed(2),
+          })),
         },
       },
     })
@@ -301,35 +359,63 @@ export async function closeShift(
 }
 
 /**
- * Board snapshot: current open shift (with live numbers + its recent orders)
- * and the last shifts of the branch. Owners may pass ?branchId=.
+ * Require an open shift for the acting employee on their branch. Returns the
+ * shift or throws a 409 ShiftError. Owner is exempt (returns null).
+ */
+export async function requireOpenShift(session: StaffSession): Promise<ShiftRow | null> {
+  if (isOwner(session.role)) return null
+  if (session.branchId === null) throw new ShiftError('غير مصرح — لا فرع مرتبط بالمستخدم', 403)
+  const shift = await getOpenShift(session.id, BigInt(session.branchId))
+  if (!shift) throw new ShiftError('لا توجد وردية مفتوحة لهذا الموظف — افتح وردية أولًا من صفحة الورديات (/shifts)', 409)
+  return shift
+}
+
+/**
+ * Board snapshot: the employee's current open shift (with live numbers +
+ * its recent orders) and the employee's last shifts. Owners may pass
+ * ?branchId= and ?cashierId= to view another employee's branch.
  */
 export async function getShiftsBoard(
   session: StaffSession,
   branchIdRaw?: string,
+  cashierIdRaw?: string,
 ): Promise<ShiftBoardData> {
   let branchId: bigint
-  if (session.branchId !== null) {
-    branchId = BigInt(session.branchId)
-  } else if (branchIdRaw && /^\d+$/.test(branchIdRaw)) {
-    branchId = BigInt(branchIdRaw)
+  let viewerCashierId: string
+
+  if (isOwner(session.role)) {
+    // Owner may explicitly choose a branch and (optionally) an employee.
+    if (branchIdRaw && /^\d+$/.test(branchIdRaw)) {
+      branchId = BigInt(branchIdRaw)
+    } else {
+      const first = await prisma.cafeBranch.findFirst({
+        where: { isActive: true },
+        orderBy: { id: 'asc' },
+        select: { id: true },
+      })
+      if (!first) throw new ShiftError('لا يوجد فرع نشط', 404)
+      branchId = first.id
+    }
+    viewerCashierId = cashierIdRaw ?? session.id
   } else {
-    const first = await prisma.cafeBranch.findFirst({
-      where: { isActive: true },
-      orderBy: { id: 'asc' },
-      select: { id: true },
-    })
-    if (!first) throw new ShiftError('لا يوجد فرع نشط', 404)
-    branchId = first.id
+    if (session.branchId === null) throw new ShiftError('غير مصرح — لا فرع مرتبط بالمستخدم', 403)
+    branchId = BigInt(session.branchId)
+    viewerCashierId = session.id
   }
+
+  if (!staffCanAccessBranch(session, branchId)) throw new ShiftError('غير مصرح', 403)
 
   const [current, recent, branches] = await Promise.all([
     prisma.shift.findFirst({
-      where: { branchId, status: 'open' },
+      where: { cashierId: viewerCashierId, branchId, status: 'open' },
       orderBy: { openedAt: 'desc' },
     }),
-    prisma.shift.findMany({ where: { branchId }, orderBy: { openedAt: 'desc' }, take: 10 }),
-    session.role === ROLE.OWNER
+    prisma.shift.findMany({
+      where: { cashierId: viewerCashierId, branchId },
+      orderBy: { openedAt: 'desc' },
+      take: 10,
+    }),
+    isOwner(session.role)
       ? prisma.cafeBranch.findMany({
           where: { isActive: true },
           orderBy: { name: 'asc' },
@@ -397,6 +483,7 @@ export async function getShiftsBoard(
 
   return {
     branchId: branchId.toString(),
+    userRole: session.role,
     branches: branches.map((b) => ({ id: b.id.toString(), name: b.name })),
     current: current ? viewOf(current) : null,
     currentOrders,

@@ -54,7 +54,7 @@ const paySchema = z.object({
   received: z.coerce.number().positive('المبلغ المستلم يجب أن يكون أكبر من صفر').max(9_999_999).optional(),
 })
 
-const refundSchema = z.object({
+export const refundSchema = z.object({
   reason: z.string().trim().min(3, 'سبب الاسترداد مطلوب (3 أحرف على الأقل)').max(255),
 })
 
@@ -88,10 +88,10 @@ export async function finalizeOrderPayment(
   if (!order) throw new PaymentError('الطلب غير موجود', 404)
   if (!staffCanAccessBranch(session, order.branchId)) throw new PaymentError('غير مصرح', 403)
 
-  // Till discipline: money may only be collected inside an open shift.
-  const openShift = await getOpenShift(order.branchId)
+  // Till discipline: money may only be collected inside an open shift for the acting employee.
+  const openShift = await getOpenShift(session.id, order.branchId)
   if (!openShift) {
-    throw new PaymentError('لا توجد وردية مفتوحة لهذا الفرع — افتح وردية أولًا من صفحة الورديات (/shifts)', 409)
+    throw new PaymentError('لا توجد وردية مفتوحة لهذا الموظف — افتح وردية أولًا من صفحة الورديات (/shifts)', 409)
   }
   if (order.status === 'cancelled') throw new PaymentError('لا يمكن تحصيل طلب ملغي', 409)
 
@@ -204,6 +204,13 @@ export async function refundOrderPayment(
   if (!staffCanAccessBranch(session, order.branchId)) throw new PaymentError('غير مصرح', 403)
   if (order.paymentStatus !== 'paid') throw new PaymentError('الطلب غير مدفوع — لا يوجد ما يُسترد', 409)
 
+  // Till discipline: a refund is a financial action tied to the acting
+  // employee's open shift. Cash-handling roles must have an open shift.
+  const openShift = await getOpenShift(session.id, order.branchId)
+  if (!openShift) {
+    throw new PaymentError('لا توجد وردية مفتوحة لهذا الموظف — افتح وردية أولًا من صفحة الورديات (/shifts)', 409)
+  }
+
   return prisma.$transaction(async (tx) => {
     const locked = await tx.$queryRaw<{ payment_status: string }[]>`
       SELECT payment_status FROM orders WHERE id = ${order.id} FOR UPDATE
@@ -225,7 +232,11 @@ export async function refundOrderPayment(
         action: 'payment.refund',
         entityType: 'order',
         entityId: order.id,
-        newValues: { refundedPayments: updated.count, reason: parsed.data.reason },
+        newValues: {
+          refundedPayments: updated.count,
+          reason: parsed.data.reason,
+          shiftId: openShift.id.toString(),
+        },
       },
     })
 

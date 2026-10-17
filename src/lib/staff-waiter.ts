@@ -2,10 +2,12 @@ import { prisma } from '@/lib/prisma'
 import { ROLE } from '@/lib/authz'
 import type { StaffSession } from '@/lib/session'
 import type { StaffOrderRow } from '@/lib/staff-orders'
+import { getOpenShift, ShiftError } from '@/lib/staff-shifts'
 
 /**
  * Waiter workspace — branch tables + open orders + POS catalog.
  * All real DB. Server-only.
+ * Requires the waiter to have an open shift for their branch.
  */
 export interface WaiterWorkspace {
   tables: { id: string; number: string; name: string | null; capacity: number; openOrders: number }[]
@@ -15,6 +17,11 @@ export interface WaiterWorkspace {
 }
 
 export async function getWaiterWorkspace(session: StaffSession): Promise<WaiterWorkspace> {
+  // Waiter must have an open shift before performing waiter duties.
+  if (session.branchId === null) throw new ShiftError('غير مصرح — لا فرع مرتبط بالمستخدم', 403)
+  const shift = await getOpenShift(session.id, BigInt(session.branchId))
+  if (!shift) throw new ShiftError('لا توجد وردية مفتوحة لهذا الويتر — افتح وردية أولًا من صفحة الورديات (/shifts)', 409)
+
   const branchScope =
     session.role === ROLE.OWNER ? {} : { branchId: BigInt(session.branchId as string) }
 

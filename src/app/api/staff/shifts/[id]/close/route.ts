@@ -18,15 +18,25 @@ export async function POST(req: Request, { params }: Params) {
 
   const { id } = await params
 
-  let body: unknown
-  try {
-    body = await req.json()
-  } catch {
-    return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
-  }
+  type CloseBody = {
+  closingCash?: unknown
+  handoverNotes?: unknown
+  handoverTo?: unknown
+}
+
+let body: CloseBody = {}
+try {
+  body = (await req.json()) as CloseBody
+} catch {
+  return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
+}
 
   try {
-    return NextResponse.json(await closeShift(session, id, body))
+    return NextResponse.json(await closeShift(session, id, {
+      closingCash: body.closingCash,
+      handoverNotes: body.handoverNotes ?? null,
+      handoverTo: body.handoverTo ?? null,
+    }))
   } catch (e) {
     if (e instanceof ShiftError) return NextResponse.json({ error: e.message }, { status: e.status })
     return NextResponse.json({ error: 'تعذر إغلاق الوردية' }, { status: 500 })

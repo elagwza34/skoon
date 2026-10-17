@@ -22,9 +22,9 @@ export async function createPosOrder(session: StaffSession, input: unknown) {
 
   // Till discipline: a POS order may only be created inside an open shift,
   // so every order/payment of this branch belongs to a reconcilable session.
-  const openShift = await getOpenShift(branchId)
+  const openShift = await getOpenShift(session.id, branchId)
   if (!openShift) {
-    throw new PosError('لا توجد وردية مفتوحة لهذا الفرع — افتح وردية أولًا من صفحة الورديات (/shifts)', 409)
+    throw new PosError('لا توجد وردية مفتوحة لهذا الموظف — افتح وردية أولًا من صفحة الورديات (/shifts)', 409)
   }
 
   let tableId: bigint

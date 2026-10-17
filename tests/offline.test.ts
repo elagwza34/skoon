@@ -24,7 +24,7 @@ import {
   PIN_MIN_LENGTH,
   PIN_MAX_LENGTH,
 } from '../src/lib/security/pin'
-import { PAYMENT_METHODS } from '../src/lib/staff-payments-write'
+import { PAYMENT_METHODS, refundSchema } from '../src/lib/staff-payments-write'
 import {
   avgPerPaidOrder,
   centsToAmount,
@@ -38,6 +38,7 @@ import {
   closeShiftSchema,
   computeShiftCashFlow,
   expectedCashFrom,
+  isCashHandlingRole,
   openShiftSchema,
 } from '../src/lib/staff-shifts'
 import { getGuestOrders, saveGuestOrder } from '../src/lib/guest-orders'
@@ -130,7 +131,7 @@ test('route-access: nested paths inherit their section permission', () => {
 test('route-access: home per role routes operational staff to their board', () => {
   assert.equal(homeForRole('waiter'), '/waiter')
   assert.equal(homeForRole('kitchen'), '/kitchen')
-  assert.equal(homeForRole('cashier'), '/pos')
+  assert.equal(homeForRole('cashier'), '/cashier')
   assert.equal(homeForRole('owner'), '/dashboard')
   assert.equal(homeForRole('manager'), '/dashboard')
 })
@@ -143,12 +144,29 @@ test('route-access: operational roles are waiter/kitchen/cashier only', () => {
   assert.equal(isOperationalRole('manager'), false)
 })
 
-test('route-access: ops boards are the three full-screen paths', () => {
+test('route-access: ops boards include /cashier', () => {
   assert.equal(isOpsPath('/pos'), true)
   assert.equal(isOpsPath('/kitchen'), true)
   assert.equal(isOpsPath('/waiter'), true)
+  assert.equal(isOpsPath('/cashier'), true)
   assert.equal(isOpsPath('/dashboard'), false)
   assert.equal(isOpsPath('/orders'), false)
+})
+
+test('route-access: /cashier requires orders.payment (cashier+ only)', () => {
+  assert.equal(permissionForPath('/cashier'), 'orders.payment')
+  const cashier = ['orders.view', 'orders.update', 'orders.cancel', 'orders.refund', 'orders.payment', 'tables.view']
+  assert.equal(canSeeRoute('cashier', cashier, '/cashier'), true)
+  assert.equal(canSeeRoute('manager', ['orders.payment', 'settings.manage'], '/cashier'), true)
+  assert.equal(canSeeRoute('waiter', ['orders.view', 'tables.view'], '/cashier'), false)
+  assert.equal(canSeeRoute('kitchen', ['orders.kitchen_status'], '/cashier'), false)
+})
+
+test('route-access: ops-shell exception lets only the cashier render /cashier', () => {
+  assert.equal(canRenderInOpsShell('cashier', '/cashier'), true)
+  assert.equal(canRenderInOpsShell('waiter', '/cashier'), false)
+  assert.equal(canRenderInOpsShell('kitchen', '/cashier'), false)
+  assert.equal(canRenderInOpsShell('manager', '/cashier'), false)
 })
 import { StaffProvisionError } from '../src/lib/staff-provision-write'
 
@@ -588,37 +606,62 @@ test('shifts: open/close schemas coerce and validate money inputs', () => {
 
   assert.equal(openShiftSchema.safeParse({ openingCash: -1 }).success, false)
   assert.equal(openShiftSchema.safeParse({ openingCash: 'abc' }).success, false)
-  assert.equal(openShiftSchema.safeParse({}).success, false)
+  // openingCash now defaults to 0, so empty input is valid
+  const emptyOpen = openShiftSchema.safeParse({})
+  assert.equal(emptyOpen.success, true)
+  if (emptyOpen.success) {
+    assert.equal(emptyOpen.data.openingCash, 0)
+  }
 
   assert.equal(closeShiftSchema.safeParse({ closingCash: 300 }).success, true)
   assert.equal(closeShiftSchema.safeParse({ closingCash: -5 }).success, false)
+  // closingCash now defaults to 0, so empty input is valid
+  assert.equal(closeShiftSchema.safeParse({}).success, true)
+
+  // Handover fields are optional; notes capped at 1000 chars, recipient at 100.
+  assert.equal(
+    closeShiftSchema.safeParse({ closingCash: 300, handoverNotes: 'تسليم طبيعي', handoverTo: 'أحمد' }).success,
+    true,
+  )
+  assert.equal(
+    closeShiftSchema.safeParse({ closingCash: 300, handoverNotes: 'x'.repeat(1001) }).success,
+    false,
+  )
+  assert.equal(
+    closeShiftSchema.safeParse({ closingCash: 300, handoverTo: 'x'.repeat(101) }).success,
+    false,
+  )
 })
 
-test('route-access: /shifts requires orders.payment (cashier+, not waiter/kitchen)', () => {
-  assert.equal(permissionForPath('/shifts'), 'orders.payment')
+test('route-access: /shifts requires orders.view (all operational roles)', () => {
+  assert.equal(permissionForPath('/shifts'), 'orders.view')
   const cashier = ['orders.view', 'orders.update', 'orders.cancel', 'orders.refund', 'orders.payment', 'tables.view']
   assert.equal(canSeeRoute('cashier', cashier, '/shifts'), true)
-  assert.equal(canSeeRoute('manager', ['orders.payment', 'settings.manage'], '/shifts'), true)
-  // settings.manage alone no longer opens /shifts (cashiers can't manage settings
-  // but MUST open a till to collect money).
-  assert.equal(canSeeRoute('manager', ['settings.manage'], '/shifts'), false)
-  assert.equal(canSeeRoute('waiter', ['orders.view', 'tables.view'], '/shifts'), false)
-  assert.equal(canSeeRoute('kitchen', ['orders.kitchen_status'], '/shifts'), false)
+  assert.equal(canSeeRoute('manager', ['orders.view', 'settings.manage'], '/shifts'), true)
+  // Waiter and kitchen have orders.view → can open /shifts for their own shift
+  assert.equal(canSeeRoute('waiter', ['orders.view', 'tables.view'], '/shifts'), true)
+  assert.equal(canSeeRoute('kitchen', ['orders.view', 'orders.kitchen_status'], '/shifts'), true)
   assert.equal(canSeeRoute('owner', [], '/shifts'), true)
 })
 
-test('route-access: ops-shell exception lets only the cashier render /shifts', () => {
+test('route-access: ops-shell exception lets operational roles render /shifts', () => {
   assert.equal(canRenderInOpsShell('cashier', '/shifts'), true)
-  assert.equal(canRenderInOpsShell('waiter', '/shifts'), false)
-  assert.equal(canRenderInOpsShell('kitchen', '/shifts'), false)
+  assert.equal(canRenderInOpsShell('waiter', '/shifts'), true)
+  assert.equal(canRenderInOpsShell('kitchen', '/shifts'), true)
+  assert.equal(canRenderInOpsShell('cashier', '/cashier'), true)
+  assert.equal(canRenderInOpsShell('waiter', '/cashier'), false)
+  assert.equal(canRenderInOpsShell('kitchen', '/cashier'), false)
   assert.equal(canRenderInOpsShell('manager', '/shifts'), false)
   assert.equal(canRenderInOpsShell('cashier', '/reports'), false)
   // Layout logic: ops role on non-board page bounces home unless excepted.
   const bouncesHome = (role: string, pathname: string) =>
     isOperationalRole(role) && !isOpsPath(pathname) && !canRenderInOpsShell(role, pathname)
   assert.equal(bouncesHome('cashier', '/shifts'), false)
+  assert.equal(bouncesHome('waiter', '/shifts'), false)
+  assert.equal(bouncesHome('kitchen', '/shifts'), false)
   assert.equal(bouncesHome('cashier', '/reports'), true)
-  assert.equal(bouncesHome('waiter', '/shifts'), true)
+  assert.equal(bouncesHome('waiter', '/reports'), true)
+  assert.equal(bouncesHome('kitchen', '/reports'), true)
 })
 
 test('shifts: only cash statuses feed the expected-cash formula (card/online excluded)', () => {
@@ -634,4 +677,127 @@ test('shifts: only cash statuses feed the expected-cash formula (card/online exc
   const flow = computeShiftCashFlow(payments)
   assert.equal(flow.cashIn, 100)
   assert.equal(flow.cashOut, 0)
+})
+
+test('shifts: isCashHandlingRole identifies cash-handling roles', () => {
+  assert.equal(isCashHandlingRole('cashier'), true)
+  assert.equal(isCashHandlingRole('manager'), true)
+  assert.equal(isCashHandlingRole('waiter'), false)
+  assert.equal(isCashHandlingRole('kitchen'), false)
+  assert.equal(isCashHandlingRole('owner'), false)
+  assert.equal(isCashHandlingRole('bogus'), false)
+})
+
+test('shifts: close schema defaults closingCash to 0 for non-cash roles', () => {
+  // Non-cash roles don't need to provide a physical cash count.
+  const empty = closeShiftSchema.safeParse({})
+  assert.equal(empty.success, true)
+  if (empty.success) assert.equal(empty.data.closingCash, 0)
+
+  // Cash-handling roles should still be able to provide a count.
+  const withCash = closeShiftSchema.safeParse({ closingCash: 250.50 })
+  assert.equal(withCash.success, true)
+  if (withCash.success) assert.equal(withCash.data.closingCash, 250.5)
+
+  assert.equal(closeShiftSchema.safeParse({ closingCash: -5 }).success, false)
+  assert.equal(closeShiftSchema.safeParse({ closingCash: 'abc' }).success, false)
+})
+
+test('shifts: open schema defaults openingCash to 0 for non-cash roles', () => {
+  const empty = openShiftSchema.safeParse({})
+  assert.equal(empty.success, true)
+  if (empty.success) assert.equal(empty.data.openingCash, 0)
+
+  const withCash = openShiftSchema.safeParse({ openingCash: 100 })
+  assert.equal(withCash.success, true)
+  if (withCash.success) assert.equal(withCash.data.openingCash, 100)
+})
+
+test('shifts: cash reconciliation excludes non-cash, pending, failed transactions', () => {
+  const payments = [
+    { method: 'cash', status: 'completed', amount: 100 },
+    { method: 'cash', status: 'pending', amount: 50 },
+    { method: 'cash', status: 'failed', amount: 30 },
+    { method: 'cash', status: 'refunded', amount: 20 },
+    { method: 'card', status: 'completed', amount: 500 },
+    { method: 'online', status: 'completed', amount: 250 },
+  ]
+  const flow = computeShiftCashFlow(payments)
+  // Only completed cash in, refunded cash out. Pending/failed/card/online excluded.
+  assert.equal(flow.cashIn, 100)
+  assert.equal(flow.cashOut, 20)
+  assert.equal(flow.netCash, 80)
+  assert.equal(expectedCashFrom(50, payments), 130)
+})
+
+test('shifts: cash difference detects surplus and shortage', () => {
+  assert.equal(cashDifferenceOf(150, 100), 50) // surplus
+  assert.equal(cashDifferenceOf(50, 100), -50) // shortage
+  assert.equal(cashDifferenceOf(100, 100), 0)  // balanced
+})
+
+test('route-access: all operational roles can access /shifts', () => {
+  assert.equal(permissionForPath('/shifts'), 'orders.view')
+  assert.equal(canSeeRoute('cashier', ['orders.view'], '/shifts'), true)
+  assert.equal(canSeeRoute('waiter', ['orders.view', 'tables.view'], '/shifts'), true)
+  assert.equal(canSeeRoute('kitchen', ['orders.view', 'orders.kitchen_status'], '/shifts'), true)
+  assert.equal(canSeeRoute('manager', ['orders.view'], '/shifts'), true)
+  assert.equal(canSeeRoute('owner', [], '/shifts'), true)
+  // Without orders.view, cannot access /shifts
+  assert.equal(canSeeRoute('waiter', ['tables.view'], '/shifts'), false)
+  assert.equal(canSeeRoute('kitchen', ['orders.kitchen_status'], '/shifts'), false)
+})
+
+test('route-access: ops-shell allows all operational roles for /shifts', () => {
+  assert.equal(canRenderInOpsShell('cashier', '/shifts'), true)
+  assert.equal(canRenderInOpsShell('waiter', '/shifts'), true)
+  assert.equal(canRenderInOpsShell('kitchen', '/shifts'), true)
+  assert.equal(canRenderInOpsShell('manager', '/shifts'), false)
+  assert.equal(canRenderInOpsShell('owner', '/shifts'), false)
+})
+
+test('route-access: home for all roles', () => {
+  assert.equal(homeForRole('waiter'), '/waiter')
+  assert.equal(homeForRole('kitchen'), '/kitchen')
+  assert.equal(homeForRole('cashier'), '/cashier')
+  assert.equal(homeForRole('manager'), '/dashboard')
+  assert.equal(homeForRole('owner'), '/dashboard')
+})
+
+test('route-access: cashier-only /cashier in ops shell', () => {
+  assert.equal(canRenderInOpsShell('cashier', '/cashier'), true)
+  assert.equal(canRenderInOpsShell('waiter', '/cashier'), false)
+  assert.equal(canRenderInOpsShell('kitchen', '/cashier'), false)
+})
+
+test('refund schema: reason requires at least 3 characters', () => {
+  assert.equal(refundSchema.safeParse({ reason: 'ab' }).success, false)
+  assert.equal(refundSchema.safeParse({ reason: 'cause: duplicate charge' }).success, true)
+})
+
+test('refund schema: reason is required', () => {
+  assert.equal(refundSchema.safeParse({}).success, false)
+})
+
+test('refund schema: reason max 255 characters', () => {
+  assert.equal(
+    refundSchema.safeParse({ reason: 'x'.repeat(256) }).success,
+    false,
+  )
+  assert.equal(
+    refundSchema.safeParse({ reason: 'x'.repeat(255) }).success,
+    true,
+  )
+})
+
+test('close shift schema: non-cash roles default closingCash to 0', () => {
+  const parsed = closeShiftSchema.safeParse({})
+  assert.equal(parsed.success, true)
+  if (parsed.success) assert.equal(parsed.data.closingCash, 0)
+})
+
+test('close shift schema: cash-handling roles can provide physical count', () => {
+  const parsed = closeShiftSchema.safeParse({ closingCash: 250.50 })
+  assert.equal(parsed.success, true)
+  if (parsed.success) assert.equal(parsed.data.closingCash, 250.5)
 })

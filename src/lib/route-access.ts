@@ -21,7 +21,7 @@ import { ROLE, hasPermission, isOwner } from '@/lib/authz'
  */
 
 /** Full-screen operational boards — rendered WITHOUT the admin sidebar. */
-export const OPS_BOARDS = ['/waiter', '/kitchen', '/pos'] as const
+export const OPS_BOARDS = ['/waiter', '/kitchen', '/pos', '/cashier'] as const
 
 /** Route prefix → permission slug required to open it. Owner bypasses all. */
 const ROUTE_PERMISSION: Record<string, string> = {
@@ -36,7 +36,8 @@ const ROUTE_PERMISSION: Record<string, string> = {
   '/staff': 'staff.view',
   '/reports': 'reports.view',
   '/settings': 'settings.manage',
-  '/shifts': 'orders.payment',
+  '/shifts': 'orders.view',
+  '/cashier': 'orders.payment',
 }
 
 const OPERATIONAL: readonly string[] = [ROLE.WAITER, ROLE.KITCHEN, ROLE.CASHIER]
@@ -52,19 +53,23 @@ export function isOpsPath(pathname: string): boolean {
 /**
  * Admin pages an operational role may still render IN the ops shell.
  * narrowly scoped exception, one route at a time, each with a test:
- * a cashier must open/close the till (/shifts) to collect money at all —
- * their whole station is blocked otherwise. Waiter/kitchen gain nothing.
+ * every operational employee must open/close their own shift (/shifts) —
+ * their whole station is blocked otherwise. The cashier also renders
+ * /cashier (their operational dashboard).
  */
 export function canRenderInOpsShell(role: string, pathname: string): boolean {
-  if (role !== ROLE.CASHIER) return false
-  return pathname === '/shifts' || pathname.startsWith('/shifts/')
+  if (pathname === '/shifts' || pathname.startsWith('/shifts/')) {
+    return role === ROLE.CASHIER || role === ROLE.WAITER || role === ROLE.KITCHEN
+  }
+  if (role === ROLE.CASHIER && pathname === '/cashier') return true
+  return false
 }
 
 /** Home screen per role — operational roles land on their dedicated board. */
 export function homeForRole(role: string): string {
   if (role === ROLE.WAITER) return '/waiter'
   if (role === ROLE.KITCHEN) return '/kitchen'
-  if (role === ROLE.CASHIER) return '/pos'
+  if (role === ROLE.CASHIER) return '/cashier'
   return '/dashboard'
 }
 
