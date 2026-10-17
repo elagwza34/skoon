@@ -4,6 +4,7 @@ import { ROLE } from '@/lib/authz'
 import { staffCanAccessBranch, type StaffSession } from '@/lib/session'
 import { PosError, posOrderSchema } from '@/lib/staff-pos'
 import { notifyRole } from '@/lib/notifications'
+import { getOpenShift } from '@/lib/staff-shifts'
 
 /**
  * Staff POS order creation — server-side pricing, one transaction.
@@ -18,6 +19,13 @@ export async function createPosOrder(session: StaffSession, input: unknown) {
     session.role === ROLE.OWNER
       ? await resolveOwnerBranch(session, parsed.data.tableId)
       : BigInt(session.branchId as string)
+
+  // Till discipline: a POS order may only be created inside an open shift,
+  // so every order/payment of this branch belongs to a reconcilable session.
+  const openShift = await getOpenShift(branchId)
+  if (!openShift) {
+    throw new PosError('لا توجد وردية مفتوحة لهذا الفرع — افتح وردية أولًا من صفحة الورديات (/shifts)', 409)
+  }
 
   let tableId: bigint
   if (parsed.data.tableId) {
@@ -72,6 +80,7 @@ export async function createPosOrder(session: StaffSession, input: unknown) {
         orderNumber, orderRef, orderType: 'dine_in', status: 'new', source: 'pos',
         customerName: parsed.data.customerName?.trim() || null,
         createdById: session.id,
+        shiftId: openShift.id,
         itemsSubtotal: subtotal, discountAmount: '0', taxAmount: '0',
         total: subtotal, paymentStatus: 'unpaid',
         items: {

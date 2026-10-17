@@ -19,7 +19,7 @@ import type { StaffOrderRow } from '@/lib/staff-orders'
  */
 export function KitchenBoard({ orders }: { orders: StaffOrderRow[] }) {
   const router = useRouter()
-  const [filter, setFilter] = useState<string>('all')
+  const [filter, setFilter] = useState<string>('new')
   const [pendingId, setPendingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [, startTransition] = useTransition()
@@ -45,11 +45,10 @@ export function KitchenBoard({ orders }: { orders: StaffOrderRow[] }) {
 
   const NEXT: Partial<Record<OrderStatusKey, { to: string; label: string }>> = {
     new: { to: 'preparing', label: 'بدء التحضير' },
-    preparing: { to: 'ready', label: 'جاهز للتقديم' },
-    ready: { to: 'served', label: 'تم التقديم' },
+    preparing: { to: 'ready', label: 'تم التحضير' },
   }
 
-  const visible = orders.filter((o) => filter === 'all' || o.status === filter)
+  const visible = orders.filter((o) => o.status === filter)
 
   return (
     <div className="flex flex-col gap-4">
@@ -57,7 +56,6 @@ export function KitchenBoard({ orders }: { orders: StaffOrderRow[] }) {
         <p className="text-sm text-muted-foreground">انقل الطلبات بين الحالات — التحديث يُحفظ مباشرةً في قاعدة البيانات.</p>
         <Segmented
           options={[
-            { value: 'all', label: 'الكل' },
             { value: 'new', label: 'جديد' },
             { value: 'preparing', label: 'قيد التحضير' },
             { value: 'ready', label: 'جاهز' },
@@ -117,7 +115,7 @@ export function KitchenBoard({ orders }: { orders: StaffOrderRow[] }) {
                     </Button>
                   ) : (
                     <div className="mt-auto flex items-center justify-center gap-2 rounded-md bg-success/15 py-2 text-sm font-medium text-success">
-                      <Icon name="check" size={16} /> تم التقديم
+                      <Icon name="check" size={16} /> تم التحضير — بانتظار الويتر
                     </div>
                   )}
                 </CardContent>

@@ -51,12 +51,18 @@ export default async function DashboardPage() {
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
-          label="مبيعات اليوم"
+          label="المحصّل اليوم"
           value={formatCurrency(stats.totalSalesToday)}
           icon="trendingUp"
           delta={salesDelta.delta}
           deltaDirection={salesDelta.dir}
-          hint="مقارنة بالأمس"
+          hint="مدفوعات مكتملة — مقارنة بالأمس"
+        />
+        <StatCard
+          label="قيمة طلبات اليوم"
+          value={formatCurrency(stats.orderValueToday)}
+          icon="orders"
+          hint="طلبات غير ملغية — تشمل غير المدفوع"
         />
         <StatCard
           label="عدد الطلبات"
@@ -66,7 +72,7 @@ export default async function DashboardPage() {
           deltaDirection={ordersDelta.dir}
           hint="مقارنة بالأمس"
         />
-        <StatCard label="متوسط قيمة الطلب" value={formatCurrency(stats.avgOrderValue)} icon="reports" hint="لكل طلب" />
+        <StatCard label="متوسط المحصّل للطلب المدفوع" value={formatCurrency(stats.avgOrderValue)} icon="reports" hint={stats.paidOrdersToday ? `على ${formatNumber(stats.paidOrdersToday)} طلب مدفوع` : 'لا طلبات مدفوعة اليوم'} />
         <StatCard label="قيد التحضير" value={formatNumber(stats.ordersInPreparation)} icon="kitchen" hint="طلبات نشطة" />
       </div>
 

@@ -12,7 +12,7 @@ Run in filename order in the isolated dev Supabase project's SQL editor:
 | # | File | Purpose |
 |---|------|---------|
 | 1 | `00-helpers.sql` | `SECURITY DEFINER` helpers that read the caller's role/branch from the **trusted `public.users` row** keyed by `auth.uid()` — never from client-controlled JWT claims. |
-| 2 | `10-rls-enable-and-public.sql` | Enable RLS on all 24 tables + public **read-only** menu/branch/table policies for anonymous QR customers. |
+| 2 | `10-rls-enable-and-public.sql` | Enable RLS on all 25 tables + public **read-only** menu/branch/table policies for anonymous QR customers. |
 | 3 | `20-operational-rls.sql` | Staff operational policies: orders & sub-tables, payments read, tables, menu management (manager+), self/branch user reads. |
 | 4 | `30-sensitive-deny.sql` | Documentation of the **deny-by-default** boundary (no grants). |
 

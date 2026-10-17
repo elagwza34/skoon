@@ -1,3 +1,5 @@
+'use client'
+
 import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Segmented } from '@/components/ui/segmented'
@@ -21,7 +23,7 @@ export function ReportsBoard({ summary }: { summary: ReportsSummary }) {
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
-          الملغي مستبعد من الإيراد · حدود الأيام بتوقيت القاهرة
+          المحصّل = مدفوعات مكتملة بتاريخ الدفع · قيمة الطلبات = طلبات بتاريخ الطلب · حدود الأيام بتوقيت الفرع
         </p>
         <Segmented
           options={[
@@ -38,15 +40,37 @@ export function ReportsBoard({ summary }: { summary: ReportsSummary }) {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <StatCard label="إجمالي الإيراد" value={formatCurrency(summary.totalRevenue)} icon="reports" hint={`آخر ${summary.days} يوم`} />
-        <StatCard label="عدد الطلبات" value={formatNumber(summary.totalOrders)} icon="orders" hint={`آخر ${summary.days} يوم`} />
-        <StatCard label="متوسط الطلب" value={formatCurrency(summary.avgOrderValue)} icon="trendingUp" hint="غير شامل الملغي" />
+        <StatCard label="المحصّل (نقد محتفظ به)" value={formatCurrency(summary.totalRevenue)} icon="reports" hint={`آخر ${summary.days} يوم — مدفوعات مكتملة`} />
+        <StatCard label="قيمة الطلبات" value={formatCurrency(summary.totalOrderValue)} icon="orders" hint="غير ملغية — تشمل غير المدفوع" />
+        <StatCard label="المسترد" value={formatCurrency(summary.refundedTotal)} icon="trendingDown" hint="سطر منفصل — غير مخصوم مجدداً" />
+        <StatCard label="عدد الطلبات" value={formatNumber(summary.totalOrders)} icon="orders" hint={`آخر ${summary.days} يوم — شامل الملغي`} />
+        <StatCard label="طلبات مدفوعة" value={formatNumber(summary.paidOrders)} icon="pos" hint="بمدفوعات مكتملة في النطاق" />
+        <StatCard label="متوسط المحصّل للمدفوع" value={formatCurrency(summary.avgCollectedPerPaidOrder)} icon="trendingUp" hint="المحصّل ÷ المدفوعة" />
       </div>
+
+      {summary.byMethod.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>المحصّل حسب طريقة الدفع</CardTitle>
+            <CardDescription>مدفوعات مكتملة — مجموعها يساوي المحصّل</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-2">
+              {summary.byMethod.map((m) => (
+                <span key={m.method} className="inline-flex items-center gap-2 rounded-full border border-border px-3 py-1.5 text-sm">
+                  <Badge tone="muted">{m.label}</Badge>
+                  <span className="font-bold">{formatCurrency(m.value)}</span>
+                </span>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card>
         <CardHeader>
-          <CardTitle>الإيراد اليومي</CardTitle>
-          <CardDescription>من قاعدة البيانات — ترتيب زمني</CardDescription>
+          <CardTitle>قيمة الطلبات اليومية</CardTitle>
+          <CardDescription>قيمة الطلبات غير الملغية بتاريخ الطلب — المحصّل النقدي في البطاقات أعلاه</CardDescription>
         </CardHeader>
         <CardContent>
           <AreaChart data={points} ariaLabel="رسم بياني للإيراد" />

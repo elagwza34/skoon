@@ -1,15 +1,27 @@
 import { prisma } from '@/lib/prisma'
-import { ROLE } from '@/lib/authz'
 import type { StaffSession } from '@/lib/session'
 import type { RecentOrder } from '@/lib/order-status'
+import {
+  avgPerPaidOrder,
+  centsToAmount,
+  financeBranchScope,
+  getCollectedStats,
+  resolveSessionTimezone,
+  toCents,
+} from '@/lib/finance-metrics'
 
 /**
  * Dashboard statistics — REAL data from the database, server-only.
  *
- * Replaces the demo constants previously imported by the dashboard components.
+ * Two money concepts (labelled separately in the UI):
+ * - "قيمة الطلبات" (order value): sum of Order.total for non-cancelled orders
+ *   created today — customer INTENT, includes unpaid orders.
+ * - "المحصّل" (collected): sum of completed Payment.amount created today —
+ *   retained CASH. Refunded payments are excluded by status; pending/failed
+ *   never count. Attributed to the payment date.
+ *
  * Every figure is scoped to the caller's branch (Owner sees all branches) and
- * computed in the branch timezone (Africa/Cairo). Orders are priced server-side
- * at creation, so totals are summed here from stored values.
+ * computed in the branch timezone (branch row `timezone`, Cairo default).
  */
 
 const DEFAULT_TZ = 'Africa/Cairo'
@@ -34,10 +46,19 @@ function startOfDay(date: Date, timeZone: string): Date {
 }
 
 export interface DashboardStats {
+  /** Retained cash collected today (completed payments). Was order-total based. */
   totalSalesToday: number
+  /** Retained cash collected yesterday. */
   totalSalesYesterday: number
+  /** Customer intent today: non-cancelled order totals (incl. unpaid). */
+  orderValueToday: number
+  /** All orders created today (incl. cancelled). */
   ordersToday: number
+  /** All orders created yesterday (incl. cancelled). */
   ordersYesterday: number
+  /** Distinct orders with a completed payment today. */
+  paidOrdersToday: number
+  /** Mean collected cash per paid order today (0 when none). */
   avgOrderValue: number
   ordersInPreparation: number
   statusDistribution: { key: string; label: string; value: number; color: string }[]
@@ -68,14 +89,13 @@ function productEmoji(name: string): string {
 }
 
 export async function getDashboardStats(session: StaffSession): Promise<DashboardStats> {
-  const tz = DEFAULT_TZ
+  const tz = await resolveSessionTimezone(session)
   const now = new Date()
   const startToday = startOfDay(now, tz)
   const startYesterday = new Date(startToday.getTime() - 24 * 60 * 60 * 1000)
   const startMonth = new Date(startToday.getTime() - 29 * 24 * 60 * 60 * 1000)
 
-  const branchScope =
-    session.role === ROLE.OWNER ? {} : { branchId: BigInt(session.branchId as string) }
+  const branchScope = financeBranchScope(session)
 
   // 1) Orders in the last ~30 days — feeds KPIs, donut, chart and recent list.
   const recent = await prisma.order.findMany({
@@ -91,16 +111,29 @@ export async function getDashboardStats(session: StaffSession): Promise<Dashboar
 
   const inRange = (d: Date, from: Date, to: Date = now) => d >= from && d < to
   const salesOf = (rows: typeof recent) =>
-    rows.filter((r) => r.status !== 'cancelled').reduce((s, r) => s + Number(r.total), 0)
+    centsToAmount(
+      rows.filter((r) => r.status !== 'cancelled').reduce((s, r) => s + toCents(String(r.total)), 0),
+    )
 
   const todayRows = recent.filter((r) => inRange(r.createdAt, startToday))
   const yesterdayRows = recent.filter((r) => inRange(r.createdAt, startYesterday, startToday))
 
-  const totalSalesToday = salesOf(todayRows)
-  const totalSalesYesterday = salesOf(yesterdayRows)
+  // Cash truth for today/yesterday: completed payments in the payment-date
+  // window (refunded excluded by status; pending/failed never count).
+  const [collectedToday, collectedYesterday] = await Promise.all([
+    getCollectedStats(session, startToday, new Date(startToday.getTime() + 24 * 60 * 60 * 1000)),
+    getCollectedStats(session, startYesterday, startToday),
+  ])
+  const totalSalesToday = centsToAmount(collectedToday.collectedCents)
+  const totalSalesYesterday = centsToAmount(collectedYesterday.collectedCents)
+  // Order value (intent) for today via exact cents math over non-cancelled rows.
+  const orderValueToday = centsToAmount(
+    todayRows.filter((r) => r.status !== 'cancelled').reduce((s, r) => s + toCents(String(r.total)), 0),
+  )
   const ordersToday = todayRows.length
   const ordersYesterday = yesterdayRows.length
-  const avgOrderValue = ordersToday ? Math.round(totalSalesToday / ordersToday) : 0
+  // Average = collected cash per actually-paid order (intent average lives in reports).
+  const avgOrderValue = avgPerPaidOrder(collectedToday.collectedCents, collectedToday.paidOrders)
   const ordersInPreparation = todayRows.filter((r) => r.status === 'preparing').length
 
   const statusCounts = new Map<string, number>()
@@ -140,7 +173,7 @@ export async function getDashboardStats(session: StaffSession): Promise<Dashboar
   })
   const topProducts = topRows.map((r) => ({
     name: r.productName, emoji: productEmoji(r.productName),
-    qty: r._sum.quantity ?? 0, revenue: Number(r._sum.lineTotal ?? 0),
+    qty: r._sum.quantity ?? 0, revenue: centsToAmount(toCents(r._sum.lineTotal ?? '0')),
   }))
 
   const [allTables, activeByTable] = await Promise.all([
@@ -167,7 +200,8 @@ export async function getDashboardStats(session: StaffSession): Promise<Dashboar
   }
 
   return {
-    totalSalesToday, totalSalesYesterday, ordersToday, ordersYesterday,
+    totalSalesToday, totalSalesYesterday, orderValueToday,
+    ordersToday, ordersYesterday, paidOrdersToday: collectedToday.paidOrders,
     avgOrderValue, ordersInPreparation, statusDistribution,
     salesSeriesByRange: { day: daySeries, week: weekSeries, month: monthSeries },
     recentOrders, topProducts, tables, tableCounts,
@@ -176,30 +210,30 @@ export async function getDashboardStats(session: StaffSession): Promise<Dashboar
 
 type OrderLite = { createdAt: Date; total: unknown; status: string }
 
-function buildHourly(rows: OrderLite[], tz: string, now: Date): { label: string; value: number }[] {
+export function buildHourly(rows: OrderLite[], tz: string, now: Date): { label: string; value: number }[] {
   const fmt = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: '2-digit', hour12: false })
   const buckets = new Array(24).fill(0)
   for (const r of rows) {
     if (r.status === 'cancelled') continue
-    buckets[Number(fmt.format(r.createdAt)) % 24] += Number(r.total)
+    buckets[Number(fmt.format(r.createdAt)) % 24] += toCents(String(r.total))
   }
   const currentHour = Number(fmt.format(now))
   return buckets
-    .map((value, hour) => ({ label: `${String(hour).padStart(2, '0')}:00`, value }))
+    .map((cents, hour) => ({ label: `${String(hour).padStart(2, '0')}:00`, value: centsToAmount(cents) }))
     .filter((_, hour) => hour <= currentHour)
 }
 
 const AR_DAY = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت']
 
-function buildDaily(rows: OrderLite[], startToday: Date, days: number): { label: string; value: number }[] {
+export function buildDaily(rows: OrderLite[], startToday: Date, days: number): { label: string; value: number }[] {
   const out: { label: string; value: number }[] = []
   for (let i = days - 1; i >= 0; i--) {
     const dayStart = new Date(startToday.getTime() - i * 24 * 60 * 60 * 1000)
     const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000)
-    const value = rows
+    const valueCents = rows
       .filter((r) => r.createdAt >= dayStart && r.createdAt < dayEnd && r.status !== 'cancelled')
-      .reduce((s, r) => s + Number(r.total), 0)
-    out.push({ label: AR_DAY[dayStart.getUTCDay()], value })
+      .reduce((s, r) => s + toCents(String(r.total)), 0)
+    out.push({ label: AR_DAY[dayStart.getUTCDay()], value: centsToAmount(valueCents) })
   }
   return out
 }

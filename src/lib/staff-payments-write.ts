@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { ROLE, hasAtLeast } from '@/lib/authz'
 import { staffCanAccessBranch, type StaffSession } from '@/lib/session'
 import { notifyRole } from '@/lib/notifications'
+import { getOpenShift } from '@/lib/staff-shifts'
 
 /**
  * Payments write — server-only. Money is NEVER accepted from the client.
@@ -86,6 +87,12 @@ export async function finalizeOrderPayment(
   })
   if (!order) throw new PaymentError('الطلب غير موجود', 404)
   if (!staffCanAccessBranch(session, order.branchId)) throw new PaymentError('غير مصرح', 403)
+
+  // Till discipline: money may only be collected inside an open shift.
+  const openShift = await getOpenShift(order.branchId)
+  if (!openShift) {
+    throw new PaymentError('لا توجد وردية مفتوحة لهذا الفرع — افتح وردية أولًا من صفحة الورديات (/shifts)', 409)
+  }
   if (order.status === 'cancelled') throw new PaymentError('لا يمكن تحصيل طلب ملغي', 409)
 
   return prisma.$transaction(async (tx) => {
@@ -114,6 +121,7 @@ export async function finalizeOrderPayment(
       data: {
         orderId: order.id,
         branchId: order.branchId,
+        shiftId: openShift.id,
         method,
         amount: outstanding.toFixed(2),
         amountDue: outstanding.toFixed(2),

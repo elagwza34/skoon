@@ -40,6 +40,7 @@ alter table public.discounts                enable row level security;
 alter table public.discount_redemptions     enable row level security;
 alter table public.app_settings             enable row level security;
 alter table public.audit_logs               enable row level security;
+alter table public.shifts                    enable row level security;
 
 -- ============================================================================
 -- PUBLIC READ — website / customer menu content (anonymous allowed, read-only)
@@ -103,7 +104,7 @@ create policy "public read active cafe tables"
 --   roles, permissions, role_permission, users, orders, order_items,
 --   order_item_addons, order_item_options, order_status_history, payments,
 --   inventory_items, recipes, recipe_items, inventory_transactions,
---   discounts, discount_redemptions, app_settings, audit_logs.
+--   discounts, discount_redemptions, app_settings, audit_logs, shifts.
 -- Server-side (Prisma DIRECT_URL / service-role) bypasses RLS intentionally and
 -- is the only writer of these tables until scoped policies are approved.
 -- ============================================================================

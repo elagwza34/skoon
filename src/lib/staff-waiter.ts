@@ -25,12 +25,12 @@ export async function getWaiterWorkspace(session: StaffSession): Promise<WaiterW
       select: { id: true, number: true, name: true, capacity: true },
     }),
     prisma.order.findMany({
-      where: { ...branchScope, status: { in: ['new', 'preparing', 'ready'] } },
+      where: { ...branchScope, status: { in: ['new', 'preparing', 'ready', 'cancelled'] } },
       orderBy: { createdAt: 'desc' },
       take: 100,
       select: {
         id: true, orderNumber: true, status: true, paymentStatus: true, total: true, customerName: true,
-        source: true, createdAt: true,
+        source: true, createdAt: true, sentToKitchenAt: true, cancelReason: true,
         cafeTable: { select: { number: true } },
         items: {
           where: { isVoided: false }, orderBy: { id: 'asc' },
@@ -66,6 +66,9 @@ export async function getWaiterWorkspace(session: StaffSession): Promise<WaiterW
       paymentStatus: o.paymentStatus,
       total: Number(o.total), customerName: o.customerName, source: o.source,
       tableNumber: o.cafeTable.number, createdAt: o.createdAt.toISOString(),
+      sentToKitchen: o.sentToKitchenAt != null,
+      sentToKitchenAt: o.sentToKitchenAt?.toISOString() ?? null,
+      cancelReason: o.cancelReason ?? null,
       items: o.items.map((i) => ({ name: i.productName, qty: i.quantity, note: i.notes })),
       itemsCount: o.items.reduce((n, i) => n + i.quantity, 0),
     })),

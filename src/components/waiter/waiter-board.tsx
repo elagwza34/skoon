@@ -18,28 +18,31 @@ import type { WaiterWorkspace } from '@/lib/staff-waiter'
  * Creating orders happens in POS; serving (ready→served) happens here.
  */
 export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
-  const [filter, setFilter] = useState('all')
+  const [filter, setFilter] = useState('new')
   const [pendingId, setPendingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [doneIds, setDoneIds] = useState<string[]>([])
+  const [sentIds, setSentIds] = useState<string[]>([])
 
   const visible = useMemo(
-    () => workspace.openOrders.filter((o) => filter === 'all' || o.status === filter),
+    () => workspace.openOrders.filter((o) => o.status === filter),
     [workspace.openOrders, filter],
   )
 
-  async function serve(id: string) {
+  async function act(id: string, action: 'send_to_kitchen' | 'status', to?: string) {
     setPendingId(id)
     setError(null)
     try {
+      const body = action === 'send_to_kitchen' ? { action: 'send_to_kitchen' } : { to }
       const res = await fetch(`/api/staff/orders/${id}/status`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ to: 'served' }),
+        body: JSON.stringify(body),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data?.error ?? 'فشل التحديث')
-      setDoneIds((prev) => [...prev, id])
+      if (action === 'send_to_kitchen') setSentIds((prev) => [...prev, id])
+      if (action === 'status') setDoneIds((prev) => [...prev, id])
     } catch (e) {
       setError(e instanceof Error ? e.message : 'فشل التحديث')
     } finally {
@@ -63,13 +66,13 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-muted-foreground">الطلبات المفتوحة — التقديم من هنا (جاهز → تم التقديم).</p>
+        <p className="text-sm text-muted-foreground">تابع الطلبات — أرسلها للمطبخ ثم قدّمها عند جهوزها.</p>
         <Segmented
           options={[
-            { value: 'all', label: 'الكل' },
             { value: 'new', label: 'جديد' },
             { value: 'preparing', label: 'قيد التحضير' },
             { value: 'ready', label: 'جاهز' },
+            { value: 'cancelled', label: 'طلبات ملغية' },
           ]}
           value={filter}
           onChange={setFilter}
@@ -82,14 +85,19 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
       ) : null}
 
       {visible.length === 0 ? (
-        <EmptyState icon="orders" title="لا توجد طلبات مفتوحة" description="انتظر طلبات جديدة أو أنشئ طلباً من الكاشير." />
+        filter === 'cancelled' ? (
+          <EmptyState icon="orders" title="لا توجد طلبات ملغية" description="ستظهر هنا الطلبات التي ألغاها العميل أو المطبخ." />
+        ) : (
+          <EmptyState icon="orders" title="لا توجد طلبات في هذه الحالة" description="أنشئ طلباً من الكاشير أو انتظر طلبات الـ QR." />
+        )
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {visible.map((o) => {
             const meta = ORDER_STATUS_META[o.status as OrderStatusKey]
             const done = doneIds.includes(o.id) || o.status === 'served'
+            const sent = sentIds.includes(o.id) || o.sentToKitchen
             return (
-              <Card key={o.id}>
+              <Card key={o.id} className={cn(o.status === 'cancelled' && 'border-destructive/40')}>
                 <CardHeader className="flex-row items-start justify-between gap-2">
                   <div className="flex min-w-0 flex-col">
                     <CardTitle className="text-base">{o.number}</CardTitle>
@@ -101,11 +109,25 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
                 </CardHeader>
                 <CardContent className="flex flex-col gap-2">
                   <span className="text-sm font-semibold">{formatCurrency(o.total)}</span>
-                  {o.status === 'ready' && !done ? (
-                    <Button size="sm" onClick={() => serve(o.id)} disabled={pendingId === o.id}>
+                  {o.status === 'cancelled' ? (
+                    <div className="flex flex-col gap-1 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                      <span>طلب ملغي</span>
+                      {o.cancelReason ? <span className="text-xs opacity-80">{o.cancelReason}</span> : null}
+                    </div>
+                  ) : o.status === 'ready' && !done ? (
+                    <Button size="sm" onClick={() => act(o.id, 'status', 'served')} disabled={pendingId === o.id}>
                       <Icon name="utensils" size={14} />
                       {pendingId === o.id ? 'جاري الحفظ…' : 'تم التقديم'}
                     </Button>
+                  ) : o.status === 'new' ? (
+                    sent ? (
+                      <span className="text-sm text-success">تم الإرسال للمطبخ ✓</span>
+                    ) : (
+                      <Button size="sm" onClick={() => act(o.id, 'send_to_kitchen')} disabled={pendingId === o.id}>
+                        <Icon name="flame" size={14} />
+                        {pendingId === o.id ? 'جاري الإرسال…' : 'إرسال للمطبخ'}
+                      </Button>
+                    )
                   ) : done ? (
                     <span className="text-sm text-success">تم التقديم ✓</span>
                   ) : (

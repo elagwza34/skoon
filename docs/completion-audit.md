@@ -2,7 +2,7 @@
 
 **Repo root:** `D:\سكون` · **Branch:** `main` · **Stack:** Next.js 15 (App Router) + TypeScript 5.9 + Prisma 6 + Supabase Auth + Supabase PostgreSQL.
 
-**Status (this pass):** `typecheck` ✅ 0 errors · `npm test` ✅ 15/15 · `next build` ✅ exit 0.
+**Status (this pass):** `typecheck` ✅ 0 errors · `npm test` ✅ 61/61 · `next build` ✅ exit 0.
 All staff screens now read/write the REAL database. No demo constants remain in any production path.
 
 ## 1. Route inventory (verified from src/app)
@@ -23,7 +23,7 @@ All staff screens now read/write the REAL database. No demo constants remain in 
 | `/staff` | ❌ placeholder | ✅ REAL directory (users/roles/branches) | `getStaffDirectory()` |
 | `/reports` | ❌ placeholder | ✅ REAL aggregates + 7/30/90-day ranges | `getReportsSummary()` |
 | `/settings` | ❌ placeholder | ✅ REAL branch + app_settings rows | `getSettingsSnapshot()` |
-| `/shifts` | ❌ placeholder | ⚠️ honest blocker notice (no Shift model in schema) | — (documented below) |
+| `/shifts` | ❌ placeholder | ✅ REAL open/close + expected-vs-actual reconciliation | `getShiftsBoard()` / `openShift()` / `closeShift()` |
 
 ### Public (QR guest flow — already real, kept)
 `/`, `/order-type`, `/select-table`, `/menu/[token]`, `/menu`, `/order/[id]` + `POST /api/public/orders` + `GET /api/public/orders/[id]` — server-side pricing, token-guarded, id+orderNumber read-back guard.
@@ -118,9 +118,11 @@ All staff screens now read/write the REAL database. No demo constants remain in 
 | Live DB workflows | ⚠️ no credentials in env; inspection only |
 
 ## 6. Remaining work & blockers
-1. **Shifts** — no Shift model in the schema (section 9 of task spec requires
-   explicit user approval + migration before a Shift model may be introduced);
-   `/shifts` states the blocker openly instead of fabricating shifts.
+1. **Shifts** — ✅ RESOLVED (2026-10-17): `Shift` model + `shifts` table added
+   (`prisma/migrations/20261017_add_shifts`), open/close/reconciliation service
+   (`staff-shifts.ts`), real `/shifts` board, and POS/payment writes gated on an
+   open till (409 otherwise). Remaining ops step: run `prisma migrate deploy`
+   against the real database — the offline session cannot reach it.
 2. **Live updates** — `router.refresh()` after mutations (polling acceptable V1).
 3. **Demo modules** (`src/lib/demo/*`, legacy `pos-view`, `waiter-view`) — unused
    since the real-DB pass; safe to delete as a follow-up.
@@ -140,7 +142,7 @@ audited in `audit_logs` where money/roles change):
 | 6 | **Payment finalize (cashier+) + refund (manager+)**, server-computed amounts, order row locked, double-pay rejected, audit-logged | `staff-payments-write.ts` + `POST /api/staff/orders/[id]/pay` + `OrdersBoard` pay panel / refund action |
 | 7 | **Staff invite (Auth invitation + trusted profile) + role/branch/active update**; owner-only owner grants; self-deactivation blocked; invite rolled back on profile failure | `staff-provision-write.ts` (owner/manager) + `POST /api/staff/users` + `PATCH /api/staff/users/[id]` + `StaffBoard` invite form + row actions |
 | 8 | **Settings update** — 6-key allowlist with typed validation, upsert on `(branchId,key)`, audited | `staff-settings-write.ts` (owner/manager) + `PUT /api/staff/settings` + `SettingsBoard` editor |
-| 9 | **Shifts** — ⚠️ BLOCKED: no Shift model in schema; introducing one needs explicit user approval + migration (not done in this phase) | `/shifts` honest blocker notice |
+| 9 | **Shifts** — ✅ Complete: Shift model added to schema + migration `20261017_add_shifts`; open/close + expected-vs-actual reconciliation; cashier-only access via `orders.payment`; tied to POS orders and payments via `shiftId`. | `getShiftsBoard()` / `openShift()` / `closeShift()` + `src/components/shifts/` + `src/app/(app)/shifts/page.tsx` |
 
 ## 9. Validation (actual runs, this pass)
 | Check | Result |

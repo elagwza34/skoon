@@ -195,6 +195,16 @@ create policy "staff read own-branch payments"
   using (public.can_access_branch(branch_id));
 -- No client insert/update/delete on payments. Denied by omission (server-only).
 
+-----------------------------------------------------------------------------
+-- SHIFTS - till sessions. Server-written only (open/close in trusted code,
+-- like payment writes); staff may READ own-branch rows for the shifts board.
+-----------------------------------------------------------------------------
+create policy "staff read own-branch shifts"
+  on public.shifts for select
+  to authenticated
+  using (public.can_access_branch(branch_id));
+-- No client insert/update/delete on shifts. Denied by omission (server-only).
+
 -- ---------------------------------------------------------------------------
 -- CAFE TABLES — branch_id present. Staff read own-branch tables (incl. inactive
 -- so POS can show all tables); manager+ may update table status/layout in-branch.

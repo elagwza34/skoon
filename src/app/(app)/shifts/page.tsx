@@ -1,30 +1,22 @@
 import { requirePageAccess } from '@/lib/require-page-access'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { EmptyState } from '@/components/ui/empty-state'
+import { getShiftsBoard } from '@/lib/staff-shifts'
+import { ShiftsBoard } from '@/components/shifts/shifts-board'
 
 export const dynamic = 'force-dynamic'
 
 /**
- * Shifts — honest scope notice. There is no Shift model in the Prisma
- * schema (v1), so no shift open/close/reconciliation can be persisted.
- * This screen states the blocker instead of rendering fabricated shifts.
+ * Shifts — real open/close/reconciliation board (MVP P0).
+ * Snapshot is fetched server-side (owner may switch branch via ?branchId=);
+ * open/close mutations go through /api/staff/shifts and refresh the page.
  */
-export default async function ShiftsPage() {
-  await requirePageAccess('/shifts')
+export default async function ShiftsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ branchId?: string }>
+}) {
+  const session = await requirePageAccess('/shifts')
+  const { branchId } = await searchParams
+  const board = await getShiftsBoard(session, branchId)
 
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>الورديات</CardTitle>
-        <CardDescription>رصيد الافتتاح والجرد والمتوقع والفرق والتسوية</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <EmptyState
-          icon="shifts"
-          title="الورديات خارج نطاق v1"
-          description="لا يوجد نموذج Shift في قاعدة البيانات الحالية، فلا يمكن فتح وردية أو تسويتها بأمان. المطلوب: إضافة جدول shifts + سياسات RLS + شاشة فتح/إغلاق — موثق كعائق في docs/completion-audit.md."
-        />
-      </CardContent>
-    </Card>
-  )
+  return <ShiftsBoard initial={board} />
 }

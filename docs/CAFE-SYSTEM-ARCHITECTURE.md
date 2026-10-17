@@ -29,7 +29,7 @@
 > | UI surfaces | Admin dashboard **plus** dedicated **waiter / kitchen / cashier** POS screens | Approved |
 > | Auth model | Staff accounts + roles/permissions, **server-side authorization** | Approved |
 > | QR & lifecycle | Customer **QR ordering**, waiter orders, kitchen workflow, cashier payments | Approved |
-> | Shifts | Opening float, closing cash count, expected cash, variance, reconciliation | Approved; **tables not yet in schema** (Phase 2/5) |
+> | Shifts | Opening float, closing cash count, expected cash, variance, reconciliation | Approved; shipped as MVP P0 (`shifts` table — `prisma/migrations/20261017_add_shifts`) |
 > | Currency | Default **EGP**; configurable | Approved |
 > | Tax | **Configurable rates/rules** (data-driven, not hardcoded) | Approved |
 > | Live updates | **Polling for V1** unless a verified better option is confirmed later | Approved |

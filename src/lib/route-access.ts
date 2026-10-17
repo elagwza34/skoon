@@ -36,7 +36,7 @@ const ROUTE_PERMISSION: Record<string, string> = {
   '/staff': 'staff.view',
   '/reports': 'reports.view',
   '/settings': 'settings.manage',
-  '/shifts': 'settings.manage',
+  '/shifts': 'orders.payment',
 }
 
 const OPERATIONAL: readonly string[] = [ROLE.WAITER, ROLE.KITCHEN, ROLE.CASHIER]
@@ -47,6 +47,17 @@ export function isOperationalRole(role: string): boolean {
 
 export function isOpsPath(pathname: string): boolean {
   return OPS_BOARDS.some((p) => pathname === p || pathname.startsWith(`${p}/`))
+}
+
+/**
+ * Admin pages an operational role may still render IN the ops shell.
+ * narrowly scoped exception, one route at a time, each with a test:
+ * a cashier must open/close the till (/shifts) to collect money at all —
+ * their whole station is blocked otherwise. Waiter/kitchen gain nothing.
+ */
+export function canRenderInOpsShell(role: string, pathname: string): boolean {
+  if (role !== ROLE.CASHIER) return false
+  return pathname === '/shifts' || pathname.startsWith('/shifts/')
 }
 
 /** Home screen per role — operational roles land on their dedicated board. */

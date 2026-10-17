@@ -4,7 +4,7 @@ import { headers } from 'next/headers'
 import { AppShell } from '@/components/layout/app-shell'
 import { getAuthUser, getStaffSession } from '@/lib/session'
 import { describeDbEnv, prisma } from '@/lib/prisma'
-import { canSeeRoute, isOperationalRole, isOpsPath, homeForRole } from '@/lib/route-access'
+import { canSeeRoute, isOperationalRole, isOpsPath, canRenderInOpsShell, homeForRole } from '@/lib/route-access'
 
 /** Read the resolved pathname (set by middleware). Falls back to ''. */
 async function currentPath(): Promise<{ pathname: string }> {
@@ -61,7 +61,15 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   // without the admin sidebar. Send them straight to their board when they
   // land on an admin page they happen to be allowed to open.
   const home = homeForRole(session.role)
-  if (isOperationalRole(session.role) && !isOpsPath(pathname) && pathname !== home) {
+  // An operational role on a non-board page is bounced home — EXCEPT the
+  // narrow ops-shell exceptions (e.g. /shifts for the cashier, whose whole
+  // station is blocked while no till is open).
+  if (
+    isOperationalRole(session.role) &&
+    !isOpsPath(pathname) &&
+    !canRenderInOpsShell(session.role, pathname) &&
+    pathname !== home
+  ) {
     redirect(home)
   }
 

@@ -42,6 +42,7 @@ model CafeBranch {
   inventoryItems        InventoryItem[]
   inventoryTransactions InventoryTransaction[]
   auditLogs             AuditLog[]
+  shifts                Shift[]
 
   @@index([isActive])
   @@map("branches")
@@ -122,6 +123,7 @@ model User {
   inventoryTransactions InventoryTransaction[] @relation("txnCreatedBy")
   auditLogs             AuditLog[]
   updatedSettings       AppSetting[]           @relation("settingUpdatedBy")
+  cashierShifts         Shift[]                @relation("shiftCashier")
 
   @@index([roleId])
   // Notifications sent to this user (order status transitions, payments).
@@ -303,12 +305,14 @@ model Order {
   cancelledAt    DateTime? @map("cancelled_at")
   cancelReason   String?   @map("cancel_reason") @db.VarChar(255)
   createdById    String?   @map("created_by") @db.Uuid
+  shiftId        BigInt?   @map("shift_id")
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
   branch        CafeBranch           @relation(fields: [branchId], references: [id], onDelete: Restrict)
   cafeTable     CafeTable            @relation(fields: [cafeTableId], references: [id], onDelete: Restrict)
   createdBy     User?                @relation("orderCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  shift         Shift?               @relation("orderShift", fields: [shiftId], references: [id], onDelete: SetNull)
   items         OrderItem[]
   payments      Payment[]
   statusHistory OrderStatusHistory[]
@@ -320,6 +324,7 @@ model Order {
   @@index([branchId, createdAt])
   @@index([status])
   @@index([paymentStatus])
+  @@index([shiftId])
   @@map("orders")
 }
 
@@ -435,17 +440,52 @@ model Payment {
   gateway         String?  @db.VarChar(30)
   gatewayResponse Json?    @map("gateway_response")
   paidById        String?  @map("paid_by") @db.Uuid
+  shiftId         BigInt?  @map("shift_id")
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
   order  Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
   branch CafeBranch @relation(fields: [branchId], references: [id], onDelete: Restrict)
   paidBy User?      @relation("paymentPaidBy", fields: [paidById], references: [id], onDelete: SetNull)
+  shift  Shift?     @relation("paymentShift", fields: [shiftId], references: [id], onDelete: SetNull)
 
   @@index([orderId])
   @@index([branchId, createdAt])
   @@index([method])
+  @@index([shiftId])
   @@map("payments")
+}
+
+// ==================== SHIFTS (MVP P0) ====================
+// One open till session per branch: opening float, expected cash vs counted
+// cash at close, variance. Orders/payments link via optional shiftId (SetNull).
+
+model Shift {
+  id             BigInt    @id @default(autoincrement())
+  branchId       BigInt    @map("branch_id")
+  // Display snapshot of whoever opened the till (audit FK lives in cashierId).
+  openBy         String    @map("open_by")
+  cashierId      String?   @map("cashier_id") @db.Uuid
+  openingCash    Decimal   @default(0) @map("opening_cash") @db.Decimal(10, 2)
+  // expected = opening + cash received − cash refunded (computed at close).
+  expectedCash   Decimal   @default(0) @map("expected_cash") @db.Decimal(10, 2)
+  closingCash    Decimal   @default(0) @map("closing_cash") @db.Decimal(10, 2)
+  // actual − expected: positive = excess, negative = shortage.
+  cashDifference Decimal   @default(0) @map("cash_difference") @db.Decimal(10, 2)
+  status         String    @default("open") @db.VarChar(20)
+  openedAt       DateTime  @default(now()) @map("opened_at")
+  closedAt       DateTime? @map("closed_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  branch   CafeBranch @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  cashier  User?      @relation("shiftCashier", fields: [cashierId], references: [id], onDelete: SetNull)
+  orders   Order[]    @relation("orderShift")
+  payments Payment[]  @relation("paymentShift")
+
+  @@index([branchId, status])
+  @@index([cashierId])
+  @@map("shifts")
 }
 
 // ==================== INVENTORY (schema ready, dormant in v1) ====================

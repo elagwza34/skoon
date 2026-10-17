@@ -57,6 +57,10 @@ export interface StaffOrderRow {
   createdAt: string
   items: { name: string; qty: number; note: string | null }[]
   itemsCount: number
+  /** Set once the waiter has pushed the order to the kitchen ("إرسال للمطبخ"). */
+  sentToKitchen: boolean
+  sentToKitchenAt: string | null
+  cancelReason: string | null
 }
 
 /**
@@ -84,6 +88,8 @@ export async function listStaffOrders(
       customerName: true,
       source: true,
       createdAt: true,
+      sentToKitchenAt: true,
+      cancelReason: true,
       cafeTable: { select: { number: true } },
       items: {
         where: { isVoided: false },
@@ -103,6 +109,9 @@ export async function listStaffOrders(
     source: o.source,
     tableNumber: o.cafeTable.number,
     createdAt: o.createdAt.toISOString(),
+    sentToKitchen: o.sentToKitchenAt != null,
+    sentToKitchenAt: o.sentToKitchenAt?.toISOString() ?? null,
+    cancelReason: o.cancelReason ?? null,
     items: o.items.map((i) => ({ name: i.productName, qty: i.quantity, note: i.notes })),
     itemsCount: o.items.reduce((n, i) => n + i.quantity, 0),
   }))

@@ -3,10 +3,10 @@ import { getStaffSession } from '@/lib/session'
 import { listNotifications, countUnread } from '@/lib/notifications'
 
 /**
- * Signed-in user's notifications — GET /api/staff/notifications.
+ * Signed-in user's notifications — GET /api/staff/notifications (list + unread).
  * Polled by the bell so every role (waiter/kitchen/cashier/manager/owner) sees
- * its own branch-scoped alerts. Read-only; identity comes from the session, so
- * a user can never read another user's bell.
+ * its own branch-scoped alerts. Identity comes from the session, so a user can
+ * never read another user's bell. Marking-as-read lives at `.../notifications/read`.
  */
 export const dynamic = 'force-dynamic'
 
