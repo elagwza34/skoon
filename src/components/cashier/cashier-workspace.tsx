@@ -66,8 +66,8 @@ export function CashierWorkspace({ session, board, branchName, invoices, product
       {tab === 'open' && <InvoiceBoard key="open" invoices={invoices} products={products} defaultTab="open" />}
       {tab === 'paid' && <InvoiceBoard key="paid" invoices={invoices} products={products} defaultTab="paid" />}
       {tab === 'cancelled' && <InvoiceBoard key="cancelled" invoices={invoices} products={products} defaultTab="cancelled" />}
-      {tab === 'balances' && <div className="flex flex-col gap-5"><CashierDashboard session={session} board={board} branchName={branchName} compact /><SharedFloatPanel summary={sharedFloat} cashierId={session.id} /></div>}
-      {tab === 'shifts' && <ShiftHistory board={board} />}
+      {tab === 'balances' && <SharedFloatPanel summary={sharedFloat} cashierId={session.id} />}
+      {tab === 'shifts' && <div className="flex flex-col gap-5"><CashierDashboard session={session} board={board} branchName={branchName} compact /><ShiftHistory board={board} /></div>}
     </main>
     {openModal && <div role="dialog" aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4"><Card className="w-full max-w-md"><CardHeader><CardTitle>فتح وردية جديدة</CardTitle></CardHeader><CardContent className="flex flex-col gap-4"><p className="text-sm text-muted-foreground">سيسجل الرصيد الافتتاحي في الوردية الحالية للفرع.</p><Input autoFocus inputMode="decimal" value={openingCash} onChange={(e) => setOpeningCash(e.target.value)} placeholder="0.00" aria-label="رصيد الافتتاح" /><div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setOpenModal(false)}>إلغاء</Button><Button disabled={busy} onClick={openShift}>{busy ? 'جارٍ الفتح…' : 'تأكيد الفتح'}</Button></div></CardContent></Card></div>}
   </div>
