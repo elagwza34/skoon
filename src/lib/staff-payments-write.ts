@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { createHash } from 'node:crypto'
 import { prisma } from '@/lib/prisma'
 import { ROLE, hasAtLeast } from '@/lib/authz'
 import { staffCanAccessBranch, type StaffSession } from '@/lib/session'
@@ -52,10 +53,12 @@ const paySchema = z.object({
   }),
   // Cash only: tendered amount (>= outstanding). Optional for card/online.
   received: z.coerce.number().positive('المبلغ المستلم يجب أن يكون أكبر من صفر').max(9_999_999).optional(),
+  idempotencyKey: z.string().trim().min(8).max(100).optional(),
 })
 
 export const refundSchema = z.object({
   reason: z.string().trim().min(3, 'سبب الاسترداد مطلوب (3 أحرف على الأقل)').max(255),
+  idempotencyKey: z.string().trim().min(8).max(100).optional(),
 })
 
 export interface PaymentResult {
@@ -87,6 +90,13 @@ export async function finalizeOrderPayment(
   })
   if (!order) throw new PaymentError('الطلب غير موجود', 404)
   if (!staffCanAccessBranch(session, order.branchId)) throw new PaymentError('غير مصرح', 403)
+
+  const collectionKey = parsed.data.idempotencyKey
+  const collectionFingerprint = createHash('sha256').update(JSON.stringify({ orderId: orderIdRaw, method, received: parsed.data.received ?? null })).digest('hex')
+  if (collectionKey) {
+    const prior = await prisma.financialOperation.findUnique({ where: { branchId_actorId_operationType_idempotencyKey: { branchId: order.branchId, actorId: session.id, operationType: 'payment_collection', idempotencyKey: collectionKey } } })
+    if (prior) { if (prior.fingerprint !== collectionFingerprint) throw new PaymentError('Idempotency key was reused with a different request', 409); return prior.result as unknown as PaymentResult }
+  }
 
   // Till discipline: money may only be collected inside an open shift for the acting employee.
   const openShift = await getOpenShift(session.id, order.branchId)
@@ -161,7 +171,7 @@ export async function finalizeOrderPayment(
       },
     })
 
-    return {
+    const result = {
       orderId: order.id.toString(),
       orderNumber: order.orderNumber,
       paymentId: payment.id.toString(),
@@ -170,6 +180,8 @@ export async function finalizeOrderPayment(
       changeAmount: change.toFixed(2),
       paymentStatus: 'paid',
     }
+    if (collectionKey) await tx.financialOperation.create({ data: { branchId: order.branchId, actorId: session.id, operationType: 'payment_collection', idempotencyKey: collectionKey, fingerprint: collectionFingerprint, result } })
+    return result
   })
 }
 
@@ -203,6 +215,13 @@ export async function refundOrderPayment(
   if (!order) throw new PaymentError('الطلب غير موجود', 404)
   if (!staffCanAccessBranch(session, order.branchId)) throw new PaymentError('غير مصرح', 403)
   if (order.paymentStatus !== 'paid') throw new PaymentError('الطلب غير مدفوع — لا يوجد ما يُسترد', 409)
+
+  const refundKey = parsed.data.idempotencyKey
+  const refundFingerprint = createHash('sha256').update(JSON.stringify({ orderId: orderIdRaw, reason: parsed.data.reason })).digest('hex')
+  if (refundKey) {
+    const prior = await prisma.financialOperation.findUnique({ where: { branchId_actorId_operationType_idempotencyKey: { branchId: order.branchId, actorId: session.id, operationType: 'payment_refund', idempotencyKey: refundKey } } })
+    if (prior) { if (prior.fingerprint !== refundFingerprint) throw new PaymentError('Idempotency key was reused with a different request', 409); return prior.result as unknown as RefundResult }
+  }
 
   // Till discipline: a refund is a financial action tied to the acting
   // employee's open shift. Cash-handling roles must have an open shift.
@@ -240,12 +259,14 @@ export async function refundOrderPayment(
       },
     })
 
-    return {
+    const result = {
       orderId: order.id.toString(),
       orderNumber: order.orderNumber,
       refunded: updated.count,
       paymentStatus: 'refunded' as const,
     }
+    if (refundKey) await tx.financialOperation.create({ data: { branchId: order.branchId, actorId: session.id, operationType: 'payment_refund', idempotencyKey: refundKey, fingerprint: refundFingerprint, result } })
+    return result
   })
 }
 

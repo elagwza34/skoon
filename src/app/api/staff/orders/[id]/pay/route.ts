@@ -23,12 +23,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   }
 
   try {
+    const idempotencyKey = req.headers.get('idempotency-key') ?? body.idempotencyKey
     if (body.action === 'pay') {
-      const result = await finalizeOrderPayment(session, id, { method: body.method, received: body.received })
+      const result = await finalizeOrderPayment(session, id, { method: body.method, received: body.received, idempotencyKey })
       return NextResponse.json(result, { status: 201 })
     }
     if (body.action === 'refund') {
-      const result = await refundOrderPayment(session, id, { reason: body.reason })
+      const result = await refundOrderPayment(session, id, { reason: body.reason, idempotencyKey })
       return NextResponse.json(result, { status: 200 })
     }
     return NextResponse.json({ error: 'إجراء غير معروف' }, { status: 400 })

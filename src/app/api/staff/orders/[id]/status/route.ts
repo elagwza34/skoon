@@ -23,7 +23,7 @@ export async function POST(req: Request, { params }: Params) {
 
   const { id } = await params
 
-  let body: { action?: string; to?: unknown }
+  let body: { action?: string; to?: unknown; reason?: unknown }
   try {
     body = await req.json()
   } catch {
@@ -46,7 +46,7 @@ export async function POST(req: Request, { params }: Params) {
   }
 
   try {
-    const result = await transitionOrderStatus(session, id, to)
+    const result = await transitionOrderStatus(session, id, to, body.reason)
     return NextResponse.json(result)
   } catch (e) {
     if (e instanceof OrderError) {

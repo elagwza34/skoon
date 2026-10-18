@@ -55,6 +55,7 @@ export const navGroups: NavGroup[] = [
       { href: '/shifts', label: 'الورديات', icon: 'shifts' },
       { href: '/reports', label: 'التقارير', icon: 'reports' },
       { href: '/settings', label: 'الإعدادات', icon: 'settings' },
+      { href: '/fixed-float', label: 'العهدة الثابتة', icon: 'pos' },
     ],
   },
 ]

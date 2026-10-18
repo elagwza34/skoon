@@ -1,20 +1,15 @@
-import { redirect } from 'next/navigation'
 import { requirePageAccess } from '@/lib/require-page-access'
-import { getShiftsBoard, getOpenShift } from '@/lib/staff-shifts'
-import { CashierDashboard } from '@/components/cashier/cashier-dashboard'
+import { getShiftsBoard } from '@/lib/staff-shifts'
 import { prisma } from '@/lib/prisma'
-import { isOwner } from '@/lib/authz'
+import { getCashierInvoices } from '@/lib/staff-invoices'
+import { getPosCatalog } from '@/lib/staff-pos'
+import { getSharedFloatSummary } from '@/lib/staff-float'
+import { CashierWorkspace } from '@/components/cashier/cashier-workspace'
 
 export const dynamic = 'force-dynamic'
 
 export default async function CashierPage() {
   const session = await requirePageAccess('/cashier')
-
-  // Owner bypasses shift requirements; operational staff must have an open shift.
-  if (!isOwner(session.role) && session.branchId) {
-    const shift = await getOpenShift(session.id, BigInt(session.branchId))
-    if (!shift) redirect('/shifts')
-  }
 
   let branchName: string | null = null
   if (session.branchId) {
@@ -29,7 +24,15 @@ export default async function CashierPage() {
     }
   }
 
-  const board = await getShiftsBoard(session)
+  const [board, invoices, catalog, sharedFloat] = await Promise.all([getShiftsBoard(session), getCashierInvoices(session), getPosCatalog(session), getSharedFloatSummary(session)])
 
-  return <CashierDashboard session={session} board={board} branchName={branchName} />
+  return <CashierWorkspace
+    session={session}
+    board={board}
+    branchName={branchName}
+    invoices={invoices}
+    catalog={catalog}
+    products={catalog.products.map(({ id, name, price }) => ({ id, name, price }))}
+    sharedFloat={sharedFloat}
+  />
 }

@@ -16,7 +16,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
   }
   try {
-    const result = await createPosOrder(session, body)
+    const result = await createPosOrder(session, body, req.headers.get('idempotency-key'))
     return NextResponse.json(result, { status: 201 })
   } catch (e) {
     if (e instanceof PosError) return NextResponse.json({ error: e.message }, { status: e.status })

@@ -38,9 +38,14 @@ import {
   closeShiftSchema,
   computeShiftCashFlow,
   expectedCashFrom,
+  expectedCashAfterOperationalWithdrawals,
+  crossedLocalMidnight,
   isCashHandlingRole,
   openShiftSchema,
 } from '../src/lib/staff-shifts'
+import { floatMovementSchema } from '../src/lib/staff-float'
+import { recalculateInvoiceTotals, splitInvoices, type InvoiceRow } from '../src/lib/staff-invoices'
+import { posOrderSchema } from '../src/lib/staff-pos'
 import { getGuestOrders, saveGuestOrder } from '../src/lib/guest-orders'
 import { SETTING_DEFS, SettingsError } from '../src/lib/staff-settings-write'
 import {
@@ -594,6 +599,51 @@ test('shifts: cash difference = counted − expected (signed)', () => {
   assert.equal(cashDifferenceOf(500, 500), 0)
 })
 
+test('handover routing: only a branch-local calendar rollover is after midnight', () => {
+  // Cairo is UTC+2 in January: 21:59Z is 23:59 local, then 22:01Z is 00:01.
+  assert.equal(crossedLocalMidnight(new Date('2026-01-15T21:59:00Z'), new Date('2026-01-15T22:01:00Z'), 'Africa/Cairo'), true)
+  assert.equal(crossedLocalMidnight(new Date('2026-01-15T19:00:00Z'), new Date('2026-01-15T21:00:00Z'), 'Africa/Cairo'), false)
+})
+
+test('fixed float movement input accepts only positive, reasoned additions or withdrawals', () => {
+  assert.equal(floatMovementSchema.safeParse({ amount: '12.50', direction: 'addition', reason: 'Morning float' }).success, true)
+  assert.equal(floatMovementSchema.safeParse({ amount: 0, direction: 'withdrawal', reason: 'Supplies' }).success, false)
+  assert.equal(floatMovementSchema.safeParse({ amount: 5, direction: 'withdrawal', reason: 'x' }).success, false)
+})
+
+test('shift reconciliation subtracts operational withdrawals without treating them as sales', () => {
+  assert.equal(expectedCashAfterOperationalWithdrawals(expectedCashFrom(100, [{ method: 'cash', status: 'completed', amount: 50 }]), 20), 130)
+})
+
+test('fixed float transfers never enter cashier expected-cash arithmetic', () => {
+  const cashOnly = expectedCashFrom(100, [{ method: 'card', status: 'completed', amount: 999 }])
+  assert.equal(cashOnly, 100)
+  assert.equal(expectedCashAfterOperationalWithdrawals(cashOnly, 25), 75)
+})
+
+test('route-access: fixed float requires settings management', () => {
+  assert.equal(permissionForPath('/fixed-float'), 'settings.manage')
+  assert.equal(canSeeRoute('manager', ['settings.manage'], '/fixed-float'), true)
+  assert.equal(canSeeRoute('cashier', ['orders.payment'], '/fixed-float'), false)
+})
+
+test('invoices: authoritative totals recalculate discount and tax', () => {
+  assert.deepEqual(recalculateInvoiceTotals(100, 'percentage', 10, 14), { discount: 10, tax: 12.6, total: 102.6 })
+})
+
+test('pos order input contains only item identity, quantity, table, and customer data', () => {
+  const parsed = posOrderSchema.parse({ tableId: '7', customerName: 'Guest', total: 0.01, items: [{ productId: '11', qty: 2, price: 0.01 }] })
+  assert.deepEqual(parsed, { tableId: '7', customerName: 'Guest', items: [{ productId: '11', qty: 2 }] })
+  assert.equal(posOrderSchema.safeParse({ tableId: '7', items: [] }).success, false)
+  assert.equal(posOrderSchema.safeParse({ tableId: '7', items: [{ productId: '11', qty: 21 }] }).success, false)
+})
+
+test('invoices: open and paid sections derive from persisted remaining balance', () => {
+  const base = { id: '1', number: 'INV-1', createdAt: '', branch: 'A', table: '1', creator: null, status: 'served', paymentStatus: 'unpaid', subtotal: '10.00', discount: '0.00', tax: '0.00', total: '10.00', paid: '0.00', cancelledAt: null, cancelReason: null, items: [], payments: [] }
+  const result = splitInvoices([{ ...base, remaining: '10.00' }, { ...base, id: '2', number: 'INV-2', remaining: '0.00', paid: '10.00', paymentStatus: 'paid' }, { ...base, id: '3', number: 'INV-3', status: 'cancelled', cancelledAt: '2026-10-18T00:00:00.000Z', cancelReason: 'customer request', remaining: '0.00' }] as InvoiceRow[])
+  assert.equal(result.open.length, 1); assert.equal(result.paid.length, 1)
+})
+
 test('shifts: open/close schemas coerce and validate money inputs', () => {
   const ok = openShiftSchema.safeParse({ openingCash: '250.5' })
   assert.equal(ok.success, true)
@@ -618,7 +668,8 @@ test('shifts: open/close schemas coerce and validate money inputs', () => {
   // closingCash now defaults to 0, so empty input is valid
   assert.equal(closeShiftSchema.safeParse({}).success, true)
 
-  // Handover fields are optional; notes capped at 1000 chars, recipient at 100.
+  // Handover fields are optional; notes capped at 1000 chars and the recipient
+  // is an identity UUID (the server resolves its display name).
   assert.equal(
     closeShiftSchema.safeParse({ closingCash: 300, handoverNotes: 'تسليم طبيعي', handoverTo: 'أحمد' }).success,
     true,
@@ -628,7 +679,7 @@ test('shifts: open/close schemas coerce and validate money inputs', () => {
     false,
   )
   assert.equal(
-    closeShiftSchema.safeParse({ closingCash: 300, handoverTo: 'x'.repeat(101) }).success,
+    closeShiftSchema.safeParse({ closingCash: 300, handoverRecipientId: 'not-a-uuid' }).success,
     false,
   )
 })

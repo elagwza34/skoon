@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { prisma } from '@/lib/prisma'
 import { ROLE } from '@/lib/authz'
 import { staffCanAccessBranch, type StaffSession } from '@/lib/session'
@@ -6,11 +6,13 @@ import { PosError, posOrderSchema } from '@/lib/staff-pos'
 import { notifyRole } from '@/lib/notifications'
 import { getOpenShift } from '@/lib/staff-shifts'
 
+export type PosOrderResult = { id: string; orderNumber: string; total: string; itemsCount: number }
+
 /**
  * Staff POS order creation — server-side pricing, one transaction.
  * Cashier+ and waiter (own branch). Kitchen is forbidden.
  */
-export async function createPosOrder(session: StaffSession, input: unknown) {
+export async function createPosOrder(session: StaffSession, input: unknown, idempotencyKey?: string | null) {
   if (session.role === ROLE.KITCHEN) throw new PosError('Forbidden', 403)
   const parsed = posOrderSchema.safeParse(input)
   if (!parsed.success) throw new PosError(parsed.error.issues[0]?.message ?? 'بيانات غير صالحة', 400)
@@ -19,6 +21,8 @@ export async function createPosOrder(session: StaffSession, input: unknown) {
     session.role === ROLE.OWNER
       ? await resolveOwnerBranch(session, parsed.data.tableId)
       : BigInt(session.branchId as string)
+  const key = idempotencyKey?.trim() || null
+  if (key && (key.length < 8 || key.length > 100)) throw new PosError('Invalid idempotency key', 400)
 
   // Till discipline: a POS order may only be created inside an open shift,
   // so every order/payment of this branch belongs to a reconcilable session.
@@ -45,6 +49,19 @@ export async function createPosOrder(session: StaffSession, input: unknown) {
     tableId = firstTable.id
   } else {
     throw new PosError('اختر الطاولة', 400)
+  }
+
+  const fingerprint = createHash('sha256').update(JSON.stringify({
+    branchId: branchId.toString(), tableId: tableId.toString(), customerName: parsed.data.customerName?.trim() || null,
+    items: parsed.data.items.map((item) => ({ productId: item.productId, qty: item.qty, note: item.note?.trim() || null })),
+  })).digest('hex')
+  // A completed retry remains retrievable even if a product was later disabled.
+  if (key) {
+    const prior = await prisma.financialOperation.findUnique({ where: { branchId_actorId_operationType_idempotencyKey: { branchId, actorId: session.id, operationType: 'pos_order_create', idempotencyKey: key } } })
+    if (prior) {
+      if (prior.fingerprint !== fingerprint) throw new PosError('Idempotency key was reused with a different request', 409)
+      return prior.result as unknown as PosOrderResult
+    }
   }
 
   const productIds = [...new Set(parsed.data.items.map((i) => BigInt(i.productId)))]
@@ -74,6 +91,16 @@ export async function createPosOrder(session: StaffSession, input: unknown) {
   const subtotal = total.toFixed(2)
 
   const created = await prisma.$transaction(async (tx) => {
+    // The lock makes the read/check/create sequence safe when a client retries
+    // the same submission concurrently. The durable record commits with the order.
+    if (key) {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('pos-order:' || ${branchId.toString()} || ':' || ${session.id} || ':' || ${key}))`
+      const prior = await tx.financialOperation.findUnique({ where: { branchId_actorId_operationType_idempotencyKey: { branchId, actorId: session.id, operationType: 'pos_order_create', idempotencyKey: key } } })
+      if (prior) {
+        if (prior.fingerprint !== fingerprint) throw new PosError('Idempotency key was reused with a different request', 409)
+        return prior.result as unknown as PosOrderResult
+      }
+    }
     const order = await tx.order.create({
       data: {
         branchId, cafeTableId: tableId,
@@ -101,14 +128,16 @@ export async function createPosOrder(session: StaffSession, input: unknown) {
       title: `طلب جديد ${order.orderNumber}`,
       orderId: order.id,
     })
-    return order
+    const result = {
+      id: order.id.toString(), orderNumber: order.orderNumber,
+      total: order.total.toString(), itemsCount: lines.reduce((n, l) => n + l.quantity, 0),
+    }
+    if (key) await tx.financialOperation.create({ data: { branchId, actorId: session.id, operationType: 'pos_order_create', idempotencyKey: key, fingerprint, result } })
+    await tx.auditLog.create({ data: { userId: session.id, branchId, action: 'pos.order_create', entityType: 'order', entityId: order.id, newValues: { orderNumber: order.orderNumber, total: order.total.toString(), itemsCount: result.itemsCount } } })
+    return result
   })
 
-  return {
-    id: created.id.toString(), orderNumber: created.orderNumber,
-    total: created.total.toString(),
-    itemsCount: lines.reduce((n, l) => n + l.quantity, 0),
-  }
+  return created
 }
 
 async function resolveOwnerBranch(session: StaffSession, tableIdRaw?: string): Promise<bigint> {

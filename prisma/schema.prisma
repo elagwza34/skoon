@@ -43,6 +43,8 @@ model CafeBranch {
   inventoryTransactions InventoryTransaction[]
   auditLogs             AuditLog[]
   shifts                Shift[]
+  financialMovements    FinancialMovement[]
+  financialOperations   FinancialOperation[]
 
   @@index([isActive])
   @@map("branches")
@@ -124,6 +126,8 @@ model User {
   auditLogs             AuditLog[]
   updatedSettings       AppSetting[]           @relation("settingUpdatedBy")
   cashierShifts         Shift[]                @relation("shiftCashier")
+  financialMovements    FinancialMovement[]    @relation("movementActor")
+  receivedMovements     FinancialMovement[]    @relation("movementRecipient")
 
   @@index([roleId])
   // Notifications sent to this user (order status transitions, payments).
@@ -487,10 +491,67 @@ model Shift {
   cashier  User?      @relation("shiftCashier", fields: [cashierId], references: [id], onDelete: SetNull)
   orders   Order[]    @relation("orderShift")
   payments Payment[]  @relation("paymentShift")
+  financialMovements FinancialMovement[]
 
   @@index([branchId, status])
   @@index([cashierId])
   @@map("shifts")
+}
+
+// Immutable cash-ledger entries. A movement is a transfer between named cash
+// accounts, never revenue. Corrections are represented by a reversing entry.
+model FinancialMovement {
+  id                BigInt   @id @default(autoincrement())
+  branchId          BigInt   @map("branch_id")
+  // Reversal type names (for example fixed_float_withdrawal_reversal) need
+  // 31 characters; keep a small, explicit margin for immutable ledger types.
+  type              String   @db.VarChar(40)
+  status            String   @default("posted") @db.VarChar(20)
+  amount            Decimal  @db.Decimal(10, 2)
+  sourceAccount     String   @map("source_account") @db.VarChar(30)
+  destinationAccount String  @map("destination_account") @db.VarChar(30)
+  sourceShiftId     BigInt?  @map("source_shift_id")
+  destinationUserId String?  @map("destination_user_id") @db.Uuid
+  actorId           String?  @map("actor_id") @db.Uuid
+  reason            String   @db.VarChar(255)
+  occurredAt        DateTime @default(now()) @map("occurred_at")
+  consumedAt        DateTime? @map("consumed_at")
+  metadata          Json?
+  reversalOfId      BigInt?  @unique @map("reversal_of_id")
+  advanceId         BigInt?  @map("advance_id")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  branch            CafeBranch @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  sourceShift       Shift?     @relation(fields: [sourceShiftId], references: [id], onDelete: Restrict)
+  destinationUser   User?      @relation("movementRecipient", fields: [destinationUserId], references: [id], onDelete: Restrict)
+  actor             User?      @relation("movementActor", fields: [actorId], references: [id], onDelete: SetNull)
+  reversalOf        FinancialMovement? @relation("movementReversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
+  reversal          FinancialMovement? @relation("movementReversal")
+  advance           FinancialMovement? @relation("advanceRepayments", fields: [advanceId], references: [id], onDelete: Restrict)
+  repayments        FinancialMovement[] @relation("advanceRepayments")
+
+  @@index([branchId, type, occurredAt])
+  @@index([sourceShiftId])
+  @@index([destinationUserId, consumedAt])
+  @@index([advanceId])
+  @@map("financial_movements")
+}
+
+// Durable response record for retry-safe monetary operations. Rows are written
+// in the same transaction as the resulting ledger/payment record.
+model FinancialOperation {
+  id              BigInt   @id @default(autoincrement())
+  branchId        BigInt   @map("branch_id")
+  actorId         String   @map("actor_id") @db.Uuid
+  operationType   String   @map("operation_type") @db.VarChar(40)
+  idempotencyKey  String   @map("idempotency_key") @db.VarChar(100)
+  fingerprint     String   @db.VarChar(128)
+  result          Json
+  createdAt       DateTime @default(now()) @map("created_at")
+  branch          CafeBranch @relation(fields: [branchId], references: [id], onDelete: Restrict)
+
+  @@unique([branchId, actorId, operationType, idempotencyKey])
+  @@map("financial_operations")
 }
 
 // ==================== INVENTORY (schema ready, dormant in v1) ====================

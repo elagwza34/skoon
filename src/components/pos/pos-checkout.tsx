@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -27,6 +27,7 @@ export function PosCheckout({ catalog }: { catalog: PosCatalog }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [placed, setPlaced] = useState<{ orderNumber: string; total: string } | null>(null)
+  const submissionKey = useRef<string | null>(null)
 
   const priceById = useMemo(() => new Map(catalog.products.map((p) => [p.id, Number(p.price)])), [catalog.products])
 
@@ -70,10 +71,12 @@ export function PosCheckout({ catalog }: { catalog: PosCatalog }) {
     }
     setBusy(true)
     setError(null)
+    const idempotencyKey = submissionKey.current ?? crypto.randomUUID()
+    submissionKey.current = idempotencyKey
     try {
       const res = await fetch('/api/staff/pos/orders', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', 'Idempotency-Key': idempotencyKey },
         body: JSON.stringify({
           tableId,
           customerName: customerName.trim() || undefined,
@@ -84,6 +87,7 @@ export function PosCheckout({ catalog }: { catalog: PosCatalog }) {
       if (!res.ok) throw new Error(data?.error ?? 'فشل إنشاء الطلب')
       setPlaced({ orderNumber: data.orderNumber, total: data.total })
       setCart([])
+      submissionKey.current = null
       router.refresh()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'فشل إنشاء الطلب')

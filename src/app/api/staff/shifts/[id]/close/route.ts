@@ -21,7 +21,7 @@ export async function POST(req: Request, { params }: Params) {
   type CloseBody = {
   closingCash?: unknown
   handoverNotes?: unknown
-  handoverTo?: unknown
+  handoverRecipientId?: unknown
 }
 
 let body: CloseBody = {}
@@ -35,7 +35,7 @@ try {
     return NextResponse.json(await closeShift(session, id, {
       closingCash: body.closingCash,
       handoverNotes: body.handoverNotes ?? null,
-      handoverTo: body.handoverTo ?? null,
+      handoverRecipientId: body.handoverRecipientId ?? null,
     }))
   } catch (e) {
     if (e instanceof ShiftError) return NextResponse.json({ error: e.message }, { status: e.status })

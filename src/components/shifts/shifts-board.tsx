@@ -44,7 +44,7 @@ export function ShiftsBoard({ initial }: { initial: ShiftBoardData }) {
   const [openingCash, setOpeningCash] = useState('')
   const [closingCash, setClosingCash] = useState('')
   const [handoverNotes, setHandoverNotes] = useState('')
-  const [handoverTo, setHandoverTo] = useState('')
+  const [handoverRecipientId, setHandoverRecipientId] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
@@ -97,7 +97,7 @@ export function ShiftsBoard({ initial }: { initial: ShiftBoardData }) {
         body: JSON.stringify({
           closingCash: cash,
           handoverNotes: handoverNotes.trim() || null,
-          handoverTo: handoverTo.trim() || null,
+          handoverRecipientId: handoverRecipientId || null,
         }),
       })
       const payload = await res.json().catch(() => ({}))
@@ -105,7 +105,7 @@ export function ShiftsBoard({ initial }: { initial: ShiftBoardData }) {
       const diff = Number(payload?.cashDifference ?? 0)
       setClosingCash('')
       setHandoverNotes('')
-      setHandoverTo('')
+      setHandoverRecipientId('')
       setSuccess(
         diff === 0
           ? 'تم إغلاق الوردية — الرصيد مطابق'
@@ -212,12 +212,11 @@ export function ShiftsBoard({ initial }: { initial: ShiftBoardData }) {
                 />
               </label>
               <label className="flex flex-col gap-1.5 text-sm">
-                <span className="text-muted-foreground">المستلم (اختياري)</span>
-                <Input
-                  placeholder="اسم الموظف المستلم"
-                  value={handoverTo}
-                  onChange={(e) => setHandoverTo(e.target.value)}
-                />
+                <span className="text-muted-foreground">الكاشير المستلم (قبل منتصف الليل)</span>
+                <select className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={handoverRecipientId} onChange={(e) => setHandoverRecipientId(e.target.value)}>
+                  <option value="">اختر كاشيراً</option>
+                  {data.cashiers.map((cashier) => <option key={cashier.id} value={cashier.id}>{cashier.name}</option>)}
+                </select>
               </label>
               <Button variant="destructive" onClick={close} disabled={busy}>
                 {busy ? 'جارٍ الإغلاق…' : 'إغلاق الوردية وتسجيل التسليم'}

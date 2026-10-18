@@ -78,6 +78,7 @@ export interface ShiftBoardData {
   branchId: string
   userRole: string
   branches: { id: string; name: string }[]
+  cashiers: { id: string; name: string }[]
   current: ShiftView | null
   currentOrders: ShiftOrderRow[]
   recent: ShiftView[]
@@ -114,6 +115,11 @@ export function expectedCashFrom(openingCash: number, payments: readonly CashPay
   return round2(round2(openingCash) + computeShiftCashFlow(payments).netCash)
 }
 
+/** Operational withdrawals reduce the physical till but are never sales. */
+export function expectedCashAfterOperationalWithdrawals(expectedCash: number, withdrawals: number): number {
+  return round2(round2(expectedCash) - round2(withdrawals))
+}
+
 /** difference = counted − expected (positive = excess, negative = shortage). */
 export function cashDifferenceOf(closingCash: number, expectedCash: number): number {
   return round2(round2(closingCash) - round2(expectedCash))
@@ -141,9 +147,17 @@ export const closeShiftSchema = z.object({
     .default(0),
   // Optional handover notes from the employee (e.g. handover remarks).
   handoverNotes: z.string().trim().max(1000).optional().nullable(),
-  // Optional receiving manager / authorized employee name.
-  handoverTo: z.string().trim().max(100).optional().nullable(),
+  // Recipient identity, never a client-supplied role or display name.
+  handoverRecipientId: z.string().uuid().optional().nullable(),
 })
+
+/** A close crossed midnight only when its branch-local calendar day changed. */
+export function crossedLocalMidnight(openedAt: Date, closedAt: Date, timezone: string): boolean {
+  const parts = (at: Date) => new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(at).filter((p) => p.type !== 'literal').map((p) => p.value).join('-')
+  return parts(openedAt) !== parts(closedAt)
+}
 
 function money(n: number): string {
   return round2(n).toFixed(2)
@@ -171,12 +185,12 @@ async function fetchShiftPayments(shiftId: bigint): Promise<CashPaymentRow[]> {
   return rows.map((r) => ({ method: r.method, status: r.status, amount: Number(r.amount) }))
 }
 
-function toShiftView(row: ShiftRow, payments: readonly CashPaymentRow[], ordersCount: number): ShiftView {
+function toShiftView(row: ShiftRow, payments: readonly CashPaymentRow[], ordersCount: number, operationalWithdrawals = 0): ShiftView {
   const { cashIn, cashOut } = computeShiftCashFlow(payments)
   // OPEN shifts show the LIVE expectation (payments keep landing); CLOSED
   // shifts show the value frozen at close time.
   const expected =
-    row.status === 'open' ? expectedCashFrom(Number(row.openingCash), payments) : Number(row.expectedCash)
+    row.status === 'open' ? expectedCashAfterOperationalWithdrawals(expectedCashFrom(Number(row.openingCash), payments), operationalWithdrawals) : Number(row.expectedCash)
   return {
     id: row.id.toString(),
     branchId: row.branchId.toString(),
@@ -225,7 +239,7 @@ export async function openShift(session: StaffSession, input: unknown): Promise<
   const branchId = resolveBranchId(session, parsed.data.branchId)
 
   // Cash-handling roles must declare an opening float; others default to 0.
-  const opening = isCashHandlingRole(session.role) ? parsed.data.openingCash : 0
+  const requestedOpening = isCashHandlingRole(session.role) ? parsed.data.openingCash : 0
 
   // Serialize opens per employee+branch: the advisory lock is held to COMMIT,
   // so two concurrent "open" transactions for the same employee+branch cannot
@@ -239,6 +253,13 @@ export async function openShift(session: StaffSession, input: unknown): Promise<
     })
     if (existing) throw new ShiftError('لديك بالفعل وردية مفتوحة لهذا الفرع', 409)
 
+    // An approved cashier handover is the next opening float. It can only be
+    // consumed once; a manual value is allowed only when there is no handover.
+    const incoming = await tx.financialMovement.findFirst({
+      where: { branchId, type: 'cashier_handover', destinationUserId: session.id, consumedAt: null, status: 'posted' },
+      orderBy: { occurredAt: 'asc' },
+    })
+    const opening = incoming ? Number(incoming.amount) : requestedOpening
     const created = await tx.shift.create({
       data: {
         branchId,
@@ -249,6 +270,9 @@ export async function openShift(session: StaffSession, input: unknown): Promise<
         status: 'open',
       },
     })
+    if (incoming) {
+      await tx.financialMovement.update({ where: { id: incoming.id }, data: { consumedAt: new Date() } })
+    }
     await tx.auditLog.create({
       data: {
         userId: session.id,
@@ -256,7 +280,7 @@ export async function openShift(session: StaffSession, input: unknown): Promise<
         action: 'shift.open',
         entityType: 'shift',
         entityId: created.id,
-        newValues: { openingCash: opening.toFixed(2), openBy: session.name, role: session.role },
+        newValues: { openingCash: opening.toFixed(2), openBy: session.name, role: session.role, handoverMovementId: incoming?.id.toString() ?? null },
       },
     })
     return created
@@ -290,8 +314,24 @@ export async function closeShift(
   if (!staffCanAccessBranch(session, shift.branchId)) throw new ShiftError('غير مصرح', 403)
   if (shift.status === 'closed') throw new ShiftError('الوردية مغلقة بالفعل', 409)
 
+  const branch = await prisma.cafeBranch.findUnique({ where: { id: shift.branchId }, select: { timezone: true } })
+  if (!branch) throw new ShiftError('الفرع غير موجود', 404)
+  let recipient: { id: string; name: string } | null = null
+  if (parsed.data.handoverRecipientId) {
+    recipient = await prisma.user.findFirst({
+      where: { id: parsed.data.handoverRecipientId, branchId: shift.branchId, isActive: true, deletedAt: null, role: { is: { slug: ROLE.CASHIER } } },
+      select: { id: true, name: true },
+    })
+    if (!recipient) throw new ShiftError('المستلم يجب أن يكون كاشيراً نشطاً في نفس الفرع', 422)
+  }
+
   const payments = await fetchShiftPayments(shiftId)
-  const expected = expectedCashFrom(Number(shift.openingCash), payments)
+  const withdrawals = await prisma.financialMovement.aggregate({
+    where: { sourceShiftId: shiftId, type: 'operational_withdrawal', status: 'posted' }, _sum: { amount: true },
+  })
+  const expected = expectedCashAfterOperationalWithdrawals(
+    expectedCashFrom(Number(shift.openingCash), payments), Number(withdrawals._sum.amount ?? 0),
+  )
   // Non-cash-handling roles (waiter, kitchen) close operationally — no
   // physical cash count, no cash reconciliation. Only cash-handling roles
   // (cashier, manager) enter an actual counted amount and produce a variance.
@@ -308,6 +348,10 @@ export async function closeShift(
   })
 
   const closed = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('shift-close:' || ${shiftId.toString()}))`
+    const closedAt = new Date()
+    const routeToSafe = crossedLocalMidnight(shift.openedAt, closedAt, branch.timezone)
+    if (!routeToSafe && !recipient && cashHandling) throw new ShiftError('اختر كاشيراً مستلماً قبل منتصف الليل', 422)
     // Guard inside the transaction: a concurrent close loses the race cleanly.
     const updated = await tx.shift.updateMany({
       where: { id: shiftId, status: 'open', cashierId: session.id },
@@ -316,15 +360,27 @@ export async function closeShift(
         closingCash: closing.toFixed(2),
         cashDifference: difference.toFixed(2),
         status: 'closed',
-        closedAt: new Date(),
+        closedAt,
         // Handover / reconciliation record — written at close time so the
         // closing figures are immutable after this point.
         handoverNotes: parsed.data.handoverNotes ?? null,
-        handoverTo: parsed.data.handoverTo ?? null,
-        handoverCompletedAt: new Date(),
+        handoverTo: routeToSafe ? 'MAIN_SAFE' : recipient?.name ?? null,
+        handoverCompletedAt: closedAt,
       },
     })
     if (updated.count === 0) throw new ShiftError('الوردية مغلقة بالفعل', 409)
+
+    if (cashHandling) {
+      await tx.financialMovement.create({
+        data: {
+          branchId: shift.branchId, type: routeToSafe ? 'main_safe_deposit' : 'cashier_handover', status: 'posted',
+          amount: closing.toFixed(2), sourceAccount: 'CASHIER_TILL', destinationAccount: routeToSafe ? 'MAIN_SAFE' : 'CASHIER_TILL',
+          sourceShiftId: shiftId, destinationUserId: routeToSafe ? null : recipient!.id, actorId: session.id,
+          reason: parsed.data.handoverNotes || 'Shift close handover', occurredAt: closedAt,
+          metadata: { route: routeToSafe ? 'main_safe_after_local_midnight' : 'cashier_before_local_midnight', timezone: branch.timezone },
+        },
+      })
+    }
 
     await tx.auditLog.create({
       data: {
@@ -337,10 +393,13 @@ export async function closeShift(
           expectedCash: expected.toFixed(2),
           closingCash: closing.toFixed(2),
           cashDifference: difference.toFixed(2),
+          operationalWithdrawals: Number(withdrawals._sum.amount ?? 0).toFixed(2),
           cashHandling,
           handoverNotes: parsed.data.handoverNotes ?? null,
-          handoverTo: parsed.data.handoverTo ?? null,
-          handoverCompletedAt: new Date().toISOString(),
+          handoverTo: routeToSafe ? 'MAIN_SAFE' : recipient?.name ?? null,
+          handoverCompletedAt: closedAt.toISOString(),
+          handoverRecipientId: routeToSafe ? null : recipient?.id ?? null,
+          route: routeToSafe ? 'main_safe_after_local_midnight' : 'cashier_before_local_midnight',
           outstandingOrders: outstandingOrders.map((o) => ({
             orderNumber: o.orderNumber,
             status: o.status,
@@ -405,7 +464,7 @@ export async function getShiftsBoard(
 
   if (!staffCanAccessBranch(session, branchId)) throw new ShiftError('غير مصرح', 403)
 
-  const [current, recent, branches] = await Promise.all([
+  const [current, recent, branches, cashiers] = await Promise.all([
     prisma.shift.findFirst({
       where: { cashierId: viewerCashierId, branchId, status: 'open' },
       orderBy: { openedAt: 'desc' },
@@ -422,10 +481,14 @@ export async function getShiftsBoard(
           select: { id: true, name: true },
         })
       : Promise.resolve([]),
+    prisma.user.findMany({
+      where: { branchId, isActive: true, deletedAt: null, role: { is: { slug: ROLE.CASHIER } } },
+      orderBy: { name: 'asc' }, select: { id: true, name: true },
+    }),
   ])
 
   const shiftIds = recent.map((s) => s.id)
-  const [payments, orderCounts] = await Promise.all([
+  const [payments, orderCounts, withdrawalRows] = await Promise.all([
     shiftIds.length
       ? prisma.payment.findMany({
           where: { shiftId: { in: shiftIds } },
@@ -434,6 +497,9 @@ export async function getShiftsBoard(
       : Promise.resolve([]),
     shiftIds.length
       ? prisma.order.groupBy({ by: ['shiftId'], where: { shiftId: { in: shiftIds } }, _count: true })
+      : Promise.resolve([]),
+    shiftIds.length
+      ? prisma.financialMovement.groupBy({ by: ['sourceShiftId'], where: { sourceShiftId: { in: shiftIds }, type: 'operational_withdrawal', status: 'posted' }, _sum: { amount: true } })
       : Promise.resolve([]),
   ])
 
@@ -450,6 +516,8 @@ export async function getShiftsBoard(
     if (g.shiftId === null) continue
     ordersByShift.set(g.shiftId.toString(), g._count)
   }
+  const withdrawalsByShift = new Map<string, number>()
+  for (const row of withdrawalRows) if (row.sourceShiftId !== null) withdrawalsByShift.set(row.sourceShiftId.toString(), Number(row._sum.amount ?? 0))
 
   let currentOrders: ShiftOrderRow[] = []
   if (current) {
@@ -479,12 +547,14 @@ export async function getShiftsBoard(
       row,
       paymentsByShift.get(row.id.toString()) ?? [],
       ordersByShift.get(row.id.toString()) ?? 0,
+      withdrawalsByShift.get(row.id.toString()) ?? 0,
     )
 
   return {
     branchId: branchId.toString(),
     userRole: session.role,
     branches: branches.map((b) => ({ id: b.id.toString(), name: b.name })),
+    cashiers: cashiers.map((user) => ({ id: user.id, name: user.name })),
     current: current ? viewOf(current) : null,
     currentOrders,
     recent: recent.map(viewOf),

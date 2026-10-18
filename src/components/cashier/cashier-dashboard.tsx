@@ -23,10 +23,12 @@ export function CashierDashboard({
   session,
   board,
   branchName,
+  compact = false,
 }: {
   session: StaffSession
   board: ShiftBoardData
   branchName: string | null
+  compact?: boolean
 }) {
   const router = useRouter()
   const [, startTransition] = useTransition()
@@ -35,7 +37,9 @@ export function CashierDashboard({
   const [openingNotes, setOpeningNotes] = useState('')
   const [closingCash, setClosingCash] = useState('')
   const [handoverNotes, setHandoverNotes] = useState('')
-  const [handoverTo, setHandoverTo] = useState('')
+  const [handoverRecipientId, setHandoverRecipientId] = useState('')
+  const [withdrawalAmount, setWithdrawalAmount] = useState('')
+  const [withdrawalReason, setWithdrawalReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
@@ -95,7 +99,7 @@ export function CashierDashboard({
         body: JSON.stringify({
           closingCash: cash,
           handoverNotes: handoverNotes.trim() || null,
-          handoverTo: handoverTo.trim() || null,
+          handoverRecipientId: handoverRecipientId || null,
         }),
       })
       const payload = await res.json().catch(() => ({}))
@@ -103,7 +107,7 @@ export function CashierDashboard({
       const diff = Number(payload?.cashDifference ?? 0)
       setClosingCash('')
       setHandoverNotes('')
-      setHandoverTo('')
+      setHandoverRecipientId('')
       setSuccess(
         diff === 0
           ? 'تم إغلاق الوردية — الصندوق مطابق'
@@ -117,6 +121,17 @@ export function CashierDashboard({
     } finally {
       setBusy(false)
     }
+  }
+
+  async function recordOperationalWithdrawal() {
+    const amount = Number(withdrawalAmount)
+    if (!Number.isFinite(amount) || amount <= 0 || withdrawalReason.trim().length < 3) { setError('أدخل مبلغاً موجباً وسبباً واضحاً للسحب'); return }
+    setBusy(true); setError(null)
+    try {
+      const response = await fetch('/api/staff/fixed-float', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ direction: 'withdrawal', amount, reason: withdrawalReason.trim(), branchId: Number(data.branchId) }) })
+      const payload = await response.json().catch(() => ({})); if (!response.ok) throw new Error(payload.error ?? 'تعذر تسجيل السحب')
+      setWithdrawalAmount(''); setWithdrawalReason(''); setSuccess('تم تسجيل سحب تشغيلي من درج الكاشير'); refresh()
+    } catch (e) { setError(e instanceof Error ? e.message : 'تعذر تسجيل السحب') } finally { setBusy(false) }
   }
 
   const openedAtLabel = (iso: string): string => {
@@ -134,7 +149,7 @@ export function CashierDashboard({
 
   return (
     <div className="flex flex-col gap-5" dir="rtl">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      {!compact && <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">لوحة الكاشير</h1>
           <p className="text-sm text-muted-foreground">
@@ -149,7 +164,7 @@ export function CashierDashboard({
             <span className="text-xs">تسجيل الخروج</span>
           </button>
         </form>
-      </div>
+      </div>}
 
       {error ? (
         <Card className="border-destructive/40">
@@ -276,16 +291,22 @@ export function CashierDashboard({
                   />
                 </label>
                 <label className="flex flex-col gap-1.5 text-sm">
-                  <span className="text-muted-foreground">المستلم (اختياري)</span>
-                  <Input
-                    placeholder="اسم المدير أو الموظف المستلم"
-                    value={handoverTo}
-                    onChange={(e) => setHandoverTo(e.target.value)}
-                  />
+                  <span className="text-muted-foreground">الكاشير المستلم (قبل منتصف الليل)</span>
+                  <select className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={handoverRecipientId} onChange={(e) => setHandoverRecipientId(e.target.value)}>
+                    <option value="">اختر كاشيراً</option>
+                    {data.cashiers.filter((cashier) => cashier.id !== session.id).map((cashier) => <option key={cashier.id} value={cashier.id}>{cashier.name}</option>)}
+                  </select>
                 </label>
                 <Button variant="destructive" size="lg" className="w-full sm:w-auto" onClick={closeShift} disabled={busy}>
                   {busy ? 'جارٍ الإغلاق…' : 'إغلاق الوردية وتسليم الصندوق'}
                 </Button>
+              </div>
+
+              <div className="flex flex-col gap-3 rounded-lg border border-warning/30 bg-warning/5 p-4 sm:flex-row sm:items-end">
+                <p className="text-sm text-muted-foreground sm:max-w-xs">سحب تشغيلي من درج الكاشير، وليس من العهدة الثابتة. يُخصم مرة واحدة من المتوقع عند الإغلاق.</p>
+                <Input className="sm:w-28" inputMode="decimal" placeholder="المبلغ" value={withdrawalAmount} onChange={(e) => setWithdrawalAmount(e.target.value)} />
+                <Input className="sm:flex-1" placeholder="سبب السحب" value={withdrawalReason} onChange={(e) => setWithdrawalReason(e.target.value)} />
+                <Button variant="outline" disabled={busy} onClick={recordOperationalWithdrawal}>تسجيل سحب تشغيلي</Button>
               </div>
 
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between gap-2">

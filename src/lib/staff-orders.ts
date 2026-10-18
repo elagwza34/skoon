@@ -119,6 +119,7 @@ export async function listStaffOrders(
 }
 
 const toStatusSchema = z.enum(['preparing', 'ready', 'served', 'cancelled'])
+const cancelReasonSchema = z.string().trim().min(3).max(255).optional()
 
 /**
  * Move an order to `to`, enforcing branch scope, legal transition, and role
@@ -128,15 +129,19 @@ export async function transitionOrderStatus(
   session: StaffSession,
   orderId: string,
   toRaw: string,
+  reasonRaw?: unknown,
 ) {
   if (!/^\d+$/.test(orderId)) throw new OrderError('Order not found', 404)
   const parsed = toStatusSchema.safeParse(toRaw)
   if (!parsed.success) throw new OrderError('Invalid target status', 400)
   const to = parsed.data
+  const reason = cancelReasonSchema.safeParse(reasonRaw)
+  if (!reason.success) throw new OrderError('Invalid cancellation reason', 400)
+  if (to === 'cancelled' && !reason.data) throw new OrderError('A cancellation reason is required', 400)
 
   const order = await prisma.order.findUnique({
     where: { id: BigInt(orderId) },
-    select: { id: true, branchId: true, status: true, orderNumber: true },
+    select: { id: true, branchId: true, status: true, paymentStatus: true, orderNumber: true },
   })
   if (!order) throw new OrderError('Order not found', 404)
   if (!staffCanAccessBranch(session, order.branchId)) throw new OrderError('Forbidden', 403)
@@ -150,6 +155,7 @@ export async function transitionOrderStatus(
   const minRole = TRANSITIONS[current]?.[to]
   if (!minRole) throw new OrderError(`لا يمكن نقل الطلب من "${current}" إلى "${to}"`, 409)
   if (!hasAtLeast(session.role, minRole)) throw new OrderError('Forbidden', 403)
+  if (to === 'cancelled' && order.paymentStatus === 'paid') throw new OrderError('A paid order must be refunded through the payment correction flow', 409)
 
   await prisma.$transaction(async (tx) => {
     await tx.order.update({
@@ -159,12 +165,15 @@ export async function transitionOrderStatus(
         ...(to === 'preparing' ? { acceptedAt: new Date() } : {}),
         ...(to === 'ready' ? { readyAt: new Date() } : {}),
         ...(to === 'served' ? { servedAt: new Date() } : {}),
-        ...(to === 'cancelled' ? { cancelledAt: new Date() } : {}),
+        ...(to === 'cancelled' ? { cancelledAt: new Date(), cancelReason: reason.data } : {}),
       },
     })
     await tx.orderStatusHistory.create({
       data: { orderId: order.id, fromStatus: current, toStatus: to, changedById: session.id },
     })
+    if (to === 'cancelled') {
+      await tx.auditLog.create({ data: { userId: session.id, branchId: order.branchId, action: 'order.cancel', entityType: 'order', entityId: order.id, newValues: { reason: reason.data } } })
+    }
     // Notify the staff who must act on the NEW status (same tx — atomic).
     await emitStatusNotifications(tx, { to, orderId: order.id, branchId: order.branchId, orderNumber: order.orderNumber })
   })
