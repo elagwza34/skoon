@@ -9,6 +9,7 @@ import { Badge, type BadgeTone } from '@/components/ui/badge'
 import { StatCard } from '@/components/ui/stat'
 import { EmptyState } from '@/components/ui/empty-state'
 import { formatCurrency, formatDateShort, formatTime, formatNumber } from '@/lib/format'
+import { homeForRole } from '@/lib/route-access'
 import type { ShiftBoardData, ShiftView } from '@/lib/staff-shifts'
 
 const CASH_HANDLING_ROLES = ['cashier', 'manager']
@@ -70,7 +71,8 @@ export function ShiftsBoard({ initial }: { initial: ShiftBoardData }) {
       if (!res.ok) throw new Error(payload?.error ?? 'تعذر فتح الوردية')
       setOpeningCash('')
       setSuccess('تم فتح الوردية')
-      refresh()
+      // After opening, send the employee to their role workspace.
+      router.push(homeForRole(data.userRole))
     } catch (e) {
       setError(e instanceof Error ? e.message : 'تعذر فتح الوردية')
     } finally {

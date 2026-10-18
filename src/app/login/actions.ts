@@ -5,6 +5,8 @@ import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { getStaffSession } from '@/lib/session'
 import { homeForRole } from '@/lib/route-access'
+import { isOwner } from '@/lib/authz'
+import { getOpenShift } from '@/lib/staff-shifts'
 
 /**
  * Staff sign-in — Supabase Auth (email + password). Identity only.
@@ -53,9 +55,16 @@ export async function loginAction(
   // honour it; the (app) layout's route guard will bounce them if it's outside
   // their role. Otherwise land them on the screen for their role (operational
   // staff go straight to their board, owner/manager to the dashboard).
+  // Operational staff without an open shift are sent to /shifts first.
   if (!requested) {
     const session = await getStaffSession()
-    redirect(session ? homeForRole(session.role) : '/dashboard')
+    if (!session) redirect('/dashboard')
+    // Owner bypasses shift requirements entirely.
+    if (!isOwner(session.role) && session.branchId) {
+      const shift = await getOpenShift(session.id, BigInt(session.branchId))
+      if (!shift) redirect('/shifts')
+    }
+    redirect(homeForRole(session.role))
   }
   redirect(requested)
 }
