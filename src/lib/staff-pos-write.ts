@@ -104,7 +104,7 @@ export async function createPosOrder(session: StaffSession, input: unknown, idem
     const order = await tx.order.create({
       data: {
         branchId, cafeTableId: tableId,
-        orderNumber, orderRef, orderType: 'dine_in', status: 'new', source: 'pos',
+        orderNumber, orderRef, orderType: 'dine_in', status: 'new', source: session.role === ROLE.WAITER ? 'waiter' : 'pos',
         customerName: parsed.data.customerName?.trim() || null,
         createdById: session.id,
         shiftId: openShift.id,

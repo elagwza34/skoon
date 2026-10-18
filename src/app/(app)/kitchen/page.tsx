@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation'
 import { requirePageAccess } from '@/lib/require-page-access'
 import { getOpenShift } from '@/lib/staff-shifts'
-import { listStaffOrders } from '@/lib/staff-orders'
+import { listKitchenOrders } from '@/lib/staff-orders'
 import { KitchenBoard } from '@/components/kitchen/kitchen-board'
 
 export const dynamic = 'force-dynamic'
@@ -21,6 +21,6 @@ export default async function KitchenPage() {
     if (!shift) redirect('/shifts')
   }
 
-  const orders = await listStaffOrders(session, { limit: 100 });
+  const orders = await listKitchenOrders(session, 100);
   return <KitchenBoard orders={orders} />;
 }

@@ -46,6 +46,9 @@ import {
 import { floatMovementSchema } from '../src/lib/staff-float'
 import { recalculateInvoiceTotals, splitInvoices, type InvoiceRow } from '../src/lib/staff-invoices'
 import { posOrderSchema } from '../src/lib/staff-pos'
+import { isKitchenTicketVisible } from '../src/lib/staff-orders'
+import { canTransitionOrder } from '../src/lib/staff-orders'
+import { isWaiterTableOrderActive } from '../src/lib/staff-waiter'
 import { getGuestOrders, saveGuestOrder } from '../src/lib/guest-orders'
 import { SETTING_DEFS, SettingsError } from '../src/lib/staff-settings-write'
 import {
@@ -56,6 +59,34 @@ import {
   permissionForPath,
   canSeeRoute,
 } from '../src/lib/route-access'
+
+test('waiter lifecycle: only dispatched new tickets enter the kitchen queue', () => {
+  assert.equal(isKitchenTicketVisible('new', false), false)
+  assert.equal(isKitchenTicketVisible('new', true), true)
+  assert.equal(isKitchenTicketVisible('preparing', false), false)
+  assert.equal(isKitchenTicketVisible('ready', false), false)
+  assert.equal(isKitchenTicketVisible('preparing', true), true)
+  assert.equal(isKitchenTicketVisible('ready', true), true)
+  assert.equal(isKitchenTicketVisible('served', true), false)
+  assert.equal(isKitchenTicketVisible('cancelled', true), false)
+})
+
+test('waiter lifecycle: only legal persisted status transitions are accepted', () => {
+  assert.equal(canTransitionOrder('new', 'preparing'), true)
+  assert.equal(canTransitionOrder('preparing', 'ready'), true)
+  assert.equal(canTransitionOrder('ready', 'served'), true)
+  assert.equal(canTransitionOrder('new', 'served'), false)
+  assert.equal(canTransitionOrder('served', 'ready'), false)
+  assert.equal(canTransitionOrder('cancelled', 'preparing'), false)
+})
+
+test('waiter lifecycle: cancelled and served orders do not occupy a table', () => {
+  assert.equal(isWaiterTableOrderActive('new'), true)
+  assert.equal(isWaiterTableOrderActive('preparing'), true)
+  assert.equal(isWaiterTableOrderActive('ready'), true)
+  assert.equal(isWaiterTableOrderActive('served'), false)
+  assert.equal(isWaiterTableOrderActive('cancelled'), false)
+})
 
 // --- Route-access matrix: every role → what they may open ------------------
 

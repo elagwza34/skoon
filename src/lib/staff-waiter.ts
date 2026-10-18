@@ -10,10 +10,17 @@ import { getOpenShift, ShiftError } from '@/lib/staff-shifts'
  * Requires the waiter to have an open shift for their branch.
  */
 export interface WaiterWorkspace {
+  branchName: string
+  employeeName: string
   tables: { id: string; number: string; name: string | null; capacity: number; openOrders: number }[]
   openOrders: StaffOrderRow[]
   categories: { id: string; name: string }[]
   products: { id: string; name: string; price: string; categoryId: string; isAvailable: boolean }[]
+}
+
+/** Only active, non-terminal orders occupy a table in the waiter workspace. */
+export function isWaiterTableOrderActive(status: string): boolean {
+  return status === 'new' || status === 'preparing' || status === 'ready'
 }
 
 export async function getWaiterWorkspace(session: StaffSession): Promise<WaiterWorkspace> {
@@ -25,7 +32,8 @@ export async function getWaiterWorkspace(session: StaffSession): Promise<WaiterW
   const branchScope =
     session.role === ROLE.OWNER ? {} : { branchId: BigInt(session.branchId as string) }
 
-  const [tables, orders, categories, products] = await Promise.all([
+  const [branch, tables, orders, categories, products] = await Promise.all([
+    prisma.cafeBranch.findUnique({ where: { id: BigInt(session.branchId) }, select: { name: true } }),
     prisma.cafeTable.findMany({
       where: { ...branchScope, isActive: true, deletedAt: null },
       orderBy: [{ sortOrder: 'asc' }, { number: 'asc' }],
@@ -37,11 +45,11 @@ export async function getWaiterWorkspace(session: StaffSession): Promise<WaiterW
       take: 100,
       select: {
         id: true, orderNumber: true, status: true, paymentStatus: true, total: true, customerName: true,
-        source: true, createdAt: true, sentToKitchenAt: true, cancelReason: true,
+        source: true, notes: true, createdAt: true, sentToKitchenAt: true, cancelReason: true,
         cafeTable: { select: { number: true } },
         items: {
           where: { isVoided: false }, orderBy: { id: 'asc' },
-          select: { productName: true, quantity: true, notes: true },
+          select: { id: true, productId: true, productName: true, quantity: true, unitPrice: true, notes: true },
         },
       },
     }),
@@ -59,11 +67,14 @@ export async function getWaiterWorkspace(session: StaffSession): Promise<WaiterW
 
   const openByTable = new Map<string, number>()
   for (const o of orders) {
+    if (!isWaiterTableOrderActive(o.status)) continue
     const key = o.cafeTable.number
     openByTable.set(key, (openByTable.get(key) ?? 0) + 1)
   }
 
   return {
+    branchName: branch?.name ?? '—',
+    employeeName: session.name,
     tables: tables.map((t) => ({
       id: t.id.toString(), number: t.number, name: t.name, capacity: t.capacity,
       openOrders: openByTable.get(t.number) ?? 0,
@@ -71,12 +82,12 @@ export async function getWaiterWorkspace(session: StaffSession): Promise<WaiterW
     openOrders: orders.map((o) => ({
       id: o.id.toString(), number: o.orderNumber, status: o.status,
       paymentStatus: o.paymentStatus,
-      total: Number(o.total), customerName: o.customerName, source: o.source,
+      total: Number(o.total), customerName: o.customerName, source: o.source, orderNotes: o.notes,
       tableNumber: o.cafeTable.number, createdAt: o.createdAt.toISOString(),
       sentToKitchen: o.sentToKitchenAt != null,
       sentToKitchenAt: o.sentToKitchenAt?.toISOString() ?? null,
       cancelReason: o.cancelReason ?? null,
-      items: o.items.map((i) => ({ name: i.productName, qty: i.quantity, note: i.notes })),
+      items: o.items.map((i) => ({ id: i.id.toString(), productId: i.productId.toString(), name: i.productName, qty: i.quantity, unitPrice: Number(i.unitPrice), note: i.notes })),
       itemsCount: o.items.reduce((n, i) => n + i.quantity, 0),
     })),
     categories: categories.map((c) => ({ id: c.id.toString(), name: c.name })),

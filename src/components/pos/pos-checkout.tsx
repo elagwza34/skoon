@@ -17,12 +17,12 @@ import type { PosCatalog } from '@/lib/staff-pos'
  * POS checkout — real branch catalog + tables from the DB.
  * Pricing is re-computed server-side on submit; client totals are a preview.
  */
-export function PosCheckout({ catalog }: { catalog: PosCatalog }) {
+export function PosCheckout({ catalog, initialTableId }: { catalog: PosCatalog; initialTableId?: string }) {
   const router = useRouter()
   const [category, setCategory] = useState('all')
   const [query, setQuery] = useState('')
-  const [cart, setCart] = useState<{ id: string; qty: number }[]>([])
-  const [tableId, setTableId] = useState(catalog.tables[0]?.id ?? '')
+  const [cart, setCart] = useState<{ id: string; qty: number; note?: string }[]>([])
+  const [tableId, setTableId] = useState(initialTableId ?? catalog.tables[0]?.id ?? '')
   const [customerName, setCustomerName] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -57,6 +57,9 @@ export function PosCheckout({ catalog }: { catalog: PosCatalog }) {
   function dec(id: string) {
     setCart((prev) => prev.map((l) => (l.id === id ? { ...l, qty: l.qty - 1 } : l)).filter((l) => l.qty > 0))
   }
+  function setNote(id: string, note: string) {
+    setCart((prev) => prev.map((line) => (line.id === id ? { ...line, note } : line)))
+  }
   function clear() {
     setCart([])
     setPlaced(null)
@@ -80,7 +83,7 @@ export function PosCheckout({ catalog }: { catalog: PosCatalog }) {
         body: JSON.stringify({
           tableId,
           customerName: customerName.trim() || undefined,
-          items: cart.map((l) => ({ productId: l.id, qty: l.qty })),
+          items: cart.map((l) => ({ productId: l.id, qty: l.qty, note: l.note?.trim() || undefined })),
         }),
       })
       const data = await res.json().catch(() => ({}))
@@ -172,9 +175,10 @@ export function PosCheckout({ catalog }: { catalog: PosCatalog }) {
                 const p = catalog.products.find((x) => x.id === l.id)!
                 return (
                   <li key={l.id} className="flex items-center gap-2 rounded-md border border-border p-2">
-                    <div className="flex min-w-0 flex-1 flex-col leading-tight">
+                    <div className="flex min-w-0 flex-1 flex-col gap-1 leading-tight">
                       <span className="truncate text-sm font-medium text-foreground">{p.name}</span>
                       <span className="text-xs text-muted-foreground">{formatCurrency(Number(p.price) * l.qty)}</span>
+                      <Input value={l.note ?? ''} onChange={(e) => setNote(l.id, e.target.value)} maxLength={255} placeholder="ملاحظة للصنف (اختياري)" aria-label={`ملاحظة ${p.name}`} className="h-8 text-xs" />
                     </div>
                     <div className="flex items-center gap-1">
                       <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => dec(l.id)} aria-label="إنقاص">
