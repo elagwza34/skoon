@@ -11,7 +11,7 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { Icon } from '@/components/ui/icon'
 import { PosCheckout } from '@/components/pos/pos-checkout'
 import { ORDER_STATUS_META, type OrderStatusKey } from '@/lib/order-status'
-import { formatCurrency, formatRelative } from '@/lib/format'
+import { formatCurrency, formatRelative, formatTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import type { WaiterWorkspace } from '@/lib/staff-waiter'
 
@@ -54,7 +54,7 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
   }
 
   return <div className="min-h-screen w-full bg-background" dir="rtl">
-    <header className="sticky top-0 z-30 flex flex-wrap items-center justify-between gap-3 border-b border-border bg-card/95 px-4 py-3 shadow-sm backdrop-blur lg:px-6"><div><h1 className="text-xl font-bold">محطة الويتر</h1><p className="text-sm text-muted-foreground">{workspace.branchName} · {workspace.employeeName}</p></div><div className="text-xs text-muted-foreground"><b className="text-foreground">وردية مفتوحة</b><br />{workspace.openOrders.length} طلب نشط · {ready.length} جاهز للتقديم</div><div className="flex flex-wrap gap-2"><Button variant="ghost" onClick={() => window.history.back()}>رجوع</Button><form action="/login?next=/waiter"><Button type="submit" variant="ghost">تسجيل الخروج</Button></form></div></header>
+    <header className="sticky top-0 z-30 flex flex-wrap items-center justify-between gap-3 border-b border-border bg-card/95 px-4 py-3 shadow-sm backdrop-blur lg:px-6"><div><h1 className="text-xl font-bold">محطة الويتر</h1><p className="text-sm text-muted-foreground">{workspace.branchName} · {workspace.employeeName}</p>{workspace.shift ? <p className="text-xs text-muted-foreground">وردية مفتوحة · مفتوحة منذ {formatTime(new Date(workspace.shift.openedAt))}</p> : <p className="text-xs text-muted-foreground text-destructive">لا توجد وردية مفتوحة</p>}</div><div className="text-xs text-muted-foreground">{workspace.openOrders.length} طلب نشط · {ready.length} جاهز للتقديم</div><div className="flex flex-wrap gap-2"><Button variant="ghost" onClick={() => window.history.back()}>رجوع</Button><form action="/login?next=/waiter"><Button type="submit" variant="ghost">تسجيل الخروج</Button></form></div></header>
     <nav className="sticky top-[73px] z-20 w-full border-b border-border bg-background/95 px-4 py-2 backdrop-blur lg:px-6" aria-label="أقسام محطة الويتر"><Segmented options={[{ value: 'tables', label: 'الطاولات' }, { value: 'orders', label: 'الطلبات النشطة' }, { value: 'ready', label: 'جاهز للتقديم' }, { value: 'create', label: 'طلب جديد' }]} value={tab} onChange={(value) => setTab(value as WorkspaceTab)} ariaLabel="أقسام محطة الويتر" className="w-full justify-start overflow-x-auto" /></nav>
     <main className="w-full p-4 lg:p-6"><div className="flex w-full flex-col gap-5">
     {error ? <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}

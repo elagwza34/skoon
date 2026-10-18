@@ -12,6 +12,7 @@ import { getOpenShift, ShiftError } from '@/lib/staff-shifts'
 export interface WaiterWorkspace {
   branchName: string
   employeeName: string
+  shift: { id: string; openedAt: string } | null
   tables: { id: string; number: string; name: string | null; capacity: number; openOrders: number }[]
   openOrders: StaffOrderRow[]
   categories: { id: string; name: string }[]
@@ -75,6 +76,7 @@ export async function getWaiterWorkspace(session: StaffSession): Promise<WaiterW
   return {
     branchName: branch?.name ?? '—',
     employeeName: session.name,
+    shift: shift ? { id: shift.id.toString(), openedAt: shift.openedAt.toISOString() } : null,
     tables: tables.map((t) => ({
       id: t.id.toString(), number: t.number, name: t.name, capacity: t.capacity,
       openOrders: openByTable.get(t.number) ?? 0,
