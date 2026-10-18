@@ -309,7 +309,7 @@ export function CashierDashboard({
                 <Button variant="outline" disabled={busy} onClick={recordOperationalWithdrawal}>تسجيل سحب تشغيلي</Button>
               </div>
 
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between gap-2">
+              {!compact && <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between gap-2">
                 <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
                   <span className="text-xs font-medium text-muted-foreground">العمليات السريعة</span>
                   <p className="text-sm text-muted-foreground">
@@ -336,12 +336,12 @@ export function CashierDashboard({
                     <span>التاريخ</span>
                   </a>
                 </div>
-              </div>
+              </div>}
             </CardContent>
           </Card>
 
           {/* Closed / previous shift history on same page for context */}
-          <Card>
+          {!compact && <Card>
             <CardHeader>
               <CardTitle>آخر الورديات</CardTitle>
               <CardDescription>الحالة والمتوقع والجرد والفرق (زيادة أو نقص)</CardDescription>
@@ -399,7 +399,7 @@ export function CashierDashboard({
                 </div>
               )}
             </CardContent>
-          </Card>
+          </Card>}
         </>
       ) : null}
 
