@@ -101,6 +101,8 @@ model User {
   name        String    @db.VarChar(100)
   email       String?   @unique @db.VarChar(150)
   phone       String?   @db.VarChar(20)
+  // Monthly salary — stored using monetary precision; editable only by owner/manager.
+  salary      Decimal   @default(0) @map("salary") @db.Decimal(10, 2)
   avatarPath  String?   @map("avatar_path") @db.VarChar(255)
   // Employee POS PIN — SECURE STORAGE. Stores ONLY a bcrypt hash (never plaintext).
   // Distinct from Supabase Auth credentials; verified server-side only.
@@ -188,6 +190,12 @@ model Product {
   description     String?   @db.Text
   imagePath       String?   @map("image_path") @db.VarChar(255)
   price           Decimal   @db.Decimal(10, 2)
+  // Purchase cost — stored separately from selling price, never derived from it.
+  purchaseCost    Decimal   @default(0) @map("purchase_cost") @db.Decimal(10, 2)
+  // Unit of measurement: pcs, kg, g, liter, ml, etc.
+  unit            String    @default("pcs") @map("unit") @db.VarChar(20)
+  // Tax percentage (0–100), stored server-side; never trusted from the browser.
+  taxRate         Decimal   @default(0) @map("tax_rate") @db.Decimal(5, 2)
   isActive        Boolean   @default(true) @map("is_active")
   isAvailable     Boolean   @default(true) @map("is_available")
   isFeatured      Boolean   @default(false) @map("is_featured")
