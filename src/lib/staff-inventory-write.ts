@@ -39,6 +39,9 @@ const movementSchema = z.object({
   // inbound/outbound: quantity to move. adjustment: the counted actual stock.
   quantity: z.coerce.number().positive('الكمية يجب أن تكون أكبر من صفر').max(9_999_999),
   notes: z.string().trim().max(255).optional(),
+  unitCost: z.coerce.number().positive().max(9_999_999).optional(),
+  expiresAt: z.coerce.date().optional(),
+  supplierReference: z.string().trim().max(120).optional(),
 })
 
 export interface MovementResult {
@@ -59,6 +62,8 @@ export async function recordInventoryMovement(
   const parsed = movementSchema.safeParse(input)
   if (!parsed.success) throw new InventoryError(parsed.error.issues[0]?.message ?? 'بيانات غير صالحة', 400)
   const { type, quantity, notes } = parsed.data
+  if (type === 'inbound' && !parsed.data.unitCost) throw new InventoryError('Unit cost is required for a receipt', 400)
+  if (parsed.data.expiresAt && parsed.data.expiresAt <= new Date()) throw new InventoryError('Expiry must be in the future', 400)
 
   const branchId = session.role === ROLE.OWNER ? null : BigInt(session.branchId as string)
   const item = await prisma.inventoryItem.findFirst({
@@ -110,11 +115,22 @@ export async function recordInventoryMovement(
         quantity: delta.toFixed(2),
         quantityAfter: newStock.toFixed(2),
         referenceType: 'manual',
+        unitCost: type === 'inbound' ? parsed.data.unitCost!.toFixed(4) : null,
+        costTotal: type === 'inbound' ? (parsed.data.unitCost! * quantity).toFixed(2) : '0',
         createdById: session.id,
         notes: notes?.trim() || null,
       },
       select: { id: true },
     })
+
+    if (type === 'inbound') {
+      await tx.inventoryBatch.create({ data: {
+        inventoryItemId: item.id, branchId: item.branchId,
+        originalQuantity: quantity.toFixed(3), remainingQuantity: quantity.toFixed(3), remainingCostQuantity: quantity.toFixed(3),
+        unitCost: parsed.data.unitCost!.toFixed(4), expiresAt: parsed.data.expiresAt ?? null,
+        supplierReference: parsed.data.supplierReference || null, createdById: session.id,
+      } })
+    }
 
     return {
       id: txn.id.toString(),

@@ -10,6 +10,8 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { Icon } from '@/components/ui/icon'
 import { formatRelative } from '@/lib/format'
 import type { StaffDirectory } from '@/lib/staff-directory'
+import { EmployeeManagementBoard } from '@/components/staff/employee-management-board'
+import { ScheduleManagementBoard } from '@/components/staff/schedule-management-board'
 
 /**
  * Staff board — real directory + trusted provisioning UI (owner/manager).
@@ -30,6 +32,8 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
   const [name, setName] = useState('')
   const [role, setRole] = useState('waiter')
   const [branchId, setBranchId] = useState(directory.branches[0]?.id ?? '')
+  const [accountMode, setAccountMode] = useState<'invite' | 'password'>('invite')
+  const [permanentPassword, setPermanentPassword] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
@@ -56,13 +60,16 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
           name: name.trim(),
           role,
           branchId: role === 'owner' ? undefined : branchId || undefined,
+          accountMode,
+          permanentPassword: accountMode === 'password' ? permanentPassword : undefined,
         }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data?.error ?? 'تعذر إرسال الدعوة')
-      setSuccess(`تم إرسال الدعوة إلى ${data.email}`)
+      setSuccess(accountMode === 'invite' ? `تم إرسال الدعوة إلى ${data.email}` : `تم إنشاء الحساب لـ ${data.email}`)
       setEmail('')
       setName('')
+      setPermanentPassword('')
       setInvOpen(false)
       startTransition(() => router.refresh())
     } catch (e) {
@@ -129,6 +136,22 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
                 <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="اسم الموظف" />
               </label>
               <label className="flex flex-col gap-1.5 text-sm">
+                <span className="text-muted-foreground">طريقة إنشاء الحساب</span>
+                <select
+                  value={accountMode} onChange={(e) => setAccountMode(e.target.value as 'invite' | 'password')}
+                  className="h-10 rounded-lg border border-border bg-background px-3 text-foreground"
+                >
+                  <option value="invite">إرسال دعوة بالبريد</option>
+                  <option value="password">تعيين كلمة مرور دائمة</option>
+                </select>
+              </label>
+              {accountMode === 'password' ? (
+                <label className="flex flex-col gap-1.5 text-sm">
+                  <span className="text-muted-foreground">كلمة المرور الدائمة</span>
+                  <Input value={permanentPassword} type="password" autoComplete="new-password" onChange={(e) => setPermanentPassword(e.target.value)} />
+                </label>
+              ) : null}
+              <label className="flex flex-col gap-1.5 text-sm">
                 <span className="text-muted-foreground">البريد الإلكتروني</span>
                 <Input value={email} onChange={(e) => setEmail(e.target.value)} dir="ltr" placeholder="name@example.com" />
               </label>
@@ -158,7 +181,7 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
               ) : null}
             </div>
             <div className="mt-4 flex items-center gap-3">
-              <Button onClick={invite} disabled={saving || !email.trim() || !name.trim()}>
+              <Button onClick={invite} disabled={saving || !email.trim() || !name.trim() || (accountMode === 'password' && permanentPassword.length < 12)}>
                 <Icon name="check" size={16} /> {saving ? 'جارٍ الإرسال…' : 'إرسال الدعوة'}
               </Button>
               <Button variant="ghost" onClick={() => setInvOpen(false)}>إلغاء</Button>
@@ -235,6 +258,8 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
           )}
         </CardContent>
       </Card>
+      <EmployeeManagementBoard canManage={directory.canManage} />
+      <ScheduleManagementBoard employees={directory.rows.map((row) => ({ id: row.id, name: row.name, branchId: row.branchId }))} canManage={directory.canSchedule} />
       <p className="text-xs text-muted-foreground">
         الدعوة تُنشئ حساباً في Supabase Auth ثم يُربط بدور وفرع محددين هنا — تعديلات الأدوار تُطبَّق على
         الخادم ولا يمكن تجاوزها من المتصفح.

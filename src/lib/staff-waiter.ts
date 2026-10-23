@@ -50,7 +50,7 @@ export async function getWaiterWorkspace(session: StaffSession): Promise<WaiterW
         cafeTable: { select: { number: true } },
         items: {
           where: { isVoided: false }, orderBy: { id: 'asc' },
-          select: { id: true, productId: true, productName: true, quantity: true, unitPrice: true, notes: true },
+          select: { id: true, productId: true, productName: true, quantity: true, servedQuantity: true, preparedQuantity: true, unitPrice: true, notes: true },
         },
       },
     }),
@@ -89,7 +89,7 @@ export async function getWaiterWorkspace(session: StaffSession): Promise<WaiterW
       sentToKitchen: o.sentToKitchenAt != null,
       sentToKitchenAt: o.sentToKitchenAt?.toISOString() ?? null,
       cancelReason: o.cancelReason ?? null,
-      items: o.items.map((i) => ({ id: i.id.toString(), productId: i.productId.toString(), name: i.productName, qty: i.quantity, unitPrice: Number(i.unitPrice), note: i.notes })),
+      items: o.items.map((i) => ({ id: i.id.toString(), productId: i.productId.toString(), name: i.productName, qty: i.quantity, servedQty: i.servedQuantity, preparedQty: i.preparedQuantity, unitPrice: Number(i.unitPrice), note: i.notes })),
       itemsCount: o.items.reduce((n, i) => n + i.quantity, 0),
     })),
     categories: categories.map((c) => ({ id: c.id.toString(), name: c.name })),

@@ -10,7 +10,7 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { Icon } from '@/components/ui/icon'
 import { Segmented } from '@/components/ui/segmented'
 import { formatNumber, formatRelative } from '@/lib/format'
-import type { InventoryMovement, InventoryRow } from '@/lib/staff-inventory'
+import type { InventoryBatchRow, InventoryMovement, InventoryRow } from '@/lib/staff-inventory'
 
 type MovementKind = 'inbound' | 'outbound' | 'adjustment'
 
@@ -22,10 +22,12 @@ type MovementKind = 'inbound' | 'outbound' | 'adjustment'
 export function InventoryBoard({
   items,
   movements,
+  batches,
   canManage,
 }: {
   items: InventoryRow[]
   movements: InventoryMovement[]
+  batches: InventoryBatchRow[]
   canManage: boolean
 }) {
   const router = useRouter()
@@ -38,6 +40,8 @@ export function InventoryBoard({
   const [kind, setKind] = useState<MovementKind>('inbound')
   const [qty, setQty] = useState('')
   const [notes, setNotes] = useState('')
+  const [unitCost, setUnitCost] = useState('')
+  const [expiresAt, setExpiresAt] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
@@ -56,6 +60,8 @@ export function InventoryBoard({
     setKind('inbound')
     setQty('')
     setNotes('')
+    setUnitCost('')
+    setExpiresAt('')
     setError(null)
     setSuccess(null)
   }
@@ -79,7 +85,7 @@ export function InventoryBoard({
       const res = await fetch(`/api/staff/inventory/${activeId}/movement`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ type: kind, quantity: qtyNum, notes: notes.trim() || undefined }),
+        body: JSON.stringify({ type: kind, quantity: qtyNum, notes: notes.trim() || undefined, unitCost: kind === 'inbound' ? Number(unitCost) : undefined, expiresAt: kind === 'inbound' && expiresAt ? new Date(`${expiresAt}T00:00:00`).toISOString() : undefined }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data?.error ?? 'فشل تسجيل الحركة')
@@ -147,6 +153,7 @@ export function InventoryBoard({
                 placeholder="0.00" aria-label="الكمية"
               />
             </label>
+            {kind === 'inbound' ? <div className="grid gap-3 sm:grid-cols-2"><label className="flex flex-col gap-1 text-sm"><span className="text-muted-foreground">تكلفة الوحدة *</span><Input type="number" inputMode="decimal" step="0.0001" min="0" value={unitCost} onChange={(e) => setUnitCost(e.target.value)} placeholder="0.00" /></label><label className="flex flex-col gap-1 text-sm"><span className="text-muted-foreground">تاريخ الانتهاء (اختياري)</span><Input type="date" value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} /></label></div> : null}
             <label className="flex flex-col gap-1 text-sm">
               <span className="text-muted-foreground">السبب / ملاحظة (اختياري)</span>
               <Input
@@ -182,7 +189,9 @@ export function InventoryBoard({
                 <thead>
                   <tr className="border-b border-border text-xs text-muted-foreground">
                     <th className="px-2 py-2 text-start font-medium">الصنف</th>
-                    <th className="px-2 py-2 text-start font-medium">الكمية</th>
+                    <th className="px-2 py-2 text-start font-medium">الفعلي</th>
+                    <th className="px-2 py-2 text-start font-medium">المحجوز</th>
+                    <th className="px-2 py-2 text-start font-medium">المتاح</th>
                     <th className="px-2 py-2 text-start font-medium">الحد الأدنى</th>
                     <th className="px-2 py-2 text-start font-medium">الحالة</th>
                     {canManage ? <th className="px-2 py-2 text-start font-medium">إجراء</th> : null}
@@ -193,6 +202,8 @@ export function InventoryBoard({
                     <tr key={i.id} className="border-b border-border/50 last:border-0 hover:bg-accent/40">
                       <td className="px-2 py-2.5 font-medium text-foreground">{i.name}</td>
                       <td className="px-2 py-2.5 text-muted-foreground">{formatNumber(Number(i.qty), 2)} {i.unit}</td>
+                      <td className="px-2 py-2.5 text-muted-foreground">{formatNumber(Number(i.reservedQty), 2)} {i.unit}</td>
+                      <td className="px-2 py-2.5 font-medium text-foreground">{formatNumber(Number(i.availableQty), 2)} {i.unit}</td>
                       <td className="px-2 py-2.5 text-muted-foreground">{i.minQty != null ? `${formatNumber(Number(i.minQty), 2)} ${i.unit}` : '—'}</td>
                       <td className="px-2 py-2.5">
                         <Badge tone={i.isLow ? 'warning' : 'success'}>{i.isLow ? 'منخفض' : 'متوفر'}</Badge>
@@ -211,6 +222,11 @@ export function InventoryBoard({
             </div>
           )}
         </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle>دفعات المخزون — FEFO فعلي / FIFO تكلفة</CardTitle></CardHeader>
+        <CardContent>{batches.length === 0 ? <p className="text-sm text-muted-foreground">لا توجد دفعات متاحة.</p> : <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b border-border text-xs text-muted-foreground"><th className="p-2 text-start">الصنف</th><th className="p-2 text-start">المتبقي</th><th className="p-2 text-start">تكلفة FIFO</th><th className="p-2 text-start">الانتهاء</th><th className="p-2 text-start">المورد</th><th className="p-2 text-start">الحالة</th></tr></thead><tbody>{batches.map((b) => <tr key={b.id} className="border-b border-border/50"><td className="p-2">{b.itemName}</td><td className="p-2">{formatNumber(Number(b.remainingQty), 2)}</td><td className="p-2">{formatNumber(Number(b.unitCost), 2)} × {formatNumber(Number(b.remainingCostQty), 2)}</td><td className="p-2">{b.expiresAt ? new Date(b.expiresAt).toLocaleDateString('ar-EG') : '—'}</td><td className="p-2">{b.supplierReference ?? '—'}</td><td className="p-2"><Badge tone={b.state === 'expired' ? 'destructive' : b.state === 'expiring' ? 'warning' : 'success'}>{b.state === 'expired' ? 'منتهية' : b.state === 'expiring' ? 'قريبة الانتهاء' : 'متاحة'}</Badge></td></tr>)}</tbody></table></div>}</CardContent>
       </Card>
 
       <Card>

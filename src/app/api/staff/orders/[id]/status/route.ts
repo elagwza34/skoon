@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getStaffSession } from '@/lib/session'
-import { transitionOrderStatus, sendOrderToKitchen, OrderError } from '@/lib/staff-orders'
+import { transitionOrderStatus, sendOrderToKitchen, serveOrderItems, OrderError } from '@/lib/staff-orders'
 
 /**
  * Staff order status transition — POST /api/staff/orders/[id]/status.
@@ -23,7 +23,7 @@ export async function POST(req: Request, { params }: Params) {
 
   const { id } = await params
 
-  let body: { action?: string; to?: unknown; reason?: unknown }
+  let body: { action?: string; to?: unknown; reason?: unknown; items?: unknown }
   try {
     body = await req.json()
   } catch {
@@ -37,6 +37,15 @@ export async function POST(req: Request, { params }: Params) {
     } catch (e) {
       if (e instanceof OrderError) return NextResponse.json({ error: e.message }, { status: e.status })
       return NextResponse.json({ error: 'Send to kitchen failed' }, { status: 500 })
+    }
+  }
+
+  if (body.action === 'serve_items') {
+    try {
+      return NextResponse.json(await serveOrderItems(session, id, { items: body.items }))
+    } catch (e) {
+      if (e instanceof OrderError) return NextResponse.json({ error: e.message }, { status: e.status })
+      return NextResponse.json({ error: 'Item serving failed' }, { status: 500 })
     }
   }
 

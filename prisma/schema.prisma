@@ -3,7 +3,8 @@
 // Stack: Next.js + TypeScript + Prisma + Supabase PostgreSQL + Supabase Auth
 // Rules: BIGINT PKs · NUMERIC(10,2) money · soft deletes ·
 //        branch scoping · VARCHAR enums (validated in app layer)
-// Every change MUST go through prisma migrate. Do not edit DB by hand.
+// Prisma is the runtime ORM. Production schema changes are executed through
+// reviewed Supabase migrations; do not run `prisma migrate deploy`.
 // ============================================================================
 
 generator client {
@@ -32,19 +33,32 @@ model CafeBranch {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  users                 User[]
-  cafeTables            CafeTable[]
-  categories            Category[]
-  products              Product[]
-  orders                Order[]
-  payments              Payment[]
-  discounts             Discount[]
-  inventoryItems        InventoryItem[]
-  inventoryTransactions InventoryTransaction[]
-  auditLogs             AuditLog[]
-  shifts                Shift[]
-  financialMovements    FinancialMovement[]
-  financialOperations   FinancialOperation[]
+  users                  User[]
+  cafeTables             CafeTable[]
+  categories             Category[]
+  products               Product[]
+  orders                 Order[]
+  payments               Payment[]
+  discounts              Discount[]
+  inventoryItems         InventoryItem[]
+  inventoryTransactions  InventoryTransaction[]
+  inventoryBatches       InventoryBatch[]
+  inventoryReservations  InventoryReservation[]
+  wasteEvents            WasteEvent[]
+  employeeAccountability EmployeeAccountability[]
+  stockCounts            StockCount[]
+  wasteOperations        WasteOperation[]
+  auditLogs              AuditLog[]
+  shifts                 Shift[]
+  financialMovements     FinancialMovement[]
+  financialOperations    FinancialOperation[]
+  employeeProfiles       EmployeeProfile[]
+  employeeContracts      EmploymentContract[]
+  compensationRates      CompensationRate[]
+  workSchedules          WorkSchedule[]
+  attendanceCorrections  AttendanceCorrection[]
+  leaveRequests          LeaveRequest[]
+  officialHolidays       OfficialHoliday[]
 
   @@index([isActive])
   @@map("branches")
@@ -95,47 +109,261 @@ model User {
   // id == Supabase Auth user id (auth.uid()). Assigned by the trusted server-side
   // provisioning flow so it always matches the Supabase identity. Intentionally NO
   // Prisma relation to auth.users: Prisma must not manage the Supabase auth schema.
-  id          String    @id @db.Uuid
-  branchId    BigInt?   @map("branch_id")
-  roleId      BigInt    @map("role_id")
-  name        String    @db.VarChar(100)
-  email       String?   @unique @db.VarChar(150)
-  phone       String?   @db.VarChar(20)
+  id           String    @id @db.Uuid
+  branchId     BigInt?   @map("branch_id")
+  roleId       BigInt    @map("role_id")
+  name         String    @db.VarChar(100)
+  email        String?   @unique @db.VarChar(150)
+  phone        String?   @db.VarChar(20)
   // Monthly salary — stored using monetary precision; editable only by owner/manager.
-  salary      Decimal   @default(0) @map("salary") @db.Decimal(10, 2)
-  avatarPath  String?   @map("avatar_path") @db.VarChar(255)
+  salary       Decimal   @default(0) @map("salary") @db.Decimal(10, 2)
+  avatarPath   String?   @map("avatar_path") @db.VarChar(255)
   // Employee POS PIN — SECURE STORAGE. Stores ONLY a bcrypt hash (never plaintext).
   // Distinct from Supabase Auth credentials; verified server-side only.
   // See docs/PIN-SECURITY-DESIGN.md. VarChar(255) leaves room for future pepper/algo change.
-  pinHash     String?   @map("pin_hash") @db.VarChar(255)
+  pinHash      String?   @map("pin_hash") @db.VarChar(255)
   pinUpdatedAt DateTime? @map("pin_updated_at")
-  isActive    Boolean   @default(true) @map("is_active")
-  lastLoginAt DateTime? @map("last_login_at")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
-  deletedAt   DateTime? @map("deleted_at")
+  isActive     Boolean   @default(true) @map("is_active")
+  lastLoginAt  DateTime? @map("last_login_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
 
   // REMOVED (Supabase Auth owns credentials): passwordHash, failedLoginCount,
   // lockedUntil, mustChangePassword.
 
-  role                  Role                   @relation(fields: [roleId], references: [id])
-  branch                CafeBranch?            @relation(fields: [branchId], references: [id], onDelete: SetNull)
-  createdOrders         Order[]                @relation("orderCreatedBy")
-  statusChanges         OrderStatusHistory[]   @relation("statusChangedBy")
-  payments              Payment[]              @relation("paymentPaidBy")
-  createdDiscounts      Discount[]             @relation("discountCreatedBy")
-  inventoryTransactions InventoryTransaction[] @relation("txnCreatedBy")
-  auditLogs             AuditLog[]
-  updatedSettings       AppSetting[]           @relation("settingUpdatedBy")
-  cashierShifts         Shift[]                @relation("shiftCashier")
-  financialMovements    FinancialMovement[]    @relation("movementActor")
-  receivedMovements     FinancialMovement[]    @relation("movementRecipient")
+  role                      Role                     @relation(fields: [roleId], references: [id])
+  branch                    CafeBranch?              @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  createdOrders             Order[]                  @relation("orderCreatedBy")
+  statusChanges             OrderStatusHistory[]     @relation("statusChangedBy")
+  payments                  Payment[]                @relation("paymentPaidBy")
+  createdDiscounts          Discount[]               @relation("discountCreatedBy")
+  inventoryTransactions     InventoryTransaction[]   @relation("txnCreatedBy")
+  preparationStartedItems   OrderItem[]              @relation("itemPreparationStartedBy")
+  responsibleWasteEvents    WasteEvent[]             @relation("wasteResponsible")
+  recordedWasteEvents       WasteEvent[]             @relation("wasteRecordedBy")
+  accountabilityRecords     EmployeeAccountability[] @relation("accountabilityEmployee")
+  reviewedAccountability    EmployeeAccountability[] @relation("accountabilityReviewer")
+  accountabilityWaivers     AccountabilityWaiver[]   @relation("waiverManager")
+  responsibleStockCounts    StockCount[]             @relation("stockCountResponsible")
+  postedStockCounts         StockCount[]             @relation("stockCountPostedBy")
+  auditLogs                 AuditLog[]
+  updatedSettings           AppSetting[]             @relation("settingUpdatedBy")
+  cashierShifts             Shift[]                  @relation("shiftCashier")
+  financialMovements        FinancialMovement[]      @relation("movementActor")
+  receivedMovements         FinancialMovement[]      @relation("movementRecipient")
+  // Notifications sent to this user (order status transitions, payments).
+  notifications             Notification[]
+  employeeProfile           EmployeeProfile?         @relation("employeeProfileUser")
+  archivedEmployeeProfiles  EmployeeProfile[]        @relation("employeeProfileArchivedBy")
+  uploadedEmployeeContracts EmploymentContract[]     @relation("employeeContractUploadedBy")
+  compensationSetBy         CompensationRate[]       @relation("compensationSetBy")
+  scheduledWork             WorkSchedule[]           @relation("workScheduleEmployee")
+  createdWorkSchedules      WorkSchedule[]           @relation("workScheduleCreatedBy")
+  attendanceCorrections     AttendanceCorrection[]   @relation("attendanceCorrectionEmployee")
+  proposedCorrections       AttendanceCorrection[]   @relation("attendanceCorrectionProposedBy")
+  approvedCorrections       AttendanceCorrection[]   @relation("attendanceCorrectionApprovedBy")
+  leaveRequests             LeaveRequest[]           @relation("leaveEmployee")
+  reviewedLeaveRequests     LeaveRequest[]           @relation("leaveReviewedBy")
+  createdOfficialHolidays   OfficialHoliday[]         @relation("holidayCreatedBy")
 
   @@index([roleId])
-  // Notifications sent to this user (order status transitions, payments).
-  notifications Notification[]
   @@index([branchId, isActive])
   @@map("users")
+}
+
+// ============================ HR FOUNDATION ============================
+// The HR domain is deliberately separated from the authentication profile.
+// User remains the durable Supabase Auth-linked identity; this model stores
+// employee lifecycle data and is never hard-deleted through HR workflows.
+model EmployeeProfile {
+  id                    BigInt    @id @default(autoincrement())
+  userId                String    @unique @map("user_id") @db.Uuid
+  // Owner profiles are intentionally cross-branch; operational employees are
+  // branch-scoped. Do not turn this into employee-transfer functionality.
+  branchId              BigInt?   @map("branch_id")
+  employmentStatus      String    @default("active") @map("employment_status") @db.VarChar(30)
+  employmentType        String?   @map("employment_type") @db.VarChar(30)
+  hireDate              DateTime? @map("hire_date") @db.Date
+  probationStart        DateTime? @map("probation_start") @db.Date
+  probationEnd          DateTime? @map("probation_end") @db.Date
+  probationStatus       String?   @map("probation_status") @db.VarChar(30)
+  probationReviewedAt   DateTime? @map("probation_reviewed_at")
+  probationDecision     String?   @map("probation_decision") @db.VarChar(30)
+  personalEmail         String?   @map("personal_email") @db.VarChar(150)
+  personalPhone         String?   @map("personal_phone") @db.VarChar(30)
+  address               String?   @db.VarChar(500)
+  emergencyContactName  String?   @map("emergency_contact_name") @db.VarChar(150)
+  emergencyContactPhone String?   @map("emergency_contact_phone") @db.VarChar(30)
+  nationalIdCiphertext  String?   @map("national_id_ciphertext") @db.Text
+  archivedAt            DateTime? @map("archived_at")
+  archivedById          String?   @map("archived_by") @db.Uuid
+  archiveReason         String?   @map("archive_reason") @db.VarChar(255)
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  user              User                 @relation("employeeProfileUser", fields: [userId], references: [id], onDelete: Restrict)
+  branch            CafeBranch?          @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  archivedBy        User?                @relation("employeeProfileArchivedBy", fields: [archivedById], references: [id], onDelete: Restrict)
+  contracts         EmploymentContract[]
+  compensationRates CompensationRate[]
+
+  @@index([branchId, employmentStatus])
+  @@index([archivedAt])
+  @@map("employee_profiles")
+}
+
+// Immutable historical contract rows. Renewals create a new row instead of
+// overwriting a prior contract.
+model EmploymentContract {
+  id             BigInt    @id @default(autoincrement())
+  employeeId     BigInt    @map("employee_id")
+  branchId       BigInt?   @map("branch_id")
+  contractType   String    @map("contract_type") @db.VarChar(30)
+  effectiveFrom  DateTime  @map("effective_from") @db.Date
+  effectiveUntil DateTime? @map("effective_until") @db.Date
+  documentPath   String?   @map("document_path") @db.VarChar(500)
+  notes          String?   @db.Text
+  supersedesId   BigInt?   @map("supersedes_id")
+  uploadedById   String    @map("uploaded_by") @db.Uuid
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  employee   EmployeeProfile      @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  branch     CafeBranch?          @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  supersedes EmploymentContract?  @relation("contractRenewal", fields: [supersedesId], references: [id], onDelete: Restrict)
+  renewals   EmploymentContract[] @relation("contractRenewal")
+  uploadedBy User                 @relation("employeeContractUploadedBy", fields: [uploadedById], references: [id], onDelete: Restrict)
+
+  @@index([employeeId, effectiveFrom])
+  @@index([branchId, effectiveUntil])
+  @@map("employment_contracts")
+}
+
+// Effective-dated compensation is historical. Payroll must select the rate in
+// force for the covered date rather than mutate a prior approved period.
+model CompensationRate {
+  id               BigInt    @id @default(autoincrement())
+  employeeId       BigInt    @map("employee_id")
+  branchId         BigInt?   @map("branch_id")
+  compensationType String    @map("compensation_type") @db.VarChar(20)
+  paymentFrequency String    @map("payment_frequency") @db.VarChar(20)
+  amount           Decimal   @db.Decimal(12, 2)
+  currency         String    @default("EGP") @db.VarChar(3)
+  effectiveFrom    DateTime  @map("effective_from") @db.Date
+  effectiveUntil   DateTime? @map("effective_until") @db.Date
+  setById          String    @map("set_by") @db.Uuid
+  reason           String?   @db.VarChar(255)
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  employee EmployeeProfile @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  branch   CafeBranch?     @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  setBy    User            @relation("compensationSetBy", fields: [setById], references: [id], onDelete: Restrict)
+
+  @@unique([employeeId, effectiveFrom])
+  @@index([employeeId, effectiveFrom])
+  @@index([branchId, effectiveFrom])
+  @@map("compensation_rates")
+}
+
+// Schedule revisions are effective dated; actual attendance continues to come
+// exclusively from Shift timestamps rather than a second clock system.
+model WorkSchedule {
+  id             BigInt   @id @default(autoincrement())
+  employeeId     String   @map("employee_id") @db.Uuid
+  branchId       BigInt   @map("branch_id")
+  effectiveFrom  DateTime @map("effective_from") @db.Date
+  effectiveUntil DateTime? @map("effective_until") @db.Date
+  timezone       String   @default("Africa/Cairo") @db.VarChar(50)
+  graceMinutes   Int      @default(0) @map("grace_minutes")
+  status         String   @default("active") @db.VarChar(20)
+  createdById    String   @map("created_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  employee User @relation("workScheduleEmployee", fields: [employeeId], references: [id], onDelete: Restrict)
+  branch CafeBranch @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  createdBy User @relation("workScheduleCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  days WorkScheduleDay[]
+  @@index([employeeId, effectiveFrom])
+  @@index([branchId, status])
+  @@map("work_schedules")
+}
+
+model WorkScheduleDay {
+  id         BigInt @id @default(autoincrement())
+  scheduleId BigInt @map("schedule_id")
+  weekday    Int    @db.SmallInt
+  restDay    Boolean @default(false) @map("rest_day")
+  startsAt   String? @map("starts_at") @db.VarChar(5)
+  endsAt     String? @map("ends_at") @db.VarChar(5)
+  schedule   WorkSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  @@unique([scheduleId, weekday])
+  @@map("work_schedule_days")
+}
+
+model AttendanceCorrection {
+  id              BigInt @id @default(autoincrement())
+  branchId        BigInt @map("branch_id")
+  employeeId      String @map("employee_id") @db.Uuid
+  shiftId         BigInt? @map("shift_id")
+  proposedById    String @map("proposed_by") @db.Uuid
+  approvedById    String? @map("approved_by") @db.Uuid
+  status          String @default("pending") @db.VarChar(20)
+  reason          String @db.VarChar(500)
+  proposedOpenedAt DateTime? @map("proposed_opened_at")
+  proposedClosedAt DateTime? @map("proposed_closed_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+  decidedAt       DateTime? @map("decided_at")
+
+  branch CafeBranch @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  employee User @relation("attendanceCorrectionEmployee", fields: [employeeId], references: [id], onDelete: Restrict)
+  shift Shift? @relation(fields: [shiftId], references: [id], onDelete: Restrict)
+  proposedBy User @relation("attendanceCorrectionProposedBy", fields: [proposedById], references: [id], onDelete: Restrict)
+  approvedBy User? @relation("attendanceCorrectionApprovedBy", fields: [approvedById], references: [id], onDelete: Restrict)
+  @@index([employeeId, status, createdAt])
+  @@index([branchId, status])
+  @@map("attendance_corrections")
+}
+
+/// Leave rows become immutable after a final decision; balances are derived from approved requests.
+model LeaveRequest {
+  id           BigInt    @id @default(autoincrement())
+  branchId     BigInt    @map("branch_id")
+  employeeId   String    @map("employee_id") @db.Uuid
+  type         String    @db.VarChar(30)
+  status       String    @default("pending") @db.VarChar(20)
+  startsOn     DateTime  @map("starts_on") @db.Date
+  endsOn       DateTime  @map("ends_on") @db.Date
+  days         Decimal   @db.Decimal(6, 2)
+  reason       String    @db.VarChar(500)
+  reviewerId   String?   @map("reviewer_id") @db.Uuid
+  decisionNote String?   @map("decision_note") @db.VarChar(500)
+  decidedAt    DateTime? @map("decided_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  branch   CafeBranch @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  employee User       @relation("leaveEmployee", fields: [employeeId], references: [id], onDelete: Restrict)
+  reviewer User?      @relation("leaveReviewedBy", fields: [reviewerId], references: [id], onDelete: Restrict)
+
+  @@index([employeeId, status, startsOn])
+  @@index([branchId, status, startsOn])
+  @@map("leave_requests")
+}
+
+model OfficialHoliday {
+  id          BigInt   @id @default(autoincrement())
+  branchId    BigInt?  @map("branch_id")
+  name        String   @db.VarChar(150)
+  startsOn    DateTime @map("starts_on") @db.Date
+  endsOn      DateTime @map("ends_on") @db.Date
+  createdById String   @map("created_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  branch    CafeBranch? @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  createdBy User        @relation("holidayCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([branchId, startsOn])
+  @@map("official_holidays")
 }
 
 model CafeTable {
@@ -196,6 +424,9 @@ model Product {
   unit            String    @default("pcs") @map("unit") @db.VarChar(20)
   // Tax percentage (0–100), stored server-side; never trusted from the browser.
   taxRate         Decimal   @default(0) @map("tax_rate") @db.Decimal(5, 2)
+  // Optional direct stock mapping for packaged products. Recipe products use
+  // RecipeItem rows instead; a product must never use both mechanisms.
+  inventoryItemId BigInt?   @map("inventory_item_id")
   isActive        Boolean   @default(true) @map("is_active")
   isAvailable     Boolean   @default(true) @map("is_available")
   isFeatured      Boolean   @default(false) @map("is_featured")
@@ -205,16 +436,18 @@ model Product {
   updatedAt       DateTime  @updatedAt @map("updated_at")
   deletedAt       DateTime? @map("deleted_at")
 
-  branch       CafeBranch      @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  category     Category        @relation("categoryProducts", fields: [categoryId], references: [id])
-  options      ProductOption[]
-  addonsAsMain ProductAddon[]  @relation("addonProduct")
-  recipes      Recipe[]
-  orderItems   OrderItem[]
+  branch        CafeBranch      @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  category      Category        @relation("categoryProducts", fields: [categoryId], references: [id])
+  options       ProductOption[]
+  addonsAsMain  ProductAddon[]  @relation("addonProduct")
+  recipes       Recipe[]
+  orderItems    OrderItem[]
+  inventoryItem InventoryItem?  @relation("packagedProductInventory", fields: [inventoryItemId], references: [id], onDelete: SetNull)
 
   @@index([categoryId, isActive, sortOrder])
   @@index([branchId, isActive])
   @@index([isAvailable])
+  @@index([inventoryItemId])
   @@map("products")
 }
 
@@ -287,39 +520,39 @@ model ProductAddon {
 // ============================ ORDERS ============================
 
 model Order {
-  id             BigInt    @id @default(autoincrement())
-  branchId       BigInt    @map("branch_id")
-  cafeTableId    BigInt    @map("cafe_table_id")
-  orderNumber    String    @unique @map("order_number") @db.VarChar(20)
-  orderRef       String    @unique @map("order_ref") @db.Char(24)
-  status         String    @default("NEW") @db.VarChar(20)
-  paymentStatus  String    @default("UNPAID") @map("payment_status") @db.VarChar(20)
-  orderType      String    @default("DINE_IN") @map("order_type") @db.VarChar(20)
-  customerName   String?   @map("customer_name") @db.VarChar(100)
-  customerPhone  String?   @map("customer_phone") @db.VarChar(20)
-  notes          String?   @db.Text
-  itemsSubtotal  Decimal   @map("items_subtotal") @db.Decimal(10, 2)
-  discountType   String?   @map("discount_type") @db.VarChar(20)
-  discountValue  Decimal   @default(0) @map("discount_value") @db.Decimal(10, 2)
-  discountAmount Decimal   @default(0) @map("discount_amount") @db.Decimal(10, 2)
-  taxRate        Decimal   @default(0) @map("tax_rate") @db.Decimal(5, 2)
-  taxAmount      Decimal   @default(0) @map("tax_amount") @db.Decimal(10, 2)
-  total          Decimal   @db.Decimal(10, 2)
-  source         String    @db.VarChar(20)
-  isArchived     Boolean   @default(false) @map("is_archived")
-  acceptedAt     DateTime? @map("accepted_at")
-  readyAt        DateTime? @map("ready_at")
-  servedAt       DateTime? @map("served_at")
+  id              BigInt    @id @default(autoincrement())
+  branchId        BigInt    @map("branch_id")
+  cafeTableId     BigInt    @map("cafe_table_id")
+  orderNumber     String    @unique @map("order_number") @db.VarChar(20)
+  orderRef        String    @unique @map("order_ref") @db.Char(24)
+  status          String    @default("NEW") @db.VarChar(20)
+  paymentStatus   String    @default("UNPAID") @map("payment_status") @db.VarChar(20)
+  orderType       String    @default("DINE_IN") @map("order_type") @db.VarChar(20)
+  customerName    String?   @map("customer_name") @db.VarChar(100)
+  customerPhone   String?   @map("customer_phone") @db.VarChar(20)
+  notes           String?   @db.Text
+  itemsSubtotal   Decimal   @map("items_subtotal") @db.Decimal(10, 2)
+  discountType    String?   @map("discount_type") @db.VarChar(20)
+  discountValue   Decimal   @default(0) @map("discount_value") @db.Decimal(10, 2)
+  discountAmount  Decimal   @default(0) @map("discount_amount") @db.Decimal(10, 2)
+  taxRate         Decimal   @default(0) @map("tax_rate") @db.Decimal(5, 2)
+  taxAmount       Decimal   @default(0) @map("tax_amount") @db.Decimal(10, 2)
+  total           Decimal   @db.Decimal(10, 2)
+  source          String    @db.VarChar(20)
+  isArchived      Boolean   @default(false) @map("is_archived")
+  acceptedAt      DateTime? @map("accepted_at")
+  readyAt         DateTime? @map("ready_at")
+  servedAt        DateTime? @map("served_at")
   // Set by the waiter when they push the order to the kitchen ("إرسال للمطبخ").
   // Null until sent — the kitchen board only shows orders the waiter dispatched.
   sentToKitchenAt DateTime? @map("sent_to_kitchen_at")
-  completedAt    DateTime? @map("completed_at")
-  cancelledAt    DateTime? @map("cancelled_at")
-  cancelReason   String?   @map("cancel_reason") @db.VarChar(255)
-  createdById    String?   @map("created_by") @db.Uuid
-  shiftId        BigInt?   @map("shift_id")
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
+  completedAt     DateTime? @map("completed_at")
+  cancelledAt     DateTime? @map("cancelled_at")
+  cancelReason    String?   @map("cancel_reason") @db.VarChar(255)
+  createdById     String?   @map("created_by") @db.Uuid
+  shiftId         BigInt?   @map("shift_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
 
   branch        CafeBranch           @relation(fields: [branchId], references: [id], onDelete: Restrict)
   cafeTable     CafeTable            @relation(fields: [cafeTableId], references: [id], onDelete: Restrict)
@@ -341,25 +574,33 @@ model Order {
 }
 
 model OrderItem {
-  id              BigInt   @id @default(autoincrement())
-  orderId         BigInt   @map("order_id")
-  productId       BigInt   @map("product_id")
-  productName     String   @map("product_name") @db.VarChar(150)
-  unitPrice       Decimal  @map("unit_price") @db.Decimal(10, 2)
-  quantity        Int      @db.SmallInt
-  lineTotal       Decimal  @map("line_total") @db.Decimal(10, 2)
-  optionsSnapshot Json?    @map("options_snapshot")
-  notes           String?  @db.VarChar(255)
-  prepTimeMinutes Int      @default(0) @map("prep_time_minutes") @db.SmallInt
-  isVoided        Boolean  @default(false) @map("is_voided")
-  voidReason      String?  @map("void_reason") @db.VarChar(255)
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+  id                     BigInt    @id @default(autoincrement())
+  orderId                BigInt    @map("order_id")
+  productId              BigInt    @map("product_id")
+  productName            String    @map("product_name") @db.VarChar(150)
+  unitPrice              Decimal   @map("unit_price") @db.Decimal(10, 2)
+  quantity               Int       @db.SmallInt
+  lineTotal              Decimal   @map("line_total") @db.Decimal(10, 2)
+  optionsSnapshot        Json?     @map("options_snapshot")
+  notes                  String?   @db.VarChar(255)
+  prepTimeMinutes        Int       @default(0) @map("prep_time_minutes") @db.SmallInt
+  isVoided               Boolean   @default(false) @map("is_voided")
+  voidReason             String?   @map("void_reason") @db.VarChar(255)
+  preparedQuantity       Int       @default(0) @map("prepared_quantity") @db.SmallInt
+  servedQuantity         Int       @default(0) @map("served_quantity") @db.SmallInt
+  preparationStartedAt   DateTime? @map("preparation_started_at")
+  preparationStartedById String?   @map("preparation_started_by") @db.Uuid
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
 
-  order   Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product Product           @relation(fields: [productId], references: [id], onDelete: Restrict)
-  addons  OrderItemAddon[]
-  options OrderItemOption[]
+  order                 Order                  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product               Product                @relation(fields: [productId], references: [id], onDelete: Restrict)
+  addons                OrderItemAddon[]
+  options               OrderItemOption[]
+  preparationStartedBy  User?                  @relation("itemPreparationStartedBy", fields: [preparationStartedById], references: [id], onDelete: SetNull)
+  reservations          InventoryReservation[]
+  inventoryTransactions InventoryTransaction[]
+  wasteEvents           WasteEvent[]
 
   @@index([orderId])
   @@index([productId])
@@ -428,8 +669,8 @@ model Notification {
   isRead    Boolean  @default(false) @map("is_read")
   createdAt DateTime @default(now()) @map("created_at")
 
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  order     Order?   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  order Order? @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   @@index([userId, isRead])
   @@index([orderId, isRead])
@@ -473,33 +714,34 @@ model Payment {
 // cash at close, variance. Orders/payments link via optional shiftId (SetNull).
 
 model Shift {
-  id             BigInt    @id @default(autoincrement())
-  branchId       BigInt    @map("branch_id")
+  id                  BigInt    @id @default(autoincrement())
+  branchId            BigInt    @map("branch_id")
   // Display snapshot of whoever opened the till (audit FK lives in cashierId).
-  openBy         String    @map("open_by")
-  cashierId      String?   @map("cashier_id") @db.Uuid
-  openingCash    Decimal   @default(0) @map("opening_cash") @db.Decimal(10, 2)
+  openBy              String    @map("open_by")
+  cashierId           String?   @map("cashier_id") @db.Uuid
+  openingCash         Decimal   @default(0) @map("opening_cash") @db.Decimal(10, 2)
   // expected = opening + cash received − cash refunded (computed at close).
-  expectedCash   Decimal   @default(0) @map("expected_cash") @db.Decimal(10, 2)
-  closingCash    Decimal   @default(0) @map("closing_cash") @db.Decimal(10, 2)
+  expectedCash        Decimal   @default(0) @map("expected_cash") @db.Decimal(10, 2)
+  closingCash         Decimal   @default(0) @map("closing_cash") @db.Decimal(10, 2)
   // actual − expected: positive = excess, negative = shortage.
-  cashDifference Decimal   @default(0) @map("cash_difference") @db.Decimal(10, 2)
-  status         String    @default("open") @db.VarChar(20)
-  openedAt       DateTime  @default(now()) @map("opened_at")
-  closedAt       DateTime? @map("closed_at")
+  cashDifference      Decimal   @default(0) @map("cash_difference") @db.Decimal(10, 2)
+  status              String    @default("open") @db.VarChar(20)
+  openedAt            DateTime  @default(now()) @map("opened_at")
+  closedAt            DateTime? @map("closed_at")
   // Handover / reconciliation fields — recorded when the cashier closes the
   // till. handoverTo names the receiving manager/authorized employee.
-  handoverNotes  String?   @map("handover_notes") @db.VarChar(1000)
-  handoverTo     String?   @map("handover_to") @db.VarChar(100)
+  handoverNotes       String?   @map("handover_notes") @db.VarChar(1000)
+  handoverTo          String?   @map("handover_to") @db.VarChar(100)
   handoverCompletedAt DateTime? @map("handover_completed_at")
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
 
-  branch   CafeBranch @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  cashier  User?      @relation("shiftCashier", fields: [cashierId], references: [id], onDelete: SetNull)
-  orders   Order[]    @relation("orderShift")
-  payments Payment[]  @relation("paymentShift")
+  branch             CafeBranch          @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  cashier            User?               @relation("shiftCashier", fields: [cashierId], references: [id], onDelete: SetNull)
+  orders             Order[]             @relation("orderShift")
+  payments           Payment[]           @relation("paymentShift")
   financialMovements FinancialMovement[]
+  attendanceCorrections AttendanceCorrection[]
 
   @@index([branchId, status])
   @@index([cashierId])
@@ -509,34 +751,34 @@ model Shift {
 // Immutable cash-ledger entries. A movement is a transfer between named cash
 // accounts, never revenue. Corrections are represented by a reversing entry.
 model FinancialMovement {
-  id                BigInt   @id @default(autoincrement())
-  branchId          BigInt   @map("branch_id")
+  id                 BigInt    @id @default(autoincrement())
+  branchId           BigInt    @map("branch_id")
   // Reversal type names (for example fixed_float_withdrawal_reversal) need
   // 31 characters; keep a small, explicit margin for immutable ledger types.
-  type              String   @db.VarChar(40)
-  status            String   @default("posted") @db.VarChar(20)
-  amount            Decimal  @db.Decimal(10, 2)
-  sourceAccount     String   @map("source_account") @db.VarChar(30)
-  destinationAccount String  @map("destination_account") @db.VarChar(30)
-  sourceShiftId     BigInt?  @map("source_shift_id")
-  destinationUserId String?  @map("destination_user_id") @db.Uuid
-  actorId           String?  @map("actor_id") @db.Uuid
-  reason            String   @db.VarChar(255)
-  occurredAt        DateTime @default(now()) @map("occurred_at")
-  consumedAt        DateTime? @map("consumed_at")
-  metadata          Json?
-  reversalOfId      BigInt?  @unique @map("reversal_of_id")
-  advanceId         BigInt?  @map("advance_id")
-  createdAt         DateTime @default(now()) @map("created_at")
+  type               String    @db.VarChar(40)
+  status             String    @default("posted") @db.VarChar(20)
+  amount             Decimal   @db.Decimal(10, 2)
+  sourceAccount      String    @map("source_account") @db.VarChar(30)
+  destinationAccount String    @map("destination_account") @db.VarChar(30)
+  sourceShiftId      BigInt?   @map("source_shift_id")
+  destinationUserId  String?   @map("destination_user_id") @db.Uuid
+  actorId            String?   @map("actor_id") @db.Uuid
+  reason             String    @db.VarChar(255)
+  occurredAt         DateTime  @default(now()) @map("occurred_at")
+  consumedAt         DateTime? @map("consumed_at")
+  metadata           Json?
+  reversalOfId       BigInt?   @unique @map("reversal_of_id")
+  advanceId          BigInt?   @map("advance_id")
+  createdAt          DateTime  @default(now()) @map("created_at")
 
-  branch            CafeBranch @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  sourceShift       Shift?     @relation(fields: [sourceShiftId], references: [id], onDelete: Restrict)
-  destinationUser   User?      @relation("movementRecipient", fields: [destinationUserId], references: [id], onDelete: Restrict)
-  actor             User?      @relation("movementActor", fields: [actorId], references: [id], onDelete: SetNull)
-  reversalOf        FinancialMovement? @relation("movementReversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
-  reversal          FinancialMovement? @relation("movementReversal")
-  advance           FinancialMovement? @relation("advanceRepayments", fields: [advanceId], references: [id], onDelete: Restrict)
-  repayments        FinancialMovement[] @relation("advanceRepayments")
+  branch          CafeBranch          @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  sourceShift     Shift?              @relation(fields: [sourceShiftId], references: [id], onDelete: Restrict)
+  destinationUser User?               @relation("movementRecipient", fields: [destinationUserId], references: [id], onDelete: Restrict)
+  actor           User?               @relation("movementActor", fields: [actorId], references: [id], onDelete: SetNull)
+  reversalOf      FinancialMovement?  @relation("movementReversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
+  reversal        FinancialMovement?  @relation("movementReversal")
+  advance         FinancialMovement?  @relation("advanceRepayments", fields: [advanceId], references: [id], onDelete: Restrict)
+  repayments      FinancialMovement[] @relation("advanceRepayments")
 
   @@index([branchId, type, occurredAt])
   @@index([sourceShiftId])
@@ -548,15 +790,15 @@ model FinancialMovement {
 // Durable response record for retry-safe monetary operations. Rows are written
 // in the same transaction as the resulting ledger/payment record.
 model FinancialOperation {
-  id              BigInt   @id @default(autoincrement())
-  branchId        BigInt   @map("branch_id")
-  actorId         String   @map("actor_id") @db.Uuid
-  operationType   String   @map("operation_type") @db.VarChar(40)
-  idempotencyKey  String   @map("idempotency_key") @db.VarChar(100)
-  fingerprint     String   @db.VarChar(128)
-  result          Json
-  createdAt       DateTime @default(now()) @map("created_at")
-  branch          CafeBranch @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  id             BigInt     @id @default(autoincrement())
+  branchId       BigInt     @map("branch_id")
+  actorId        String     @map("actor_id") @db.Uuid
+  operationType  String     @map("operation_type") @db.VarChar(40)
+  idempotencyKey String     @map("idempotency_key") @db.VarChar(100)
+  fingerprint    String     @db.VarChar(128)
+  result         Json
+  createdAt      DateTime   @default(now()) @map("created_at")
+  branch         CafeBranch @relation(fields: [branchId], references: [id], onDelete: Restrict)
 
   @@unique([branchId, actorId, operationType, idempotencyKey])
   @@map("financial_operations")
@@ -579,9 +821,13 @@ model InventoryItem {
   updatedAt    DateTime  @updatedAt @map("updated_at")
   deletedAt    DateTime? @map("deleted_at")
 
-  branch       CafeBranch             @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  recipeItems  RecipeItem[]
-  transactions InventoryTransaction[]
+  branch           CafeBranch             @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  recipeItems      RecipeItem[]
+  transactions     InventoryTransaction[]
+  batches          InventoryBatch[]
+  reservations     InventoryReservation[]
+  packagedProducts Product[]              @relation("packagedProductInventory")
+  stockCountLines  StockCountLine[]
 
   @@unique([branchId, sku])
   @@index([branchId, isActive])
@@ -627,17 +873,243 @@ model InventoryTransaction {
   referenceType   String?  @map("reference_type") @db.VarChar(30)
   referenceId     BigInt?  @map("reference_id")
   unitCost        Decimal? @map("unit_cost") @db.Decimal(10, 2)
+  costTotal       Decimal  @default(0) @map("cost_total") @db.Decimal(12, 2)
+  orderItemId     BigInt?  @map("order_item_id")
   createdById     String?  @map("created_by") @db.Uuid
   notes           String?  @db.VarChar(255)
   createdAt       DateTime @default(now()) @map("created_at")
 
-  inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
-  branch        CafeBranch    @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  createdBy     User?         @relation("txnCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  inventoryItem  InventoryItem              @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  branch         CafeBranch                 @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  createdBy      User?                      @relation("txnCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  orderItem      OrderItem?                 @relation(fields: [orderItemId], references: [id], onDelete: SetNull)
+  allocations    InventoryBatchAllocation[]
+  stockCountLine StockCountLine?
 
   @@index([inventoryItemId, createdAt])
   @@index([branchId, type, createdAt])
+  @@index([orderItemId])
   @@map("inventory_transactions")
+}
+
+// Inventory batches preserve physical FEFO picking and independent FIFO cost
+// layers. Legacy on-hand stock intentionally has no synthetic batch: it must be
+// reconciled into an authorised opening batch before automated consumption.
+model InventoryBatch {
+  id                    BigInt    @id @default(autoincrement())
+  inventoryItemId       BigInt    @map("inventory_item_id")
+  branchId              BigInt    @map("branch_id")
+  receivedAt            DateTime  @default(now()) @map("received_at")
+  expiresAt             DateTime? @map("expires_at")
+  originalQuantity      Decimal   @map("original_quantity") @db.Decimal(12, 3)
+  remainingQuantity     Decimal   @map("remaining_quantity") @db.Decimal(12, 3)
+  remainingCostQuantity Decimal   @map("remaining_cost_quantity") @db.Decimal(12, 3)
+  unitCost              Decimal   @map("unit_cost") @db.Decimal(12, 4)
+  supplierReference     String?   @map("supplier_reference") @db.VarChar(120)
+  createdById           String?   @map("created_by") @db.Uuid
+  createdAt             DateTime  @default(now()) @map("created_at")
+
+  inventoryItem  InventoryItem              @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  branch         CafeBranch                 @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  allocations    InventoryBatchAllocation[]
+  StockCountLine StockCountLine[]
+
+  @@index([inventoryItemId, expiresAt, receivedAt])
+  @@index([inventoryItemId, receivedAt])
+  @@map("inventory_batches")
+}
+
+model InventoryReservation {
+  id               BigInt    @id @default(autoincrement())
+  branchId         BigInt    @map("branch_id")
+  orderItemId      BigInt    @map("order_item_id")
+  inventoryItemId  BigInt    @map("inventory_item_id")
+  quantity         Decimal   @db.Decimal(12, 3)
+  consumedQuantity Decimal   @default(0) @map("consumed_quantity") @db.Decimal(12, 3)
+  releasedQuantity Decimal   @default(0) @map("released_quantity") @db.Decimal(12, 3)
+  status           String    @default("active") @db.VarChar(20)
+  createdAt        DateTime  @default(now()) @map("created_at")
+  releasedAt       DateTime? @map("released_at")
+  consumedAt       DateTime? @map("consumed_at")
+
+  branch        CafeBranch    @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  orderItem     OrderItem     @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Restrict)
+
+  @@unique([orderItemId, inventoryItemId])
+  @@index([inventoryItemId, status])
+  @@index([branchId, status])
+  @@map("inventory_reservations")
+}
+
+// A physical allocation (FEFO) and a costing allocation (FIFO) are recorded
+// separately, so traceability never pretends that the two policies are equal.
+model InventoryBatchAllocation {
+  id                     BigInt   @id @default(autoincrement())
+  inventoryBatchId       BigInt   @map("inventory_batch_id")
+  inventoryTransactionId BigInt   @map("inventory_transaction_id")
+  allocationType         String   @db.VarChar(12)
+  quantity               Decimal  @db.Decimal(12, 3)
+  unitCost               Decimal  @db.Decimal(12, 4)
+  createdAt              DateTime @default(now()) @map("created_at")
+
+  inventoryBatch       InventoryBatch       @relation(fields: [inventoryBatchId], references: [id], onDelete: Restrict)
+  inventoryTransaction InventoryTransaction @relation(fields: [inventoryTransactionId], references: [id], onDelete: Cascade)
+
+  @@index([inventoryBatchId, allocationType])
+  @@index([inventoryTransactionId])
+  @@map("inventory_batch_allocations")
+}
+
+// A count is immutable after posting. The application records every stock
+// adjustment as an InventoryTransaction; this session stores the physical
+// observation and the reconciliation decision.
+model StockCount {
+  id             BigInt    @id @default(autoincrement())
+  branchId       BigInt    @map("branch_id")
+  responsibleId  String    @map("responsible_id") @db.Uuid
+  type           String    @db.VarChar(20) // weekly | monthly | ad_hoc
+  status         String    @default("draft") @db.VarChar(20) // draft | counting | submitted | posted | cancelled
+  snapshotAt     DateTime  @default(now()) @map("snapshot_at")
+  submittedAt    DateTime? @map("submitted_at")
+  postedAt       DateTime? @map("posted_at")
+  postedById     String?   @map("posted_by") @db.Uuid
+  cancelledAt    DateTime? @map("cancelled_at")
+  cancelReason   String?   @map("cancel_reason") @db.VarChar(255)
+  idempotencyKey String?   @map("idempotency_key") @db.VarChar(100)
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  branch      CafeBranch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  responsible User             @relation("stockCountResponsible", fields: [responsibleId], references: [id], onDelete: Restrict)
+  postedBy    User?            @relation("stockCountPostedBy", fields: [postedById], references: [id], onDelete: Restrict)
+  lines       StockCountLine[]
+
+  @@unique([branchId, idempotencyKey])
+  @@index([branchId, status, createdAt])
+  @@index([responsibleId, status])
+  @@map("stock_counts")
+}
+
+model StockCountLine {
+  id                  BigInt   @id @default(autoincrement())
+  stockCountId        BigInt   @map("stock_count_id")
+  inventoryItemId     BigInt   @map("inventory_item_id")
+  inventoryBatchId    BigInt?  @map("inventory_batch_id")
+  expectedQuantity    Decimal  @map("expected_quantity") @db.Decimal(12, 3)
+  countedQuantity     Decimal? @map("counted_quantity") @db.Decimal(12, 3)
+  varianceQuantity    Decimal? @map("variance_quantity") @db.Decimal(12, 3)
+  fifoCostTotal       Decimal? @map("fifo_cost_total") @db.Decimal(12, 2)
+  valuationMetadata   Json?    @map("valuation_metadata")
+  postedTransactionId BigInt?  @unique @map("posted_transaction_id")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  stockCount        StockCount            @relation(fields: [stockCountId], references: [id], onDelete: Cascade)
+  inventoryItem     InventoryItem         @relation(fields: [inventoryItemId], references: [id], onDelete: Restrict)
+  inventoryBatch    InventoryBatch?       @relation(fields: [inventoryBatchId], references: [id], onDelete: Restrict)
+  postedTransaction InventoryTransaction? @relation(fields: [postedTransactionId], references: [id], onDelete: Restrict)
+
+  @@unique([stockCountId, inventoryItemId, inventoryBatchId])
+  @@index([inventoryItemId])
+  @@index([inventoryBatchId])
+  @@map("stock_count_lines")
+}
+
+model WasteEvent {
+  id            BigInt   @id @default(autoincrement())
+  branchId      BigInt   @map("branch_id")
+  orderItemId   BigInt?  @map("order_item_id")
+  responsibleId String?  @map("responsible_id") @db.Uuid
+  recordedById  String?  @map("recorded_by") @db.Uuid
+  quantity      Decimal  @db.Decimal(12, 3)
+  cause         String   @db.VarChar(40)
+  reason        String   @db.VarChar(255)
+  costTotal     Decimal  @default(0) @map("cost_total") @db.Decimal(12, 2)
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  branch         CafeBranch              @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  orderItem      OrderItem?              @relation(fields: [orderItemId], references: [id], onDelete: SetNull)
+  responsible    User?                   @relation("wasteResponsible", fields: [responsibleId], references: [id], onDelete: SetNull)
+  recordedBy     User?                   @relation("wasteRecordedBy", fields: [recordedById], references: [id], onDelete: SetNull)
+  accountability EmployeeAccountability?
+
+  @@index([branchId, createdAt])
+  @@map("waste_events")
+}
+
+// Durable retry record for non-financial inventory write-offs. It is written
+// in the same transaction as the movement so browser/network retries cannot
+// deduct stock twice.
+model WasteOperation {
+  id             BigInt   @id @default(autoincrement())
+  branchId       BigInt   @map("branch_id")
+  actorId        String   @map("actor_id") @db.Uuid
+  operationType  String   @map("operation_type") @db.VarChar(40)
+  idempotencyKey String   @map("idempotency_key") @db.VarChar(100)
+  fingerprint    String   @db.VarChar(128)
+  result         Json
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  branch CafeBranch @relation(fields: [branchId], references: [id], onDelete: Restrict)
+
+  @@unique([branchId, actorId, operationType, idempotencyKey])
+  @@map("waste_operations")
+}
+
+model EmployeeAccountability {
+  id              BigInt    @id @default(autoincrement())
+  branchId        BigInt    @map("branch_id")
+  employeeId      String    @map("employee_id") @db.Uuid
+  wasteEventId    BigInt?   @unique @map("waste_event_id")
+  amount          Decimal   @db.Decimal(12, 2)
+  waivedAmount    Decimal   @default(0) @map("waived_amount") @db.Decimal(12, 2)
+  deductedAmount  Decimal   @default(0) @map("deducted_amount") @db.Decimal(12, 2)
+  reviewStatus    String    @default("pending_review") @map("review_status") @db.VarChar(30)
+  legalApprovedAt DateTime? @map("legal_approved_at")
+  reviewedById    String?   @map("reviewed_by") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  branch     CafeBranch             @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  employee   User                   @relation("accountabilityEmployee", fields: [employeeId], references: [id], onDelete: Restrict)
+  wasteEvent WasteEvent?            @relation(fields: [wasteEventId], references: [id], onDelete: SetNull)
+  reviewedBy User?                  @relation("accountabilityReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  waivers    AccountabilityWaiver[]
+  deductions PayrollDeduction[]
+
+  @@index([branchId, employeeId, reviewStatus])
+  @@map("employee_accountability")
+}
+
+model AccountabilityWaiver {
+  id               BigInt   @id @default(autoincrement())
+  accountabilityId BigInt   @map("accountability_id")
+  amount           Decimal  @db.Decimal(12, 2)
+  reason           String   @db.VarChar(255)
+  managerId        String   @map("manager_id") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  accountability EmployeeAccountability @relation(fields: [accountabilityId], references: [id], onDelete: Restrict)
+  manager        User                   @relation("waiverManager", fields: [managerId], references: [id], onDelete: Restrict)
+
+  @@index([accountabilityId, createdAt])
+  @@map("accountability_waivers")
+}
+
+// A legal/manager-approved payroll settlement only. Creation is intentionally
+// separate from the automatic accountability record.
+model PayrollDeduction {
+  id               BigInt   @id @default(autoincrement())
+  accountabilityId BigInt   @map("accountability_id")
+  amount           Decimal  @db.Decimal(12, 2)
+  payrollPeriod    String   @map("payroll_period") @db.VarChar(20)
+  approvedById     String   @map("approved_by") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  accountability EmployeeAccountability @relation(fields: [accountabilityId], references: [id], onDelete: Restrict)
+
+  @@unique([accountabilityId, payrollPeriod])
+  @@map("payroll_deductions")
 }
 
 // ============================ DISCOUNTS ============================

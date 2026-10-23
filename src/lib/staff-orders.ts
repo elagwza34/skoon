@@ -5,6 +5,7 @@ import { staffCanAccessBranch, type StaffSession } from '@/lib/session'
 import { notifyRole, type NotificationType } from '@/lib/notifications'
 import { getOpenShift, ShiftError } from '@/lib/staff-shifts'
 import { recalculateInvoiceTotals } from '@/lib/staff-invoices'
+import { consumeOrderReservations, markOrderPreparation, releaseOrderReservations, reserveOrderInventory, serveOrderItemInventory, StockError } from '@/lib/staff-inventory-engine'
 
 /**
  * Staff order lifecycle — server-only.
@@ -67,7 +68,7 @@ export interface StaffOrderRow {
   orderNotes: string | null
   tableNumber: string
   createdAt: string
-  items: { id: string; productId: string; name: string; qty: number; unitPrice: number; note: string | null }[]
+  items: { id: string; productId: string; name: string; qty: number; servedQty: number; preparedQty: number; unitPrice: number; note: string | null }[]
   itemsCount: number
   /** Set once the waiter has pushed the order to the kitchen ("إرسال للمطبخ"). */
   sentToKitchen: boolean
@@ -106,7 +107,7 @@ export async function listStaffOrders(
       items: {
         where: { isVoided: false },
         orderBy: { id: 'asc' },
-        select: { id: true, productId: true, productName: true, quantity: true, unitPrice: true, notes: true },
+        select: { id: true, productId: true, productName: true, quantity: true, servedQuantity: true, preparedQuantity: true, unitPrice: true, notes: true },
       },
     },
   })
@@ -124,7 +125,7 @@ export async function listStaffOrders(
     sentToKitchen: o.sentToKitchenAt != null,
     sentToKitchenAt: o.sentToKitchenAt?.toISOString() ?? null,
     cancelReason: o.cancelReason ?? null,
-    items: o.items.map((i) => ({ id: i.id.toString(), productId: i.productId.toString(), name: i.productName, qty: i.quantity, unitPrice: Number(i.unitPrice), note: i.notes })),
+    items: o.items.map((i) => ({ id: i.id.toString(), productId: i.productId.toString(), name: i.productName, qty: i.quantity, servedQty: i.servedQuantity, preparedQty: i.preparedQuantity, unitPrice: Number(i.unitPrice), note: i.notes })),
     itemsCount: o.items.reduce((n, i) => n + i.quantity, 0),
   }))
 }
@@ -144,7 +145,7 @@ export async function listKitchenOrders(session: StaffSession, limit = 100): Pro
       id: true, orderNumber: true, status: true, paymentStatus: true, total: true, customerName: true,
       source: true, notes: true, createdAt: true, sentToKitchenAt: true, cancelReason: true,
       cafeTable: { select: { number: true } },
-      items: { where: { isVoided: false }, orderBy: { id: 'asc' }, select: { id: true, productId: true, productName: true, quantity: true, unitPrice: true, notes: true } },
+      items: { where: { isVoided: false }, orderBy: { id: 'asc' }, select: { id: true, productId: true, productName: true, quantity: true, servedQuantity: true, preparedQuantity: true, unitPrice: true, notes: true } },
     },
   })
   return orders.map((o) => ({
@@ -152,7 +153,7 @@ export async function listKitchenOrders(session: StaffSession, limit = 100): Pro
     total: Number(o.total), customerName: o.customerName, source: o.source, orderNotes: o.notes, tableNumber: o.cafeTable.number,
     createdAt: o.createdAt.toISOString(), sentToKitchen: o.sentToKitchenAt != null,
     sentToKitchenAt: o.sentToKitchenAt?.toISOString() ?? null, cancelReason: o.cancelReason ?? null,
-    items: o.items.map((i) => ({ id: i.id.toString(), productId: i.productId.toString(), name: i.productName, qty: i.quantity, unitPrice: Number(i.unitPrice), note: i.notes })),
+    items: o.items.map((i) => ({ id: i.id.toString(), productId: i.productId.toString(), name: i.productName, qty: i.quantity, servedQty: i.servedQuantity, preparedQty: i.preparedQuantity, unitPrice: Number(i.unitPrice), note: i.notes })),
     itemsCount: o.items.reduce((n, i) => n + i.quantity, 0),
   }))
 }
@@ -162,6 +163,9 @@ const cancelReasonSchema = z.string().trim().min(3).max(255).optional()
 const waiterOrderEditSchema = z.object({
   items: z.array(z.object({ productId: z.string().regex(/^\d+$/), qty: z.number().int().min(1).max(20), note: z.string().trim().max(255).optional() })).min(1).max(30),
   notes: z.string().trim().max(2000).optional(),
+})
+const serveItemsSchema = z.object({
+  items: z.array(z.object({ orderItemId: z.string().regex(/^\d+$/), quantity: z.coerce.number().int().positive().max(99) })).min(1).max(30),
 })
 
 /** Replace lines on an unsent waiter order. Prices and totals are always re-derived on the server. */
@@ -247,6 +251,19 @@ export async function transitionOrderStatus(
     const locked = lockedRows[0]
     if (!locked || locked.status !== current) throw new OrderError('Order status changed; refresh and retry', 409)
     if (to === 'cancelled' && locked.payment_status === 'paid') throw new OrderError('A paid order must be refunded through the payment correction flow', 409)
+    // Inventory is deliberately not consumed at acceptance/ready. Preparation
+    // attribution starts when the kitchen accepts; service converts the held
+    // reservation to immutable consumption. A prepared cancellation becomes
+    // waste, while an unprepared one only releases its hold.
+    try {
+      if (to === 'preparing') await markOrderPreparation(tx, order.id, session.id)
+      if (to === 'served') await consumeOrderReservations(tx, order.id, session.id, 'consumption')
+      if (to === 'cancelled' && current === 'new') await releaseOrderReservations(tx, order.id)
+      if (to === 'cancelled' && current === 'preparing') await consumeOrderReservations(tx, order.id, session.id, 'waste', reason.data)
+    } catch (error) {
+      if (error instanceof StockError) throw new OrderError(error.message, error.status)
+      throw error
+    }
     await tx.order.update({
       where: { id: order.id },
       data: {
@@ -268,6 +285,48 @@ export async function transitionOrderStatus(
   })
 
   return { id: order.id.toString(), orderNumber: order.orderNumber, status: to }
+}
+
+/**
+ * Serve selected ready order lines. Each line is locked and converted through
+ * the inventory engine, so a retry/concurrent waiter cannot consume it twice.
+ * The order reaches `served` only after every non-voided line is fully served.
+ */
+export async function serveOrderItems(session: StaffSession, orderIdRaw: string, input: unknown) {
+  if (!hasAtLeast(session.role, ROLE.WAITER)) throw new OrderError('Forbidden', 403)
+  if (!/^\d+$/.test(orderIdRaw)) throw new OrderError('Order not found', 404)
+  const parsed = serveItemsSchema.safeParse(input)
+  if (!parsed.success) throw new OrderError('Invalid item-serving request', 400)
+  const orderId = BigInt(orderIdRaw)
+  const order = await prisma.order.findUnique({ where: { id: orderId }, select: { id: true, branchId: true, status: true, orderNumber: true } })
+  if (!order || !staffCanAccessBranch(session, order.branchId)) throw new OrderError('Order not found', 404)
+  if (!isOwner(session.role) && !await getOpenShift(session.id, order.branchId)) throw new OrderError('An open shift is required', 409)
+
+  return prisma.$transaction(async (tx) => {
+    const locked = await tx.$queryRaw<{ status: string }[]>`SELECT status FROM orders WHERE id = ${orderId} FOR UPDATE`
+    if (locked[0]?.status !== 'ready') throw new OrderError('Only ready orders can be served', 409)
+    const requested = new Map<string, number>()
+    for (const item of parsed.data.items) {
+      if (requested.has(item.orderItemId)) throw new OrderError('An item may only be served once per request', 400)
+      requested.set(item.orderItemId, item.quantity)
+    }
+    const lines = await tx.orderItem.findMany({ where: { orderId, isVoided: false }, select: { id: true, quantity: true, servedQuantity: true } })
+    for (const [id, quantity] of requested) {
+      const line = lines.find((candidate) => candidate.id.toString() === id)
+      if (!line || quantity > line.quantity - line.servedQuantity) throw new OrderError('Requested serving quantity is unavailable', 409)
+      try { await serveOrderItemInventory(tx, orderId, line.id, quantity, session.id) }
+      catch (error) { if (error instanceof StockError) throw new OrderError(error.message, error.status); throw error }
+    }
+    const refreshed = await tx.orderItem.findMany({ where: { orderId, isVoided: false }, select: { quantity: true, servedQuantity: true } })
+    const complete = refreshed.every((line) => line.servedQuantity >= line.quantity)
+    if (complete) {
+      await tx.order.update({ where: { id: orderId }, data: { status: 'served', servedAt: new Date() } })
+      await tx.orderStatusHistory.create({ data: { orderId, fromStatus: 'ready', toStatus: 'served', changedById: session.id } })
+      await emitStatusNotifications(tx, { to: 'served', orderId, branchId: order.branchId, orderNumber: order.orderNumber })
+    }
+    await tx.auditLog.create({ data: { userId: session.id, branchId: order.branchId, action: 'order.items_served', entityType: 'order', entityId: orderId, newValues: { items: parsed.data.items, orderComplete: complete } } })
+    return { id: orderId.toString(), served: parsed.data.items, orderComplete: complete, status: complete ? 'served' : 'ready' }
+  })
 }
 
 /**
@@ -305,6 +364,12 @@ export async function sendOrderToKitchen(session: StaffSession, orderId: string)
     `
     if (locked[0]?.status !== 'new') throw new OrderError('Order is no longer dispatchable', 409)
     if (locked[0]?.sent_to_kitchen_at) throw new OrderError('Order was already sent to kitchen', 409)
+    try {
+      await reserveOrderInventory(tx, order.id)
+    } catch (error) {
+      if (error instanceof StockError) throw new OrderError(error.message, error.status)
+      throw error
+    }
     await tx.order.update({ where: { id: order.id }, data: { sentToKitchenAt: new Date() } })
     await notifyRole(tx, ROLE.KITCHEN, order.branchId, {
       type: 'order.sent_to_kitchen',

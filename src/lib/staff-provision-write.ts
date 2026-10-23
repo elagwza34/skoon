@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { prisma } from '@/lib/prisma'
 import { ROLE, isKnownRole, type RoleSlug } from '@/lib/authz'
 import { staffCanAccessBranch, type StaffSession } from '@/lib/session'
+import { canManageEmployeeLifecycle, canResetEmployeePassword } from '@/lib/hr-authz'
 
 /**
  * Staff provisioning — server-only, trusted path (docs/OWNER-PROVISIONING.md).
@@ -14,8 +15,8 @@ import { staffCanAccessBranch, type StaffSession } from '@/lib/session'
  * owner/manager API route; role/branch come from validated server input.
  *
  * PRIVILEGE RULES (enforced here, not in the UI):
- *   - assigning the owner role requires the caller to BE the owner
- *   - a manager may only touch users of their own branch, never an owner
+ *   - employee creation, official assignment and activation require the Owner
+ *   - password resets are a separate, narrowly scoped action
  *   - owner accounts always have branchId = NULL (cross-branch)
  *   - a user cannot deactivate their own account (lockout guard)
  *
@@ -37,12 +38,22 @@ const inviteSchema = z.object({
   name: z.string().trim().min(2, 'الاسم قصير جداً').max(100),
   role: z.string().trim().refine(isKnownRole, 'دور غير معروف'),
   branchId: z.string().regex(/^\d+$/, 'فرع غير صالح').optional(),
+  accountMode: z.enum(['invite', 'password']).default('invite'),
+  permanentPassword: z.string().min(12, 'كلمة المرور يجب أن تكون 12 حرفاً على الأقل').max(72).optional(),
+}).superRefine((value, ctx) => {
+  if (value.accountMode === 'password' && !value.permanentPassword) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['permanentPassword'], message: 'أدخل كلمة المرور الدائمة' })
+  }
 })
 
 const updateSchema = z.object({
   role: z.string().trim().refine(isKnownRole, 'دور غير معروف').optional(),
   branchId: z.string().regex(/^\d+$/, 'فرع غير صالح').nullable().optional(),
   isActive: z.boolean().optional(),
+})
+
+const resetPasswordSchema = z.object({
+  password: z.string().min(12, 'Password must be at least 12 characters').max(72),
 })
 
 export interface ProvisionedStaff {
@@ -104,12 +115,12 @@ async function resolveAssignment(
 
 /** Invite a staff member: Supabase Auth invitation + trusted profile row. */
 export async function inviteStaff(session: StaffSession, input: unknown): Promise<ProvisionedStaff> {
-  if (session.role !== ROLE.OWNER && session.role !== ROLE.MANAGER)
+  if (!canManageEmployeeLifecycle(session.role))
     throw new StaffProvisionError('غير مصرح', 403)
 
   const parsed = inviteSchema.safeParse(input)
   if (!parsed.success) throw new StaffProvisionError(parsed.error.issues[0]?.message ?? 'بيانات غير صالحة', 400)
-  const { email, name } = parsed.data
+  const { email, name, accountMode, permanentPassword } = parsed.data
   const roleSlug = parsed.data.role as RoleSlug
 
   const assignment = await resolveAssignment(session, roleSlug, parsed.data.branchId)
@@ -121,9 +132,14 @@ export async function inviteStaff(session: StaffSession, input: unknown): Promis
   if (existing) throw new StaffProvisionError('يوجد حساب مسجل بهذا البريد بالفعل', 409)
 
   const supabase = adminClient()
-  const { data, error } = await supabase.auth.admin.inviteUserByEmail(email, {
-    data: { full_name: name },
-  })
+  const { data, error } = accountMode === 'invite'
+    ? await supabase.auth.admin.inviteUserByEmail(email, { data: { full_name: name } })
+    : await supabase.auth.admin.createUser({
+      email,
+      password: permanentPassword as string,
+      email_confirm: true,
+      user_metadata: { full_name: name },
+    })
   if (error || !data.user) {
     throw new StaffProvisionError(`تعذر إرسال الدعوة: ${error?.message ?? 'غير معروف'}`, 502)
   }
@@ -145,9 +161,9 @@ export async function inviteStaff(session: StaffSession, input: unknown): Promis
       data: {
         userId: session.id,
         branchId: assignment.branchId,
-        action: 'staff.invite',
+        action: accountMode === 'invite' ? 'staff.invite' : 'staff.create_with_password',
         entityType: 'user',
-        newValues: { userId: created.id, email, role: roleSlug },
+        newValues: { userId: created.id, email, role: roleSlug, accountMode },
       },
     })
 
@@ -186,7 +202,7 @@ export async function updateStaff(
   targetId: string,
   input: unknown,
 ): Promise<UpdatedStaff> {
-  if (session.role !== ROLE.OWNER && session.role !== ROLE.MANAGER)
+  if (!canManageEmployeeLifecycle(session.role))
     throw new StaffProvisionError('غير مصرح', 403)
 
   const parsed = updateSchema.safeParse(input)
@@ -269,4 +285,35 @@ export async function updateStaff(
     branchId: updated.branchId?.toString() ?? null,
     isActive: updated.isActive,
   }
+}
+
+/**
+ * Passwords are accepted only for the one-time reset request, passed directly
+ * to Supabase Auth, and never selected, stored, or returned by Skoon.
+ */
+export async function resetStaffPassword(session: StaffSession, targetId: string, input: unknown): Promise<void> {
+  const parsed = resetPasswordSchema.safeParse(input)
+  if (!parsed.success) throw new StaffProvisionError(parsed.error.issues[0]?.message ?? 'Invalid request', 400)
+
+  const target = await prisma.user.findFirst({
+    where: { id: targetId, isActive: true, deletedAt: null },
+    select: { id: true, branchId: true, role: { select: { slug: true } } },
+  })
+  if (!target) throw new StaffProvisionError('Employee not found', 404)
+  if (!canResetEmployeePassword(session, { role: target.role.slug as RoleSlug, branchId: target.branchId })) {
+    throw new StaffProvisionError('Not authorized to reset this employee password', 403)
+  }
+
+  const { error } = await adminClient().auth.admin.updateUserById(target.id, { password: parsed.data.password })
+  if (error) throw new StaffProvisionError('Password reset failed', 502)
+
+  await prisma.auditLog.create({
+    data: {
+      userId: session.id,
+      branchId: target.branchId,
+      action: 'staff.password_reset',
+      entityType: 'user',
+      newValues: { userId: target.id },
+    },
+  })
 }

@@ -7,6 +7,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { planStockCount } from '../src/lib/stock-count-policy'
 
 import { getPublicEnv } from '../src/lib/env'
 import {
@@ -59,6 +60,8 @@ import {
   permissionForPath,
   canSeeRoute,
 } from '../src/lib/route-access'
+import { canManageEmployeeLifecycle, canReadEmployeeDirectory, canReadSensitiveEmployeeData, canResetEmployeePassword } from '../src/lib/hr-authz'
+import { effectivePeriodsOverlap, evaluateAttendance, validateWeeklySchedule } from '../src/lib/hr-scheduling-policy'
 
 test('waiter lifecycle: only dispatched new tickets enter the kitchen queue', () => {
   assert.equal(isKitchenTicketVisible('new', false), false)
@@ -330,6 +333,46 @@ test('pin: length constants are sane', () => {
 test('authz: ROLE constants stable', () => {
   assert.equal(ROLE.OWNER, 'owner')
   assert.equal(ROLE.MANAGER, 'manager')
+})
+
+test('HR authorization: employee lifecycle is owner-only', () => {
+  assert.equal(canManageEmployeeLifecycle('owner'), true)
+  assert.equal(canManageEmployeeLifecycle('manager'), false)
+  assert.equal(canManageEmployeeLifecycle('cashier'), false)
+})
+
+test('HR authorization: only owner and manager may read the employee directory; sensitive data is owner-only', () => {
+  assert.equal(canReadEmployeeDirectory('owner'), true)
+  assert.equal(canReadEmployeeDirectory('manager'), true)
+  assert.equal(canReadEmployeeDirectory('cashier'), false)
+  assert.equal(canReadEmployeeDirectory('waiter'), false)
+  assert.equal(canReadSensitiveEmployeeData('owner'), true)
+  assert.equal(canReadSensitiveEmployeeData('manager'), false)
+})
+
+test('HR authorization: manager password reset is subordinate and branch scoped', () => {
+  const manager = { role: 'manager' as const, branchId: '10' }
+  const worker = { role: 'waiter' as const, branchId: 10n }
+  assert.equal(canResetEmployeePassword(manager, worker), true)
+  assert.equal(canResetEmployeePassword(manager, { ...worker, branchId: 11n }), false)
+  assert.equal(canResetEmployeePassword(manager, { ...worker, role: 'manager' }), false)
+  assert.equal(canResetEmployeePassword(manager, { ...worker, role: 'owner', branchId: null }), false)
+  assert.equal(canResetEmployeePassword({ role: 'owner', branchId: null }, { ...worker, role: 'manager' }), true)
+})
+
+test('HR scheduling: validates rest days, overnight shifts, and effective-date conflicts', () => {
+  assert.equal(validateWeeklySchedule([{ weekday: 4, restDay: false, startsAt: '22:00', endsAt: '06:00' }, { weekday: 5, restDay: true }]), null)
+  assert.notEqual(validateWeeklySchedule([{ weekday: 5, restDay: true, startsAt: '09:00', endsAt: '17:00' }]), null)
+  assert.equal(effectivePeriodsOverlap(new Date('2026-01-01'), null, new Date('2026-02-01'), null), true)
+  assert.equal(effectivePeriodsOverlap(new Date('2026-01-01'), new Date('2026-02-01'), new Date('2026-02-01'), null), false)
+})
+
+test('HR attendance: derives lateness and reviewed overtime from actual Shift timestamps only', () => {
+  const schedule = { restDay: false, startsAt: '22:00', endsAt: '06:00' }
+  const open = new Date(2026, 9, 23, 22, 20)
+  const close = new Date(2026, 9, 24, 6, 30)
+  assert.deepEqual(evaluateAttendance(schedule, open, close, 10), { lateMinutes: 10, overtimeMinutes: 30, earlyDepartureMinutes: 0, overnight: true })
+  assert.deepEqual(evaluateAttendance(schedule, open, null, 10), { lateMinutes: 10, overtimeMinutes: 0, earlyDepartureMinutes: 0, overnight: true })
 })
 
 // --- staff-payments-write (pure constants) ----------------------------------
@@ -882,4 +925,16 @@ test('close shift schema: cash-handling roles can provide physical count', () =>
   const parsed = closeShiftSchema.safeParse({ closingCash: 250.50 })
   assert.equal(parsed.success, true)
   if (parsed.success) assert.equal(parsed.data.closingCash, 250.5)
+})
+
+test('stock count: FIFO negative variance and reservation/staleness gates', () => {
+  assert.deepEqual(planStockCount({ snapshot: 10, current: 10, counted: 7, reserved: 2, fifo: [{ quantity: 5, unitCost: 2 }, { quantity: 5, unitCost: 3 }] }), { variance: -3, direction: 'negative', cost: 6 })
+  assert.equal(planStockCount({ snapshot: 10, current: 11, counted: 8, reserved: 1, fifo: [] }).blocked, 'STALE_SNAPSHOT')
+  assert.equal(planStockCount({ snapshot: 10, current: 10, counted: 1, reserved: 2, fifo: [] }).blocked, 'BELOW_ACTIVE_RESERVATIONS')
+})
+
+test('stock count: positive and zero variance require auditable valuation', () => {
+  assert.equal(planStockCount({ snapshot: 10, current: 10, counted: 12, reserved: 0, fifo: [] }).blocked, 'MISSING_POSITIVE_VALUATION')
+  assert.deepEqual(planStockCount({ snapshot: 10, current: 10, counted: 12, reserved: 0, fifo: [], positiveUnitCost: 4 }), { variance: 2, direction: 'positive', cost: 8 })
+  assert.deepEqual(planStockCount({ snapshot: 10, current: 10, counted: 10, reserved: 0, fifo: [] }), { variance: 0, direction: 'zero', cost: 0 })
 })

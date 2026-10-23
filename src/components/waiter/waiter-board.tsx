@@ -39,11 +39,12 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
   const visible = useMemo(() => workspace.openOrders.filter((order) => order.status === filter), [workspace.openOrders, filter])
   const ready = useMemo(() => workspace.openOrders.filter((order) => order.status === 'ready'), [workspace.openOrders])
 
-  async function act(id: string, action: 'send_to_kitchen' | 'status', to?: 'served') {
+  async function act(id: string, action: 'send_to_kitchen' | 'status' | 'serve_items', to?: 'served', items?: { orderItemId: string; quantity: number }[]) {
     if (pendingId) return
     setPendingId(id); setError(null); setSuccess(null)
     try {
-      const res = await fetch(`/api/staff/orders/${id}/status`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(action === 'send_to_kitchen' ? { action } : { to }) })
+      const body = action === 'send_to_kitchen' ? { action } : action === 'serve_items' ? { action, items } : { to }
+      const res = await fetch(`/api/staff/orders/${id}/status`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data?.error ?? 'تعذر تحديث الطلب')
       setSuccess(action === 'send_to_kitchen' ? 'تم إرسال الطلب إلى المطبخ.' : 'تم تسجيل تقديم الطلب وإبلاغ الكاشير.')
@@ -62,19 +63,29 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
     {tab === 'tables' ? <><div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">{workspace.tables.map((table) => <button key={table.id} type="button" onClick={() => setSelectedTableId(table.id)} className={cn('rounded-lg border bg-card p-4 text-right transition-colors hover:bg-accent', table.openOrders > 0 ? 'border-warning/40' : 'border-success/40', selectedTableId === table.id && 'ring-2 ring-primary')}><span className="block text-xl font-bold">طاولة {table.number}</span><span className="text-xs text-muted-foreground">{table.name ?? `${table.capacity} مقاعد`}</span><span className={cn('mt-2 block text-xs font-medium', table.openOrders ? 'text-warning' : 'text-success')}>{table.openOrders ? `${table.openOrders} طلب نشط` : 'متاحة'}</span></button>)}</div>
       {selectedTable ? <Card><CardHeader className="flex-row items-center justify-between gap-3"><div><CardTitle>طاولة {selectedTable.number}</CardTitle><p className="mt-1 text-sm text-muted-foreground">{selectedTable.name ?? 'الطلبات النشطة للطاولة'}</p></div><Button size="sm" onClick={() => setTab('create')}><Icon name="plus" size={15} />طلب جديد</Button></CardHeader><CardContent><OrderCards orders={selectedOrders} pendingId={pendingId} onAct={act} onEdit={setEditing} /></CardContent></Card> : <EmptyState icon="tables" title="اختر طاولة" description="استعرض الطلبات النشطة للطاولة أو أنشئ طلبًا جديدًا." />}</> : null}
     {tab === 'orders' ? <><Segmented options={[{ value: 'new', label: 'بانتظار الإرسال' }, { value: 'preparing', label: 'قيد التحضير' }, { value: 'ready', label: 'جاهز' }, { value: 'cancelled', label: 'ملغى' }]} value={filter} onChange={setFilter} ariaLabel="تصفية الطلبات" /><OrderCards orders={visible} pendingId={pendingId} onAct={act} onEdit={setEditing} /></> : null}
-    {tab === 'ready' ? <OrderCards orders={ready} pendingId={pendingId} onAct={act} onEdit={setEditing} emptyTitle="لا توجد طلبات جاهزة" emptyDescription="ستظهر الطلبات هنا فور أن يحدد المطبخ أنها جاهزة." /> : null}
+    {tab === 'ready' ? <><ReadyItemServeList orders={ready} pendingId={pendingId} onServe={(orderId, itemId, quantity) => act(orderId, 'serve_items', undefined, [{ orderItemId: itemId, quantity }])} /><OrderCards orders={ready} pendingId={pendingId} onAct={act} onEdit={setEditing} emptyTitle="لا توجد طلبات جاهزة" emptyDescription="ستظهر الطلبات هنا فور أن يحدد المطبخ أنها جاهزة." /></> : null}
     {tab === 'create' ? <div className="flex flex-col gap-3"><p className="text-sm text-muted-foreground">إنشاء طلب حقيقي بأسعار يحسبها الخادم؛ لا يمنح هذا الإجراء أي صلاحية تحصيل.</p><PosCheckout catalog={catalog} initialTableId={selectedTable?.id} /></div> : null}
     {editing ? <WaiterOrderEditor order={editing} products={catalog.products} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); setSuccess('تم تعديل الطلب قبل إرساله للمطبخ.'); startTransition(() => router.refresh()) }} /> : null}
     </div></main>
   </div>
 }
 
-function OrderCards({ orders, pendingId, onAct, onEdit, emptyTitle = 'لا توجد طلبات', emptyDescription = 'لا توجد طلبات مطابقة حاليًا.' }: { orders: WaiterWorkspace['openOrders']; pendingId: string | null; onAct: (id: string, action: 'send_to_kitchen' | 'status', to?: 'served') => void; onEdit: (order: WaiterWorkspace['openOrders'][number]) => void; emptyTitle?: string; emptyDescription?: string }) {
+function OrderCards({ orders, pendingId, onAct, onEdit, emptyTitle = 'لا توجد طلبات', emptyDescription = 'لا توجد طلبات مطابقة حاليًا.' }: { orders: WaiterWorkspace['openOrders']; pendingId: string | null; onAct: (id: string, action: 'send_to_kitchen' | 'status' | 'serve_items', to?: 'served', items?: { orderItemId: string; quantity: number }[]) => void; onEdit: (order: WaiterWorkspace['openOrders'][number]) => void; emptyTitle?: string; emptyDescription?: string }) {
   if (!orders.length) return <EmptyState icon="orders" title={emptyTitle} description={emptyDescription} />
   return <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{orders.map((order) => {
     const meta = ORDER_STATUS_META[order.status as OrderStatusKey]
     return <Card key={order.id} className={cn(order.status === 'ready' && 'border-primary/50', order.status === 'cancelled' && 'border-destructive/40')}><CardHeader className="flex-row items-start justify-between gap-2"><div><CardTitle className="text-base">{order.number}</CardTitle><p className="text-xs text-muted-foreground">طاولة {order.tableNumber} · {formatRelative(new Date(order.createdAt))}</p></div><Badge tone={(meta?.tone ?? 'muted') as BadgeTone}>{meta?.label ?? order.status}</Badge></CardHeader><CardContent className="flex flex-col gap-3"><ul className="border-y border-border py-2 text-sm">{order.items.map((item, index) => <li key={`${item.name}-${index}`} className="py-1"><span>{item.qty}× {item.name} · {formatCurrency(item.unitPrice)}</span>{item.note ? <small className="block text-warning">ملاحظة: {item.note}</small> : null}</li>)}</ul>{order.orderNotes ? <p className="rounded bg-muted px-2 py-1 text-xs text-muted-foreground">ملاحظة الطلب: {order.orderNotes}</p> : null}<div className="flex items-center justify-between gap-2"><span className="font-semibold">{formatCurrency(order.total)}</span>{order.status === 'new' ? (order.sentToKitchen ? <span className="text-sm text-success">أُرسل للمطبخ</span> : <div className="flex gap-2"><Button size="sm" variant="outline" disabled={pendingId === order.id} onClick={() => onEdit(order)}>تعديل</Button><Button size="sm" disabled={pendingId === order.id} onClick={() => onAct(order.id, 'send_to_kitchen')}><Icon name="flame" size={14} />{pendingId === order.id ? 'جارٍ الإرسال…' : 'إرسال للمطبخ'}</Button></div>) : order.status === 'ready' ? <Button size="sm" disabled={pendingId === order.id} onClick={() => onAct(order.id, 'status', 'served')}><Icon name="utensils" size={14} />{pendingId === order.id ? 'جارٍ الحفظ…' : 'تم التقديم'}</Button> : <span className="text-xs text-muted-foreground">{order.status === 'cancelled' ? (order.cancelReason ?? 'طلب ملغى') : 'بانتظار تحديث المطبخ'}</span>}</div></CardContent></Card>
   })}</div>
+}
+
+/** Individual service controls retain the existing order-card "serve all"
+ * action while exposing the authoritative per-item endpoint for partial runs. */
+function ReadyItemServeList({ orders, pendingId, onServe }: { orders: WaiterWorkspace['openOrders']; pendingId: string | null; onServe: (orderId: string, itemId: string, quantity: number) => void }) {
+  if (!orders.length) return <EmptyState icon="orders" title="لا توجد طلبات جاهزة" description="ستظهر الطلبات هنا فور أن يحدد المطبخ أنها جاهزة." />
+  return <div className="grid gap-3 lg:grid-cols-2">{orders.map((order) => <Card key={`items-${order.id}`}><CardHeader><CardTitle className="text-base">{order.number} · طاولة {order.tableNumber}</CardTitle></CardHeader><CardContent className="space-y-2">{order.items.map((item) => {
+    const remaining = item.qty - item.servedQty
+    return <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded border p-2 text-sm"><span>{item.name} · قُدم {item.servedQty} من {item.qty}</span>{remaining > 0 ? <div className="flex gap-2"><Button size="sm" variant="outline" disabled={pendingId === order.id} onClick={() => onServe(order.id, item.id, 1)}>تقديم واحد</Button><Button size="sm" disabled={pendingId === order.id} onClick={() => onServe(order.id, item.id, remaining)}>تقديم المتبقي ({remaining})</Button></div> : <Badge tone="success">تم التقديم</Badge>}</div>
+  })}</CardContent></Card>)}</div>
 }
 
 function WaiterOrderEditor({ order, products, onClose, onSaved }: { order: WaiterWorkspace['openOrders'][number]; products: { id: string; name: string; price: string; isAvailable: boolean }[]; onClose: () => void; onSaved: () => void }) {

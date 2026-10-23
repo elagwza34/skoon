@@ -32,6 +32,8 @@ export type NotificationType =
   | 'order.awaiting_payment'
   | 'order.paid'
   | 'order.cancelled'
+  | 'hr.schedule.published'
+  | 'hr.attendance.correction_decided'
 
 interface NotifyInput {
   type: NotificationType

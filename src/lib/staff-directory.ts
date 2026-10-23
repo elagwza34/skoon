@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma'
-import { ROLE, hasAtLeast } from '@/lib/authz'
+import { ROLE } from '@/lib/authz'
+import { canManageEmployeeLifecycle, canManageWorkSchedules } from '@/lib/hr-authz'
 import type { StaffSession } from '@/lib/session'
 
 /**
@@ -23,10 +24,11 @@ export interface StaffDirectory {
   roles: { id: string; slug: string; name: string }[]
   branches: { id: string; name: string; code: string }[]
   canManage: boolean
+  canSchedule: boolean
 }
 
 export async function getStaffDirectory(session: StaffSession): Promise<StaffDirectory> {
-  const canManage = hasAtLeast(session.role, ROLE.MANAGER)
+  const canManage = canManageEmployeeLifecycle(session.role)
   const branchScope =
     session.role === ROLE.OWNER ? {} : { branchId: BigInt(session.branchId as string) }
 
@@ -61,5 +63,6 @@ export async function getStaffDirectory(session: StaffSession): Promise<StaffDir
     roles: roles.map((r) => ({ id: r.id.toString(), slug: r.slug, name: r.name })),
     branches: branches.map((b) => ({ id: b.id.toString(), name: b.name, code: b.code })),
     canManage,
+    canSchedule: canManageWorkSchedules(session.role),
   }
 }
