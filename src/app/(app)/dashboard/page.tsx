@@ -10,6 +10,9 @@ import { TablesStatus } from "@/components/dashboard/tables-status";
 import { QuickActions } from "@/components/dashboard/quick-actions";
 import { formatCurrency, formatNumber, formatPercent } from "@/lib/format";
 import { Icon } from "@/components/ui/icon";
+import { getManagerOperations } from '@/lib/manager-operations'
+import { ManagerOperationsCenter } from '@/components/dashboard/manager-operations-center'
+import { ManagerServiceRequestPanel } from '@/components/dashboard/manager-service-request-panel'
 
 /** Signed percent change between two numbers. */
 function pctDelta(now: number, before: number): { delta: string; dir: "up" | "down" } {
@@ -21,6 +24,7 @@ export default async function DashboardPage() {
   const session = await requirePageAccess("/dashboard");
 
   const stats = await getDashboardStats(session);
+  const managerOperations = await getManagerOperations(session)
 
   const salesDelta = pctDelta(stats.totalSalesToday, stats.totalSalesYesterday);
   const ordersDelta = pctDelta(stats.ordersToday, stats.ordersYesterday);
@@ -75,6 +79,9 @@ export default async function DashboardPage() {
         <StatCard label="متوسط المحصّل للطلب المدفوع" value={formatCurrency(stats.avgOrderValue)} icon="reports" hint={stats.paidOrdersToday ? `على ${formatNumber(stats.paidOrdersToday)} طلب مدفوع` : 'لا طلبات مدفوعة اليوم'} />
         <StatCard label="قيد التحضير" value={formatNumber(stats.ordersInPreparation)} icon="kitchen" hint="طلبات نشطة" />
       </div>
+
+      {managerOperations ? <ManagerOperationsCenter data={managerOperations} /> : null}
+      {managerOperations ? <ManagerServiceRequestPanel metrics={managerOperations.serviceRequests} /> : null}
 
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="min-w-0 lg:col-span-2">

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -8,122 +8,33 @@ import { Badge, type BadgeTone } from '@/components/ui/badge'
 import { Segmented } from '@/components/ui/segmented'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Icon } from '@/components/ui/icon'
+import { NotificationsBell } from '@/components/layout/notifications-bell'
 import { ORDER_STATUS_META, type OrderStatusKey } from '@/lib/order-status'
 import { cn } from '@/lib/utils'
-import { formatRelative } from '@/lib/format'
 import type { StaffOrderRow } from '@/lib/staff-orders'
 
-/**
- * Kitchen board — real orders from the DB, advanced through the staff status API.
- * Each successful transition revalidates the server data via router.refresh().
- */
+type Filter = 'new' | 'preparing' | 'ready' | 'served'
+const DELAY_MS = 20 * 60 * 1000
+function elapsed(iso: string, now: number) { const minutes = Math.max(0, Math.floor((now - new Date(iso).getTime()) / 60000)); return minutes < 60 ? `${minutes} د` : `${Math.floor(minutes / 60)} س ${minutes % 60} د` }
+
+/** KDS: preparation records progress only; inventory remains reserved until service. */
 export function KitchenBoard({ orders }: { orders: StaffOrderRow[] }) {
-  const router = useRouter()
-  const [filter, setFilter] = useState<string>('new')
-  const [pendingId, setPendingId] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [, startTransition] = useTransition()
-
-  async function advance(id: string, to: string) {
-    setPendingId(id)
-    setError(null)
-    try {
-      const res = await fetch(`/api/staff/orders/${id}/status`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ to }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data?.error ?? 'فشل تحديث الحالة')
-      startTransition(() => router.refresh())
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'فشل تحديث الحالة')
-    } finally {
-      setPendingId(null)
-    }
-  }
-
-  const NEXT: Partial<Record<OrderStatusKey, { to: string; label: string }>> = {
-    new: { to: 'preparing', label: 'بدء التحضير' },
-    preparing: { to: 'ready', label: 'تم التحضير' },
-  }
-
-  const visible = orders.filter((o) => o.status === filter)
-
-  return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-muted-foreground">انقل الطلبات بين الحالات — التحديث يُحفظ مباشرةً في قاعدة البيانات.</p>
-        <Segmented
-          options={[
-            { value: 'new', label: 'جديد' },
-            { value: 'preparing', label: 'قيد التحضير' },
-            { value: 'ready', label: 'جاهز' },
-          ]}
-          value={filter}
-          onChange={setFilter}
-          ariaLabel="تصفية الحالات"
-        />
-      </div>
-
-      {error ? (
-        <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>
-      ) : null}
-
-      {visible.length === 0 ? (
-        <EmptyState icon="kitchen" title="لا توجد طلبات في هذه الحالة" description="اختر حالة أخرى أو انتظر طلبات جديدة." />
-      ) : (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {visible.map((o) => {
-            const meta = ORDER_STATUS_META[o.status as OrderStatusKey]
-            const next = NEXT[o.status as OrderStatusKey]
-            return (
-              <Card key={o.id} className={cn('flex flex-col', o.status === 'ready' && 'border-primary/40')}>
-                <CardContent className="flex flex-1 flex-col gap-3 p-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex flex-col leading-tight">
-                      <span className="text-base font-bold text-foreground">{o.number}</span>
-                      <span className="text-xs text-muted-foreground">طاولة {o.tableNumber}</span>
-                    </div>
-                    <div className="flex flex-col items-end gap-1">
-                      <Badge tone={(meta?.tone ?? 'muted') as BadgeTone}>{meta?.label ?? o.status}</Badge>
-                      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                        <Icon name="clock" size={13} /> {formatRelative(new Date(o.createdAt))}
-                      </span>
-                    </div>
-                  </div>
-
-                  <ul className="flex flex-col gap-1.5 border-t border-border pt-3 text-sm">
-                    {o.items.map((it, idx) => (
-                      <li key={idx} className="flex items-start justify-between gap-2">
-                        <span className="text-foreground">
-                          <span className="font-semibold">{it.qty}×</span> {it.name}
-                          {it.note ? <span className="block text-xs text-warning">ملاحظة: {it.note}</span> : null}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-
-                  {next ? (
-                    <Button
-                      className="mt-auto w-full"
-                      onClick={() => advance(o.id, next.to)}
-                      disabled={pendingId === o.id}
-                    >
-                      <Icon name={next.to === 'ready' ? 'check' : next.to === 'served' ? 'utensils' : 'flame'} size={16} />
-                      {pendingId === o.id ? 'جاري الحفظ…' : next.label}
-                    </Button>
-                  ) : (
-                    <div className="mt-auto flex items-center justify-center gap-2 rounded-md bg-success/15 py-2 text-sm font-medium text-success">
-                      <Icon name="check" size={16} /> تم التحضير — بانتظار الويتر
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )
-          })}
-        </div>
-      )}
-    </div>
-  )
+  const router = useRouter(); const [filter, setFilter] = useState<Filter>('new'); const [pendingId, setPendingId] = useState<string | null>(null); const [error, setError] = useState<string | null>(null); const [now, setNow] = useState(() => Date.now()); const [sound, setSound] = useState(false); const [, startTransition] = useTransition()
+  useEffect(() => { setSound(globalThis.localStorage?.getItem('skoon-kitchen-sound') === 'on') }, [])
+  useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(timer) }, [])
+  useEffect(() => { if (!sound || !orders.some((order) => order.status === 'new')) return; const previous = Number(globalThis.sessionStorage?.getItem('skoon-kitchen-new-count') ?? '0'); const current = orders.filter((order) => order.status === 'new').length; globalThis.sessionStorage?.setItem('skoon-kitchen-new-count', String(current)); if (current <= previous) return; try { const ctx = new window.AudioContext(); const oscillator = ctx.createOscillator(); const gain = ctx.createGain(); oscillator.frequency.value = 880; gain.gain.value = 0.04; oscillator.connect(gain); gain.connect(ctx.destination); oscillator.start(); oscillator.stop(ctx.currentTime + 0.16) } catch {} }, [orders, sound])
+  const visible = useMemo(() => orders.filter((order) => order.status === filter), [filter, orders])
+  async function prepare(id: string, mode: 'start' | 'ready', itemIds: string[]) { if (!itemIds.length || pendingId) return; setPendingId(id); setError(null); try { const response = await fetch(`/api/staff/orders/${id}/status`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'prepare_items', mode, itemIds }) }); const data = await response.json().catch(() => ({})); if (!response.ok) throw new Error(data.error ?? 'تعذر تحديث تحضير الصنف'); startTransition(() => router.refresh()) } catch (cause) { setError(cause instanceof Error ? cause.message : 'تعذر تحديث تحضير الصنف') } finally { setPendingId(null) } }
+  async function prepareAllNew() { const candidates = orders.filter((order) => order.status === 'new'); if (!candidates.length || !confirm('سيبدأ تحضير كل الطلبات الجديدة بالترتيب. هل تريد المتابعة؟')) return; for (const order of candidates) await prepare(order.id, 'start', order.items.map((item) => item.id)) }
+  function toggleSound() { const next = !sound; setSound(next); globalThis.localStorage?.setItem('skoon-kitchen-sound', next ? 'on' : 'off') }
+  return <main dir="rtl" className="min-h-dvh bg-background p-3 sm:p-5"><div className="mx-auto flex max-w-[1600px] flex-col gap-4">
+    <header className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card p-3"><div><h1 className="text-xl font-bold">شاشة المطبخ</h1><p className="text-sm text-muted-foreground">الأقدم أولًا · التحضير لا يخصم المخزون؛ الخصم يتم عند التقديم فقط.</p></div><div className="flex items-center gap-2"><Button size="sm" variant="outline" onClick={toggleSound}><Icon name="bell" size={15} />{sound ? 'إيقاف صوت الطلبات' : 'تفعيل صوت الطلبات'}</Button><Button size="sm" variant="outline" onClick={() => window.print()}><Icon name="reports" size={15} />طباعة القائمة</Button><NotificationsBell /></div></header>
+    <div className="flex flex-wrap items-center justify-between gap-3"><Segmented options={(['new', 'preparing', 'ready', 'served'] as Filter[]).map((value) => ({ value, label: `${value === 'new' ? 'جديد' : value === 'preparing' ? 'قيد التحضير' : value === 'ready' ? 'جاهز' : 'مكتمل اليوم'} (${orders.filter((o) => o.status === value).length})` }))} value={filter} onChange={(value) => setFilter(value as Filter)} ariaLabel="حالة طلبات المطبخ" /><Button disabled={!!pendingId || !orders.some((order) => order.status === 'new')} onClick={() => void prepareAllNew()}>بدء تحضير كل الجديد</Button></div>
+    {error ? <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">{error}</p> : null}
+    {visible.length === 0 ? <EmptyState icon="kitchen" title="لا توجد طلبات في هذه الحالة" description="ستظهر الطلبات عند إرسالها للمطبخ أو انتقالها إلى الحالة المحددة." /> : <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{visible.map((order) => { const meta = ORDER_STATUS_META[order.status as OrderStatusKey]; const delayed = ['new', 'preparing'].includes(order.status) && now - new Date(order.createdAt).getTime() >= DELAY_MS; const unstarted = order.items.filter((item) => !item.preparationStartedAt); const unready = order.items.filter((item) => item.preparedQty < item.qty); return <Card key={order.id} className={cn('flex min-h-72 flex-col', delayed && 'border-destructive/60 bg-destructive/[0.03]', order.status === 'ready' && 'border-primary/50')}><CardContent className="flex flex-1 flex-col gap-3 p-4"><div className="flex items-start justify-between gap-2"><div><h2 className="text-lg font-bold">{order.number}</h2><p className="text-sm text-muted-foreground">طاولة {order.tableNumber}{order.customerName ? ` · ${order.customerName}` : ''}</p></div><div className="flex flex-col items-end gap-1"><Badge tone={(meta?.tone ?? 'muted') as BadgeTone}>{meta?.label ?? order.status}</Badge><span className={cn('text-xs', delayed ? 'font-semibold text-destructive' : 'text-muted-foreground')}><Icon name="clock" size={13} /> منذ {elapsed(order.createdAt, now)}{delayed ? ' · متأخر' : ''}</span></div></div>
+      <ul className="flex-1 space-y-2 border-y py-3 text-sm">{order.items.map((item) => { const state = item.preparedQty >= item.qty ? 'ready' : item.preparationStartedAt ? 'preparing' : 'new'; return <li key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-transparent p-1.5 hover:border-border"><span><b>{item.qty}×</b> {item.name}{item.note ? <small className="block text-warning">ملاحظة: {item.note}</small> : null}</span><div className="flex items-center gap-2"><span className={cn('text-xs', state === 'ready' ? 'text-success' : state === 'preparing' ? 'text-warning' : 'text-muted-foreground')}>{state === 'ready' ? 'جاهز' : state === 'preparing' ? `قيد التحضير · ${elapsed(item.preparationStartedAt!, now)}` : 'بانتظار البدء'}</span>{order.status !== 'ready' && order.status !== 'served' && state !== 'ready' ? <Button size="sm" variant={state === 'new' ? 'outline' : 'primary'} disabled={pendingId === order.id} onClick={() => void prepare(order.id, state === 'new' ? 'start' : 'ready', [item.id])}>{state === 'new' ? 'بدء' : 'جاهز'}</Button> : null}</div></li> })}</ul>
+      {order.orderNotes ? <p className="rounded bg-warning/10 p-2 text-xs text-warning">ملاحظة الطلب: {order.orderNotes}</p> : null}
+      {order.status === 'new' ? <Button className="min-h-11 w-full" disabled={pendingId === order.id || !unstarted.length} onClick={() => void prepare(order.id, 'start', unstarted.map((item) => item.id))}><Icon name="flame" size={16} />{pendingId === order.id ? 'جارٍ الحفظ…' : 'بدء تحضير المتبقي'}</Button> : order.status === 'preparing' ? <Button className="min-h-11 w-full" disabled={pendingId === order.id || !unready.length} onClick={() => void prepare(order.id, 'ready', unready.map((item) => item.id))}><Icon name="check" size={16} />{pendingId === order.id ? 'جارٍ الحفظ…' : 'تحديد المتبقي جاهزًا'}</Button> : order.status === 'ready' ? <p className="rounded-md bg-success/10 py-2 text-center text-sm font-medium text-success">جاهز لتقديم الويتر</p> : <p className="rounded-md bg-muted py-2 text-center text-sm text-muted-foreground">اكتمل تقديم الطلب</p>}
+    </CardContent></Card> })}</section>}
+  </div></main>
 }

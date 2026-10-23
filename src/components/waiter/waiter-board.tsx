@@ -10,12 +10,13 @@ import { Segmented } from '@/components/ui/segmented'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Icon } from '@/components/ui/icon'
 import { PosCheckout } from '@/components/pos/pos-checkout'
+import { ServiceRequestBoard } from '@/components/service-requests/service-request-board'
 import { ORDER_STATUS_META, type OrderStatusKey } from '@/lib/order-status'
 import { formatCurrency, formatRelative, formatTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import type { WaiterWorkspace } from '@/lib/staff-waiter'
 
-type WorkspaceTab = 'tables' | 'orders' | 'ready' | 'create'
+type WorkspaceTab = 'tables' | 'orders' | 'ready' | 'create' | 'service'
 
 /** Real, branch-scoped waiter workstation. All mutations refresh the server snapshot. */
 export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
@@ -37,7 +38,9 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
   const selectedTable = workspace.tables.find((table) => table.id === selectedTableId) ?? null
   const selectedOrders = selectedTable ? workspace.openOrders.filter((order) => order.tableNumber === selectedTable.number) : []
   const visible = useMemo(() => workspace.openOrders.filter((order) => order.status === filter), [workspace.openOrders, filter])
-  const ready = useMemo(() => workspace.openOrders.filter((order) => order.status === 'ready'), [workspace.openOrders])
+  // A partially ready ticket is actionable: only lines marked ready by the
+  // kitchen appear in the serving controls. The server revalidates the line.
+  const ready = useMemo(() => workspace.openOrders.filter((order) => ['preparing', 'ready'].includes(order.status) && order.items.some((item) => item.preparedQty > item.servedQty)), [workspace.openOrders])
 
   async function act(id: string, action: 'send_to_kitchen' | 'status' | 'serve_items', to?: 'served', items?: { orderItemId: string; quantity: number }[]) {
     if (pendingId) return
@@ -56,7 +59,7 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
 
   return <div className="min-h-screen w-full bg-background" dir="rtl">
     <header className="sticky top-0 z-30 flex flex-wrap items-center justify-between gap-3 border-b border-border bg-card/95 px-4 py-3 shadow-sm backdrop-blur lg:px-6"><div><h1 className="text-xl font-bold">محطة الويتر</h1><p className="text-sm text-muted-foreground">{workspace.branchName} · {workspace.employeeName}</p>{workspace.shift ? <p className="text-xs text-muted-foreground">وردية مفتوحة · مفتوحة منذ {formatTime(new Date(workspace.shift.openedAt))}</p> : <p className="text-xs text-muted-foreground text-destructive">لا توجد وردية مفتوحة</p>}</div><div className="text-xs text-muted-foreground">{workspace.openOrders.length} طلب نشط · {ready.length} جاهز للتقديم</div><div className="flex flex-wrap gap-2"><Button variant="ghost" onClick={() => window.history.back()}>رجوع</Button><form action="/login?next=/waiter"><Button type="submit" variant="ghost">تسجيل الخروج</Button></form></div></header>
-    <nav className="sticky top-[73px] z-20 w-full border-b border-border bg-background/95 px-4 py-2 backdrop-blur lg:px-6" aria-label="أقسام محطة الويتر"><Segmented options={[{ value: 'tables', label: 'الطاولات' }, { value: 'orders', label: 'الطلبات النشطة' }, { value: 'ready', label: 'جاهز للتقديم' }, { value: 'create', label: 'طلب جديد' }]} value={tab} onChange={(value) => setTab(value as WorkspaceTab)} ariaLabel="أقسام محطة الويتر" className="w-full justify-start overflow-x-auto" /></nav>
+    <nav className="sticky top-[73px] z-20 w-full border-b border-border bg-background/95 px-4 py-2 backdrop-blur lg:px-6" aria-label="أقسام محطة الويتر"><Segmented options={[{ value: 'tables', label: 'الطاولات' }, { value: 'orders', label: 'الطلبات النشطة' }, { value: 'ready', label: 'جاهز للتقديم' }, { value: 'service', label: 'طلبات الخدمة' }, { value: 'create', label: 'طلب جديد' }]} value={tab} onChange={(value) => setTab(value as WorkspaceTab)} ariaLabel="أقسام محطة الويتر" className="w-full justify-start overflow-x-auto" /></nav>
     <main className="w-full p-4 lg:p-6"><div className="flex w-full flex-col gap-5">
     {error ? <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}
     {success ? <p className="rounded-md border border-success/40 bg-success/10 px-3 py-2 text-sm text-success">{success}</p> : null}
@@ -64,6 +67,7 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
       {selectedTable ? <Card><CardHeader className="flex-row items-center justify-between gap-3"><div><CardTitle>طاولة {selectedTable.number}</CardTitle><p className="mt-1 text-sm text-muted-foreground">{selectedTable.name ?? 'الطلبات النشطة للطاولة'}</p></div><Button size="sm" onClick={() => setTab('create')}><Icon name="plus" size={15} />طلب جديد</Button></CardHeader><CardContent><OrderCards orders={selectedOrders} pendingId={pendingId} onAct={act} onEdit={setEditing} /></CardContent></Card> : <EmptyState icon="tables" title="اختر طاولة" description="استعرض الطلبات النشطة للطاولة أو أنشئ طلبًا جديدًا." />}</> : null}
     {tab === 'orders' ? <><Segmented options={[{ value: 'new', label: 'بانتظار الإرسال' }, { value: 'preparing', label: 'قيد التحضير' }, { value: 'ready', label: 'جاهز' }, { value: 'cancelled', label: 'ملغى' }]} value={filter} onChange={setFilter} ariaLabel="تصفية الطلبات" /><OrderCards orders={visible} pendingId={pendingId} onAct={act} onEdit={setEditing} /></> : null}
     {tab === 'ready' ? <><ReadyItemServeList orders={ready} pendingId={pendingId} onServe={(orderId, itemId, quantity) => act(orderId, 'serve_items', undefined, [{ orderItemId: itemId, quantity }])} /><OrderCards orders={ready} pendingId={pendingId} onAct={act} onEdit={setEditing} emptyTitle="لا توجد طلبات جاهزة" emptyDescription="ستظهر الطلبات هنا فور أن يحدد المطبخ أنها جاهزة." /></> : null}
+    {tab === 'service' ? <ServiceRequestBoard /> : null}
     {tab === 'create' ? <div className="flex flex-col gap-3"><p className="text-sm text-muted-foreground">إنشاء طلب حقيقي بأسعار يحسبها الخادم؛ لا يمنح هذا الإجراء أي صلاحية تحصيل.</p><PosCheckout catalog={catalog} initialTableId={selectedTable?.id} /></div> : null}
     {editing ? <WaiterOrderEditor order={editing} products={catalog.products} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); setSuccess('تم تعديل الطلب قبل إرساله للمطبخ.'); startTransition(() => router.refresh()) }} /> : null}
     </div></main>
@@ -83,7 +87,7 @@ function OrderCards({ orders, pendingId, onAct, onEdit, emptyTitle = 'لا تو�
 function ReadyItemServeList({ orders, pendingId, onServe }: { orders: WaiterWorkspace['openOrders']; pendingId: string | null; onServe: (orderId: string, itemId: string, quantity: number) => void }) {
   if (!orders.length) return <EmptyState icon="orders" title="لا توجد طلبات جاهزة" description="ستظهر الطلبات هنا فور أن يحدد المطبخ أنها جاهزة." />
   return <div className="grid gap-3 lg:grid-cols-2">{orders.map((order) => <Card key={`items-${order.id}`}><CardHeader><CardTitle className="text-base">{order.number} · طاولة {order.tableNumber}</CardTitle></CardHeader><CardContent className="space-y-2">{order.items.map((item) => {
-    const remaining = item.qty - item.servedQty
+    const remaining = Math.max(0, Math.min(item.qty, item.preparedQty) - item.servedQty)
     return <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded border p-2 text-sm"><span>{item.name} · قُدم {item.servedQty} من {item.qty}</span>{remaining > 0 ? <div className="flex gap-2"><Button size="sm" variant="outline" disabled={pendingId === order.id} onClick={() => onServe(order.id, item.id, 1)}>تقديم واحد</Button><Button size="sm" disabled={pendingId === order.id} onClick={() => onServe(order.id, item.id, remaining)}>تقديم المتبقي ({remaining})</Button></div> : <Badge tone="success">تم التقديم</Badge>}</div>
   })}</CardContent></Card>)}</div>
 }

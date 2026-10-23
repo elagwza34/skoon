@@ -22,6 +22,7 @@
     "staging:status": "node scripts/with-staging-env.cjs --guard npx prisma migrate status",
     "test:inventory": "node scripts/with-authorized-test-env.cjs node --require ./tests/node-userinfo-workaround.cjs --import tsx --test --test-concurrency=1 tests/inventory-postgres.test.ts",
     "test:hr": "node scripts/with-authorized-test-env.cjs node --require ./tests/node-userinfo-workaround.cjs --import tsx --test --test-concurrency=1 tests/hr-postgres.test.ts",
+    "test:service-requests": "node scripts/with-authorized-test-env.cjs node --require ./tests/node-userinfo-workaround.cjs --import tsx --test --test-reporter=spec --test-concurrency=1 tests/service-requests-postgres.test.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate:dev": "prisma migrate dev",
     "prisma:migrate:deploy": "node scripts/forbid-prisma-production-migrate.cjs",

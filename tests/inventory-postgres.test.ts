@@ -14,7 +14,7 @@ test('inventory PostgreSQL: reservations, partial service, FEFO/FIFO and cleanup
   const { prisma } = await import('../src/lib/prisma')
   const { ROLE } = await import('../src/lib/authz')
   const { createPosOrder } = await import('../src/lib/staff-pos-write')
-  const { sendOrderToKitchen, serveOrderItems, transitionOrderStatus } = await import('../src/lib/staff-orders')
+  const { sendOrderToKitchen, serveOrderItems, prepareOrderItems } = await import('../src/lib/staff-orders')
   type Session = import('../src/lib/session').StaffSession
 
   const suffix = randomUUID().replaceAll('-', '').slice(0, 12)
@@ -52,8 +52,11 @@ test('inventory PostgreSQL: reservations, partial service, FEFO/FIFO and cleanup
     const order = await prisma.order.findUniqueOrThrow({ where: { id: BigInt(created.id) }, include: { items: true } })
     const reservation = await prisma.inventoryReservation.findFirstOrThrow({ where: { orderItemId: order.items[0].id } })
     assert.equal(Number(reservation.quantity), 2)
-    await transitionOrderStatus(kitchenSession, created.id, 'preparing')
-    await transitionOrderStatus(kitchenSession, created.id, 'ready')
+    // Competing starts must serialize on the order lock: exactly one lifecycle
+    // transition is recorded even if the kitchen retries the same tap.
+    await Promise.all([prepareOrderItems(kitchenSession, created.id, { mode: 'start', itemIds: [order.items[0].id.toString()] }), prepareOrderItems(kitchenSession, created.id, { mode: 'start', itemIds: [order.items[0].id.toString()] })])
+    assert.equal(await prisma.orderStatusHistory.count({ where: { orderId: order.id, toStatus: 'preparing' } }), 1)
+    await prepareOrderItems(kitchenSession, created.id, { mode: 'ready', itemIds: [order.items[0].id.toString()] })
     await serveOrderItems(waiterSession, created.id, { items: [{ orderItemId: order.items[0].id.toString(), quantity: 1 }] })
     const partial = await prisma.orderItem.findUniqueOrThrow({ where: { id: order.items[0].id } })
     assert.equal(partial.servedQuantity, 1)

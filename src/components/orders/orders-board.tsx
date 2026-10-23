@@ -47,10 +47,12 @@ export function OrdersBoard({
   orders,
   canPay = false,
   canRefund = false,
+  canManage = false,
 }: {
   orders: StaffOrderRow[]
   canPay?: boolean
   canRefund?: boolean
+  canManage?: boolean
 }) {
   const router = useRouter()
   const [, startTransition] = useTransition()
@@ -143,6 +145,20 @@ export function OrdersBoard({
     }
   }
 
+  async function cancelOrder(o: StaffOrderRow) {
+    if (busy) return
+    const reason = window.prompt('سبب إلغاء الطلب؟')
+    if (!reason || reason.trim().length < 3) { setError('سبب الإلغاء مطلوب (3 أحرف على الأقل)'); return }
+    setBusy(true); setError(null); setSuccess(null)
+    try {
+      const res = await fetch(`/api/staff/orders/${o.id}/status`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ to: 'cancelled', reason: reason.trim() }) })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error ?? 'تعذر إلغاء الطلب')
+      setSuccess(`تم إلغاء الطلب ${o.number} وتسجيل السبب.`)
+      startTransition(() => router.refresh())
+    } catch (e) { setError(e instanceof Error ? e.message : 'تعذر إلغاء الطلب') } finally { setBusy(false) }
+  }
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-3">
@@ -186,7 +202,7 @@ export function OrdersBoard({
                     <th className="px-2 py-2 text-start font-medium">الوقت</th>
                     <th className="px-2 py-2 text-start font-medium">الحالة</th>
                     <th className="px-2 py-2 text-start font-medium">الدفع</th>
-                    {canPay || canRefund ? (
+                    {canPay || canRefund || canManage ? (
                       <th className="px-2 py-2 text-start font-medium">إجراء</th>
                     ) : null}
                   </tr>
@@ -212,7 +228,7 @@ export function OrdersBoard({
                             {PAY_LABEL[o.paymentStatus] ?? o.paymentStatus}
                           </Badge>
                         </td>
-                        {canPay || canRefund ? (
+                        {canPay || canRefund || canManage ? (
                           <td className="px-2 py-2.5">
                             <div className="flex items-center gap-2">
                               {canPay && o.paymentStatus === 'unpaid' && o.status !== 'cancelled' ? (
@@ -225,13 +241,16 @@ export function OrdersBoard({
                                   استرداد (تسجيل داخلي — حركة الأموال الخارجية يدوية)
                                 </Button>
                               ) : null}
+                              {canManage && ['new', 'preparing'].includes(o.status) && o.paymentStatus !== 'paid' ? (
+                                <Button size="sm" variant="destructive" disabled={busy} onClick={() => void cancelOrder(o)}>إلغاء بسبب</Button>
+                              ) : null}
                             </div>
                           </td>
                         ) : null}
                       </tr>
                       {payingId === o.id ? (
                         <tr className="bg-accent/30">
-                          <td colSpan={8 + (canPay || canRefund ? 1 : 0)} className="px-4 py-3">
+                          <td colSpan={8 + (canPay || canRefund || canManage ? 1 : 0)} className="px-4 py-3">
                             <div className="flex flex-wrap items-end gap-3">
                               <label className="flex flex-col gap-1 text-xs">
                                 <span className="text-muted-foreground">طريقة الدفع</span>

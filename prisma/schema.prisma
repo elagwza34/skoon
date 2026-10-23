@@ -59,6 +59,7 @@ model CafeBranch {
   attendanceCorrections  AttendanceCorrection[]
   leaveRequests          LeaveRequest[]
   officialHolidays       OfficialHoliday[]
+  serviceRequests        ServiceRequest[]
 
   @@index([isActive])
   @@map("branches")
@@ -166,6 +167,8 @@ model User {
   leaveRequests             LeaveRequest[]           @relation("leaveEmployee")
   reviewedLeaveRequests     LeaveRequest[]           @relation("leaveReviewedBy")
   createdOfficialHolidays   OfficialHoliday[]         @relation("holidayCreatedBy")
+  claimedServiceRequests    ServiceRequest[]          @relation("serviceRequestClaimedBy")
+  resolvedServiceRequests   ServiceRequest[]          @relation("serviceRequestResolvedBy")
 
   @@index([roleId])
   @@index([branchId, isActive])
@@ -366,6 +369,35 @@ model OfficialHoliday {
   @@map("official_holidays")
 }
 
+/// Public QR and staff service requests are operational records, not customer-auth records.
+model ServiceRequest {
+  id           BigInt    @id @default(autoincrement())
+  branchId     BigInt    @map("branch_id")
+  tableId      BigInt    @map("table_id")
+  orderId      BigInt?   @map("order_id")
+  type         String    @db.VarChar(30)
+  status       String    @default("pending") @db.VarChar(20)
+  priority     Int       @default(0) @db.SmallInt
+  details      String?   @db.VarChar(500)
+  claimedById  String?   @map("claimed_by") @db.Uuid
+  claimedAt    DateTime? @map("claimed_at")
+  resolvedById String?   @map("resolved_by") @db.Uuid
+  resolvedAt   DateTime? @map("resolved_at")
+  resolution   String?   @db.VarChar(500)
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  branch     CafeBranch @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  table      CafeTable  @relation(fields: [tableId], references: [id], onDelete: Restrict)
+  order      Order?     @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  claimedBy  User?      @relation("serviceRequestClaimedBy", fields: [claimedById], references: [id], onDelete: SetNull)
+  resolvedBy User?      @relation("serviceRequestResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
+
+  @@index([branchId, status, priority, createdAt])
+  @@index([tableId, status])
+  @@map("service_requests")
+}
+
 model CafeTable {
   id          BigInt    @id @default(autoincrement())
   branchId    BigInt    @map("branch_id")
@@ -382,6 +414,7 @@ model CafeTable {
 
   branch CafeBranch @relation(fields: [branchId], references: [id], onDelete: Cascade)
   orders Order[]
+  serviceRequests ServiceRequest[]
 
   @@unique([branchId, number])
   @@index([branchId, isActive])
@@ -560,6 +593,7 @@ model Order {
   shift         Shift?               @relation("orderShift", fields: [shiftId], references: [id], onDelete: SetNull)
   items         OrderItem[]
   payments      Payment[]
+  serviceRequests ServiceRequest[]
   statusHistory OrderStatusHistory[]
   redemptions   DiscountRedemption[]
   notifications Notification[]

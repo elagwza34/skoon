@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getStaffSession } from '@/lib/session'
-import { transitionOrderStatus, sendOrderToKitchen, serveOrderItems, OrderError } from '@/lib/staff-orders'
+import { transitionOrderStatus, sendOrderToKitchen, serveOrderItems, prepareOrderItems, OrderError } from '@/lib/staff-orders'
 
 /**
  * Staff order status transition — POST /api/staff/orders/[id]/status.
@@ -23,7 +23,7 @@ export async function POST(req: Request, { params }: Params) {
 
   const { id } = await params
 
-  let body: { action?: string; to?: unknown; reason?: unknown; items?: unknown }
+  let body: { action?: string; to?: unknown; reason?: unknown; items?: unknown; mode?: unknown; itemIds?: unknown }
   try {
     body = await req.json()
   } catch {
@@ -46,6 +46,15 @@ export async function POST(req: Request, { params }: Params) {
     } catch (e) {
       if (e instanceof OrderError) return NextResponse.json({ error: e.message }, { status: e.status })
       return NextResponse.json({ error: 'Item serving failed' }, { status: 500 })
+    }
+  }
+
+  if (body.action === 'prepare_items') {
+    try {
+      return NextResponse.json(await prepareOrderItems(session, id, { mode: body.mode, itemIds: body.itemIds }))
+    } catch (e) {
+      if (e instanceof OrderError) return NextResponse.json({ error: e.message }, { status: e.status })
+      return NextResponse.json({ error: 'Item preparation failed' }, { status: 500 })
     }
   }
 

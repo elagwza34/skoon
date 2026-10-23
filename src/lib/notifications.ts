@@ -34,6 +34,7 @@ export type NotificationType =
   | 'order.cancelled'
   | 'hr.schedule.published'
   | 'hr.attendance.correction_decided'
+  | 'service.request.created'
 
 interface NotifyInput {
   type: NotificationType

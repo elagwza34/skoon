@@ -68,7 +68,7 @@ export interface StaffOrderRow {
   orderNotes: string | null
   tableNumber: string
   createdAt: string
-  items: { id: string; productId: string; name: string; qty: number; servedQty: number; preparedQty: number; unitPrice: number; note: string | null }[]
+  items: { id: string; productId: string; name: string; qty: number; servedQty: number; preparedQty: number; preparationStartedAt: string | null; unitPrice: number; note: string | null }[]
   itemsCount: number
   /** Set once the waiter has pushed the order to the kitchen ("إرسال للمطبخ"). */
   sentToKitchen: boolean
@@ -107,7 +107,7 @@ export async function listStaffOrders(
       items: {
         where: { isVoided: false },
         orderBy: { id: 'asc' },
-        select: { id: true, productId: true, productName: true, quantity: true, servedQuantity: true, preparedQuantity: true, unitPrice: true, notes: true },
+        select: { id: true, productId: true, productName: true, quantity: true, servedQuantity: true, preparedQuantity: true, preparationStartedAt: true, unitPrice: true, notes: true },
       },
     },
   })
@@ -125,7 +125,7 @@ export async function listStaffOrders(
     sentToKitchen: o.sentToKitchenAt != null,
     sentToKitchenAt: o.sentToKitchenAt?.toISOString() ?? null,
     cancelReason: o.cancelReason ?? null,
-    items: o.items.map((i) => ({ id: i.id.toString(), productId: i.productId.toString(), name: i.productName, qty: i.quantity, servedQty: i.servedQuantity, preparedQty: i.preparedQuantity, unitPrice: Number(i.unitPrice), note: i.notes })),
+    items: o.items.map((i) => ({ id: i.id.toString(), productId: i.productId.toString(), name: i.productName, qty: i.quantity, servedQty: i.servedQuantity, preparedQty: i.preparedQuantity, preparationStartedAt: i.preparationStartedAt?.toISOString() ?? null, unitPrice: Number(i.unitPrice), note: i.notes })),
     itemsCount: o.items.reduce((n, i) => n + i.quantity, 0),
   }))
 }
@@ -133,19 +133,27 @@ export async function listStaffOrders(
 /** Kitchen-only queue: a new ticket is actionable only after dispatch. */
 export async function listKitchenOrders(session: StaffSession, limit = 100): Promise<StaffOrderRow[]> {
   const branchScope = session.role === ROLE.OWNER ? {} : { branchId: BigInt(session.branchId as string) }
+  // Completed tickets are a read-only, same-day history for the kitchen. They
+  // never become actionable again and are deliberately capped with the live queue.
+  const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0)
   const orders = await prisma.order.findMany({
     where: {
       ...branchScope,
       sentToKitchenAt: { not: null },
-      status: { in: ['new', 'preparing', 'ready'] },
+      OR: [
+        { status: { in: ['new', 'preparing', 'ready'] } },
+        { status: 'served', servedAt: { gte: todayStart } },
+      ],
     },
-    orderBy: { createdAt: 'desc' },
+    // The oldest ticket is always presented first so the KDS cannot silently
+    // starve an earlier table while a new one keeps arriving.
+    orderBy: { createdAt: 'asc' },
     take: Math.min(limit, 200),
     select: {
       id: true, orderNumber: true, status: true, paymentStatus: true, total: true, customerName: true,
       source: true, notes: true, createdAt: true, sentToKitchenAt: true, cancelReason: true,
       cafeTable: { select: { number: true } },
-      items: { where: { isVoided: false }, orderBy: { id: 'asc' }, select: { id: true, productId: true, productName: true, quantity: true, servedQuantity: true, preparedQuantity: true, unitPrice: true, notes: true } },
+      items: { where: { isVoided: false }, orderBy: { id: 'asc' }, select: { id: true, productId: true, productName: true, quantity: true, servedQuantity: true, preparedQuantity: true, preparationStartedAt: true, unitPrice: true, notes: true } },
     },
   })
   return orders.map((o) => ({
@@ -153,7 +161,7 @@ export async function listKitchenOrders(session: StaffSession, limit = 100): Pro
     total: Number(o.total), customerName: o.customerName, source: o.source, orderNotes: o.notes, tableNumber: o.cafeTable.number,
     createdAt: o.createdAt.toISOString(), sentToKitchen: o.sentToKitchenAt != null,
     sentToKitchenAt: o.sentToKitchenAt?.toISOString() ?? null, cancelReason: o.cancelReason ?? null,
-    items: o.items.map((i) => ({ id: i.id.toString(), productId: i.productId.toString(), name: i.productName, qty: i.quantity, servedQty: i.servedQuantity, preparedQty: i.preparedQuantity, unitPrice: Number(i.unitPrice), note: i.notes })),
+    items: o.items.map((i) => ({ id: i.id.toString(), productId: i.productId.toString(), name: i.productName, qty: i.quantity, servedQty: i.servedQuantity, preparedQty: i.preparedQuantity, preparationStartedAt: i.preparationStartedAt?.toISOString() ?? null, unitPrice: Number(i.unitPrice), note: i.notes })),
     itemsCount: o.items.reduce((n, i) => n + i.quantity, 0),
   }))
 }
@@ -167,6 +175,65 @@ const waiterOrderEditSchema = z.object({
 const serveItemsSchema = z.object({
   items: z.array(z.object({ orderItemId: z.string().regex(/^\d+$/), quantity: z.coerce.number().int().positive().max(99) })).min(1).max(30),
 })
+const prepareItemsSchema = z.object({
+  mode: z.enum(['start', 'ready']),
+  itemIds: z.array(z.string().regex(/^\d+$/)).min(1).max(30),
+})
+
+/** A small, DB-free status projection shared by the KDS and its tests. */
+export function itemPreparationState(item: { qty: number; preparedQty: number; preparationStartedAt: string | null }): 'new' | 'preparing' | 'ready' {
+  if (item.preparedQty >= item.qty) return 'ready'
+  return item.preparationStartedAt ? 'preparing' : 'new'
+}
+
+/**
+ * Start or finish selected kitchen lines. Preparation only records operational
+ * progress; reservations are converted to inventory consumption exclusively by
+ * the waiter-serving writer. The order row is locked first, which is the same
+ * serialization point used by the existing status and serving writers.
+ */
+export async function prepareOrderItems(session: StaffSession, orderIdRaw: string, input: unknown) {
+  if (!(session.role === ROLE.KITCHEN || isOwner(session.role))) throw new OrderError('Forbidden', 403)
+  if (!/^\d+$/.test(orderIdRaw)) throw new OrderError('Order not found', 404)
+  const parsed = prepareItemsSchema.safeParse(input)
+  if (!parsed.success) throw new OrderError('Invalid item-preparation request', 400)
+  const orderId = BigInt(orderIdRaw)
+  const order = await prisma.order.findUnique({ where: { id: orderId }, select: { id: true, branchId: true, orderNumber: true } })
+  if (!order || !staffCanAccessBranch(session, order.branchId)) throw new OrderError('Order not found', 404)
+  if (!isOwner(session.role) && !await getOpenShift(session.id, order.branchId)) throw new OrderError('An open shift is required', 409)
+
+  return prisma.$transaction(async (tx) => {
+    const locked = await tx.$queryRaw<{ status: string }[]>`SELECT status FROM orders WHERE id = ${orderId} FOR UPDATE`
+    if (!locked[0] || !['new', 'preparing'].includes(locked[0].status)) throw new OrderError('Only active kitchen orders can be prepared', 409)
+    const uniqueIds = [...new Set(parsed.data.itemIds)]
+    if (uniqueIds.length !== parsed.data.itemIds.length) throw new OrderError('An item may only be prepared once per request', 400)
+    const itemIds = uniqueIds.map((id) => BigInt(id))
+    const lines = await tx.orderItem.findMany({ where: { id: { in: itemIds }, orderId, isVoided: false }, select: { id: true, quantity: true, preparedQuantity: true, preparationStartedAt: true } })
+    if (lines.length !== itemIds.length) throw new OrderError('A selected order item is unavailable', 404)
+    const now = new Date()
+    const starting = locked[0].status === 'new'
+    if (starting) {
+      await tx.order.update({ where: { id: orderId }, data: { status: 'preparing', acceptedAt: now } })
+      await tx.orderStatusHistory.create({ data: { orderId, fromStatus: 'new', toStatus: 'preparing', changedById: session.id } })
+      await emitStatusNotifications(tx, { to: 'preparing', orderId, branchId: order.branchId, orderNumber: order.orderNumber })
+    }
+    await tx.orderItem.updateMany({ where: { id: { in: itemIds }, preparationStartedAt: null }, data: { preparationStartedAt: now, preparationStartedById: session.id } })
+    if (parsed.data.mode === 'ready') {
+      // A line becomes ready as a whole. Partial order readiness is represented
+      // by completing some lines while others remain in preparation.
+      await Promise.all(lines.map((line) => tx.orderItem.update({ where: { id: line.id }, data: { preparedQuantity: line.quantity } })))
+      const refreshed = await tx.orderItem.findMany({ where: { orderId, isVoided: false }, select: { quantity: true, preparedQuantity: true } })
+      if (refreshed.every((line) => line.preparedQuantity >= line.quantity)) {
+        await tx.order.update({ where: { id: orderId }, data: { status: 'ready', readyAt: now } })
+        await tx.orderStatusHistory.create({ data: { orderId, fromStatus: 'preparing', toStatus: 'ready', changedById: session.id } })
+        await emitStatusNotifications(tx, { to: 'ready', orderId, branchId: order.branchId, orderNumber: order.orderNumber })
+      }
+    }
+    await tx.auditLog.create({ data: { userId: session.id, branchId: order.branchId, action: `order.items_${parsed.data.mode === 'start' ? 'preparation_started' : 'ready'}`, entityType: 'order', entityId: orderId, newValues: { itemIds: uniqueIds } } })
+    const status = parsed.data.mode === 'ready' && (await tx.order.findUniqueOrThrow({ where: { id: orderId }, select: { status: true } })).status
+    return { id: orderId.toString(), status: status || 'preparing', mode: parsed.data.mode, itemIds: uniqueIds }
+  })
+}
 
 /** Replace lines on an unsent waiter order. Prices and totals are always re-derived on the server. */
 export async function editWaiterOrder(session: StaffSession, orderIdRaw: string, input: unknown) {
@@ -257,9 +324,24 @@ export async function transitionOrderStatus(
     // waste, while an unprepared one only releases its hold.
     try {
       if (to === 'preparing') await markOrderPreparation(tx, order.id, session.id)
+      // Retain synchronization for the legacy whole-ticket kitchen endpoint:
+      // when it declares a ticket ready, every active line is ready as well.
+      if (to === 'ready') await tx.$executeRaw`
+        UPDATE order_items
+        SET prepared_quantity = quantity,
+            preparation_started_at = COALESCE(preparation_started_at, ${new Date()}),
+            preparation_started_by_id = COALESCE(preparation_started_by_id, ${session.id})
+        WHERE order_id = ${order.id} AND is_voided = false
+      `
       if (to === 'served') await consumeOrderReservations(tx, order.id, session.id, 'consumption')
       if (to === 'cancelled' && current === 'new') await releaseOrderReservations(tx, order.id)
-      if (to === 'cancelled' && current === 'preparing') await consumeOrderReservations(tx, order.id, session.id, 'waste', reason.data)
+      if (to === 'cancelled' && current === 'preparing') {
+        // With item-level preparation, only lines whose kitchen work started
+        // become cancellation waste; untouched reservations are released.
+        const started = await tx.orderItem.findMany({ where: { orderId: order.id, isVoided: false, preparationStartedAt: { not: null } }, select: { id: true, quantity: true } })
+        if (started.length) await consumeOrderReservations(tx, order.id, session.id, 'waste', reason.data, started.map((item) => ({ orderItemId: item.id, quantity: item.quantity })))
+        await releaseOrderReservations(tx, order.id)
+      }
     } catch (error) {
       if (error instanceof StockError) throw new OrderError(error.message, error.status)
       throw error
@@ -304,16 +386,16 @@ export async function serveOrderItems(session: StaffSession, orderIdRaw: string,
 
   return prisma.$transaction(async (tx) => {
     const locked = await tx.$queryRaw<{ status: string }[]>`SELECT status FROM orders WHERE id = ${orderId} FOR UPDATE`
-    if (locked[0]?.status !== 'ready') throw new OrderError('Only ready orders can be served', 409)
+    if (!['preparing', 'ready'].includes(locked[0]?.status ?? '')) throw new OrderError('Only prepared order items can be served', 409)
     const requested = new Map<string, number>()
     for (const item of parsed.data.items) {
       if (requested.has(item.orderItemId)) throw new OrderError('An item may only be served once per request', 400)
       requested.set(item.orderItemId, item.quantity)
     }
-    const lines = await tx.orderItem.findMany({ where: { orderId, isVoided: false }, select: { id: true, quantity: true, servedQuantity: true } })
+    const lines = await tx.orderItem.findMany({ where: { orderId, isVoided: false }, select: { id: true, quantity: true, servedQuantity: true, preparedQuantity: true } })
     for (const [id, quantity] of requested) {
       const line = lines.find((candidate) => candidate.id.toString() === id)
-      if (!line || quantity > line.quantity - line.servedQuantity) throw new OrderError('Requested serving quantity is unavailable', 409)
+      if (!line || quantity > line.quantity - line.servedQuantity || quantity > line.preparedQuantity - line.servedQuantity) throw new OrderError('Requested serving quantity is not ready', 409)
       try { await serveOrderItemInventory(tx, orderId, line.id, quantity, session.id) }
       catch (error) { if (error instanceof StockError) throw new OrderError(error.message, error.status); throw error }
     }
@@ -321,7 +403,7 @@ export async function serveOrderItems(session: StaffSession, orderIdRaw: string,
     const complete = refreshed.every((line) => line.servedQuantity >= line.quantity)
     if (complete) {
       await tx.order.update({ where: { id: orderId }, data: { status: 'served', servedAt: new Date() } })
-      await tx.orderStatusHistory.create({ data: { orderId, fromStatus: 'ready', toStatus: 'served', changedById: session.id } })
+      await tx.orderStatusHistory.create({ data: { orderId, fromStatus: locked[0].status, toStatus: 'served', changedById: session.id } })
       await emitStatusNotifications(tx, { to: 'served', orderId, branchId: order.branchId, orderNumber: order.orderNumber })
     }
     await tx.auditLog.create({ data: { userId: session.id, branchId: order.branchId, action: 'order.items_served', entityType: 'order', entityId: orderId, newValues: { items: parsed.data.items, orderComplete: complete } } })

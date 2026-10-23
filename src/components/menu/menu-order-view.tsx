@@ -41,6 +41,8 @@ export function MenuOrderView({ menu }: { menu: PublicMenu }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [cartOpen, setCartOpen] = useState(false)
+  const [serviceBusy, setServiceBusy] = useState<string | null>(null)
+  const [serviceMessage, setServiceMessage] = useState<string | null>(null)
 
   // Lock body scroll while the cart popup is open.
   useEffect(() => {
@@ -112,10 +114,26 @@ export function MenuOrderView({ menu }: { menu: PublicMenu }) {
     }
   }
 
+  async function requestService(type: 'waiter_call' | 'bill' | 'water' | 'utensils' | 'assistance' | 'complaint') {
+    if (serviceBusy) return
+    setServiceBusy(type); setServiceMessage(null)
+    try {
+      const response = await fetch('/api/public/service-requests', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token: menu.table.token, type }) })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.error ?? 'تعذر إرسال الطلب')
+      setServiceMessage('تم إرسال طلبك للفريق.')
+    } catch (cause) { setServiceMessage(cause instanceof Error ? cause.message : 'تعذر إرسال الطلب') } finally { setServiceBusy(null) }
+  }
+
   return (
     <div dir="rtl" className="relative min-h-dvh overflow-x-hidden text-white">
       {/* Same brand backdrop as the rest of the guest flow. */}
       <PublicBackdrop />
+
+      <div className="relative z-20 mx-auto flex max-w-5xl flex-wrap gap-2 px-4 pt-3 sm:px-6">
+        {([['waiter_call', 'نادِ النادل'], ['bill', 'اطلب الحساب'], ['water', 'ماء'], ['utensils', 'أدوات'], ['assistance', 'مساعدة'], ['complaint', 'شكوى']] as const).map(([type, label]) => <Button key={type} size="sm" variant="secondary" disabled={!!serviceBusy} onClick={() => void requestService(type)}>{serviceBusy === type ? 'جارٍ الإرسال…' : label}</Button>)}
+        {serviceMessage ? <span className="self-center text-xs">{serviceMessage}</span> : null}
+      </div>
 
       {/* Sticky basket bar — always visible at the top; tap to review + submit. */}
       <button

@@ -47,7 +47,7 @@ import {
 import { floatMovementSchema } from '../src/lib/staff-float'
 import { recalculateInvoiceTotals, splitInvoices, type InvoiceRow } from '../src/lib/staff-invoices'
 import { posOrderSchema } from '../src/lib/staff-pos'
-import { isKitchenTicketVisible } from '../src/lib/staff-orders'
+import { isKitchenTicketVisible, itemPreparationState } from '../src/lib/staff-orders'
 import { canTransitionOrder } from '../src/lib/staff-orders'
 import { isWaiterTableOrderActive } from '../src/lib/staff-waiter'
 import { getGuestOrders, saveGuestOrder } from '../src/lib/guest-orders'
@@ -81,6 +81,12 @@ test('waiter lifecycle: only legal persisted status transitions are accepted', (
   assert.equal(canTransitionOrder('new', 'served'), false)
   assert.equal(canTransitionOrder('served', 'ready'), false)
   assert.equal(canTransitionOrder('cancelled', 'preparing'), false)
+})
+
+test('kitchen lifecycle: line readiness is independent so an order can be partially ready', () => {
+  assert.equal(itemPreparationState({ qty: 2, preparedQty: 0, preparationStartedAt: null }), 'new')
+  assert.equal(itemPreparationState({ qty: 2, preparedQty: 0, preparationStartedAt: '2026-10-23T10:00:00.000Z' }), 'preparing')
+  assert.equal(itemPreparationState({ qty: 2, preparedQty: 2, preparationStartedAt: '2026-10-23T10:00:00.000Z' }), 'ready')
 })
 
 test('waiter lifecycle: cancelled and served orders do not occupy a table', () => {

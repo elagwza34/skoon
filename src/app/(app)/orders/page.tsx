@@ -26,6 +26,7 @@ export default async function OrdersPage() {
       orders={orders}
       canPay={hasAtLeast(session.role, ROLE.CASHIER)}
       canRefund={hasAtLeast(session.role, ROLE.MANAGER)}
+      canManage={hasAtLeast(session.role, ROLE.MANAGER)}
     />
   );
 }
