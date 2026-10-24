@@ -1,9 +1,10 @@
 import { redirect } from 'next/navigation'
 import { requirePageAccess } from '@/lib/require-page-access'
 import { getOpenShift } from '@/lib/staff-shifts'
-import { requiresOperationalShift } from '@/lib/authz'
-import { getWaiterWorkspace } from '@/lib/staff-waiter'
+import { isOwner, requiresOperationalShift } from '@/lib/authz'
+import { getOwnerWaiterMonitor, getWaiterWorkspace } from '@/lib/staff-waiter'
 import { WaiterBoard } from '@/components/waiter/waiter-board'
+import { OwnerWaiterMonitor } from '@/components/waiter/owner-waiter-monitor'
 
 export const dynamic = 'force-dynamic'
 
@@ -17,6 +18,11 @@ export const metadata = {
  */
 export default async function WaiterPage() {
   const session = await requirePageAccess('/waiter')
+
+  if (isOwner(session.role)) {
+    const monitor = await getOwnerWaiterMonitor(session)
+    return <OwnerWaiterMonitor monitor={monitor} />
+  }
 
   // Waiter must have an open shift before performing waiter duties.
   if (requiresOperationalShift(session.role) && session.branchId) {

@@ -24,8 +24,8 @@ export function recalculateInvoiceTotals(subtotal: number, discountType: string 
 function round(n: number) { return Math.round((n + Number.EPSILON) * 100) / 100 }
 function settled(total: number, paid: number) { return paid >= total - 0.005 }
 
-export async function getCashierInvoices(session: StaffSession, range: { from?: Date; to?: Date } = {}): Promise<InvoiceRow[]> {
-  const scope = session.role === ROLE.OWNER ? {} : { branchId: BigInt(session.branchId as string) }
+export async function getCashierInvoices(session: StaffSession, range: { from?: Date; to?: Date; branchId?: bigint } = {}): Promise<InvoiceRow[]> {
+  const scope = session.role === ROLE.OWNER ? (range.branchId ? { branchId: range.branchId } : {}) : { branchId: BigInt(session.branchId as string) }
   const createdAt = range.from || range.to ? { ...(range.from ? { gte: range.from } : {}), ...(range.to ? { lte: range.to } : {}) } : undefined
   const orders = await prisma.order.findMany({ where: { ...scope, ...(createdAt ? { createdAt } : {}) }, orderBy: { createdAt: 'desc' }, take: 150,
     select: { id: true, orderNumber: true, createdAt: true, cancelledAt: true, cancelReason: true, status: true, paymentStatus: true, itemsSubtotal: true, discountAmount: true, taxAmount: true, total: true,

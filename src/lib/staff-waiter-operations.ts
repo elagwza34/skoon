@@ -113,7 +113,7 @@ export async function rejectQrOrder(session: StaffSession, orderIdRaw: string, i
 }
 
 export async function reassignOrderResponsibility(session: StaffSession, orderIdRaw: string, input: unknown) {
-  if (!hasAtLeast(session.role, ROLE.MANAGER)) throw new OrderError('Manager role required', 403)
+  if (session.role !== ROLE.MANAGER) throw new OrderError('Manager role required', 403)
   if (!idSchema.safeParse(orderIdRaw).success) throw new OrderError('Order not found', 404)
   const parsed = reassignSchema.safeParse(input); if (!parsed.success) throw new OrderError('Invalid reassignment', 400)
   const orderId = BigInt(orderIdRaw); const preflight = await prisma.order.findUnique({ where: { id: orderId }, select: { branchId: true } }); if (!preflight) throw new OrderError('Order not found', 404)
@@ -132,7 +132,7 @@ export async function reassignOrderResponsibility(session: StaffSession, orderId
 }
 
 export async function transferOrderTable(session: StaffSession, orderIdRaw: string, input: unknown) {
-  if (!hasAtLeast(session.role, ROLE.WAITER)) throw new OrderError('Forbidden', 403)
+  if (session.role !== ROLE.WAITER) throw new OrderError('Waiter role required', 403)
   if (!idSchema.safeParse(orderIdRaw).success) throw new OrderError('Order not found', 404)
   const parsed = transferSchema.safeParse(input); if (!parsed.success) throw new OrderError('Invalid table transfer', 400)
   const orderId = BigInt(orderIdRaw); const destinationId = BigInt(parsed.data.tableId)

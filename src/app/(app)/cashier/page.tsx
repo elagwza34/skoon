@@ -1,4 +1,6 @@
 import { requirePageAccess } from '@/lib/require-page-access'
+import { isOwner } from '@/lib/authz'
+import { redirect } from 'next/navigation'
 import { getShiftsBoard } from '@/lib/staff-shifts'
 import { prisma } from '@/lib/prisma'
 import { getCashierInvoices } from '@/lib/staff-invoices'
@@ -10,6 +12,8 @@ export const dynamic = 'force-dynamic'
 
 export default async function CashierPage() {
   const session = await requirePageAccess('/cashier')
+  // Owner oversight belongs to the non-operational financial workspace.
+  if (isOwner(session.role)) redirect('/finance')
 
   let branchName: string | null = null
   if (session.branchId) {

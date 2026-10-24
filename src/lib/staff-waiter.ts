@@ -35,6 +35,45 @@ export interface WaiterWorkspace {
   incomingHandovers: IncomingWaiterHandover[]
 }
 
+/**
+ * Owner-only operational overview. This is deliberately a separate shape from
+ * WaiterWorkspace: it carries no catalog, shift, handover, or mutation state.
+ * The owner route consumes it only to render a read-only monitor.
+ */
+export interface OwnerWaiterMonitor {
+  orders: {
+    id: string
+    number: string
+    branchName: string
+    tableNumber: string
+    status: string
+    source: string
+    createdAt: string
+    qrApprovedAt: string | null
+    responsibleWaiterName: string | null
+    itemsCount: number
+    servedItemsCount: number
+  }[]
+  tables: { id: string; branchName: string; number: string; name: string | null; activeOrders: number }[]
+  serviceRequests: {
+    id: string
+    branchName: string
+    tableNumber: string
+    type: string
+    status: string
+    priority: number
+    createdAt: string
+    claimedAt: string | null
+    resolvedAt: string | null
+    claimedByName: string | null
+    resolvedByName: string | null
+  }[]
+}
+
+export function canViewOwnerWaiterMonitor(role: string): boolean {
+  return role === ROLE.OWNER
+}
+
 /** Only active, non-terminal orders occupy a table in the waiter workspace. */
 export function isWaiterTableOrderActive(status: string): boolean {
   return status === 'new' || status === 'preparing' || status === 'ready'
@@ -128,6 +167,67 @@ export async function getWaiterWorkspace(session: StaffSession): Promise<WaiterW
       outstandingOrders: orders.filter((order) => order.responsibleWaiterId === handover.requestedById && isWaiterTableOrderActive(order.status)).map((order) => ({
         id: order.id.toString(), number: order.orderNumber, tableNumber: order.cafeTable.number, status: order.status,
       })),
+    })),
+  }
+}
+
+
+/** Read-only, bounded operational overview for the Owner monitor. */
+export async function getOwnerWaiterMonitor(session: StaffSession): Promise<OwnerWaiterMonitor> {
+  if (!canViewOwnerWaiterMonitor(session.role)) throw new ShiftError('Owner access is required', 403)
+
+  const activeStatuses = ['new', 'preparing', 'ready']
+  const [orders, tables, serviceRequests] = await Promise.all([
+    prisma.order.findMany({
+      where: { status: { in: [...activeStatuses, 'served'] }, isArchived: false },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+      select: {
+        id: true, orderNumber: true, status: true, source: true, createdAt: true,
+        qrApprovedAt: true, responsibleWaiter: { select: { name: true } },
+        branch: { select: { name: true } }, cafeTable: { select: { number: true } },
+        items: { where: { isVoided: false }, select: { quantity: true, servedQuantity: true } },
+      },
+    }),
+    prisma.cafeTable.findMany({
+      where: { isActive: true, deletedAt: null },
+      orderBy: [{ branch: { name: 'asc' } }, { sortOrder: 'asc' }, { number: 'asc' }],
+      take: 250,
+      select: {
+        id: true, number: true, name: true, branch: { select: { name: true } },
+        orders: { where: { status: { in: activeStatuses } }, select: { id: true } },
+      },
+    }),
+    prisma.serviceRequest.findMany({
+      orderBy: [{ priority: 'desc' }, { createdAt: 'desc' }],
+      take: 200,
+      select: {
+        id: true, type: true, status: true, priority: true, createdAt: true, claimedAt: true, resolvedAt: true,
+        branch: { select: { name: true } }, table: { select: { number: true } },
+        claimedBy: { select: { name: true } }, resolvedBy: { select: { name: true } },
+      },
+    }),
+  ])
+
+  return {
+    orders: orders.map((order) => ({
+      id: order.id.toString(), number: order.orderNumber, branchName: order.branch.name,
+      tableNumber: order.cafeTable.number, status: order.status, source: order.source,
+      createdAt: order.createdAt.toISOString(), qrApprovedAt: order.qrApprovedAt?.toISOString() ?? null,
+      responsibleWaiterName: order.responsibleWaiter?.name ?? null,
+      itemsCount: order.items.reduce((total, item) => total + item.quantity, 0),
+      servedItemsCount: order.items.reduce((total, item) => total + item.servedQuantity, 0),
+    })),
+    tables: tables.map((table) => ({
+      id: table.id.toString(), branchName: table.branch.name, number: table.number,
+      name: table.name, activeOrders: table.orders.length,
+    })),
+    serviceRequests: serviceRequests.map((request) => ({
+      id: request.id.toString(), branchName: request.branch.name, tableNumber: request.table.number,
+      type: request.type, status: request.status, priority: request.priority,
+      createdAt: request.createdAt.toISOString(), claimedAt: request.claimedAt?.toISOString() ?? null,
+      resolvedAt: request.resolvedAt?.toISOString() ?? null,
+      claimedByName: request.claimedBy?.name ?? null, resolvedByName: request.resolvedBy?.name ?? null,
     })),
   }
 }

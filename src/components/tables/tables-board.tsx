@@ -1,7 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { useState } from 'react'
+import { useState, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -16,10 +17,27 @@ import type { StaffTable } from '@/lib/staff-tables'
  * Tables board — real branch tables + live occupancy.
  * No local state mutation: occupancy derives from open orders in the DB.
  */
-export function TablesBoard({ tables, canEditLayout = false }: { tables: StaffTable[]; canEditLayout?: boolean }) {
+export function TablesBoard({ tables, canEditLayout = false, branches = [] }: { tables: StaffTable[]; canEditLayout?: boolean; branches?: { id: string; name: string }[] }) {
+  const router = useRouter()
+  const [, startTransition] = useTransition()
   const available = tables.filter((t) => t.status === 'available').length
   const occupied = tables.filter((t) => t.status === 'occupied').length
   const [view, setView] = useState<'grid' | 'floor'>('grid')
+  const [editing, setEditing] = useState<StaffTable | null>(null)
+  const [formOpen, setFormOpen] = useState(false)
+  const [number, setNumber] = useState('')
+  const [name, setName] = useState('')
+  const [capacity, setCapacity] = useState('4')
+  const [branchId, setBranchId] = useState(branches[0]?.id ?? '')
+  const [zone, setZone] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  function openCreate() { setEditing(null); setNumber(''); setName(''); setCapacity('4'); setZone(''); setBranchId(branches[0]?.id ?? ''); setError(null); setFormOpen(true) }
+  function openEdit(table: StaffTable) { setEditing(table); setNumber(table.number); setName(table.name ?? ''); setCapacity(String(table.capacity)); setZone(table.floorPlanZone ?? ''); setError(null); setFormOpen(true) }
+  async function saveTable() { if (saving) return; const seats = Number(capacity); if (!number.trim() || !Number.isInteger(seats) || seats < 1 || (!editing && !branchId)) { setError('أدخل رقم الطاولة وسعة صحيحة والفرع.'); return }; setSaving(true); setError(null); try { const response = await fetch('/api/staff/tables', { method: editing ? 'PATCH' : 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(editing ? { id: editing.id, number: number.trim(), name: name.trim() || null, capacity: seats, zone: zone.trim() || null } : { branchId, number: number.trim(), name: name.trim() || null, capacity: seats, zone: zone.trim() || null }) }); const body = await response.json().catch(() => ({})); if (!response.ok) throw new Error(body.error ?? 'تعذر حفظ الطاولة'); setFormOpen(false); setNotice(editing ? 'تم تحديث الطاولة.' : 'تمت إضافة الطاولة.'); startTransition(() => router.refresh()) } catch (cause) { setError(cause instanceof Error ? cause.message : 'تعذر حفظ الطاولة') } finally { setSaving(false) } }
+  async function archive(table: StaffTable) { if (!confirm(`أرشفة الطاولة ${table.number}؟ لا يمكن أرشفة طاولة عليها طلبات نشطة.`)) return; setSaving(true); setError(null); try { const response = await fetch(`/api/staff/tables?id=${encodeURIComponent(table.id)}`, { method: 'DELETE' }); const body = await response.json().catch(() => ({})); if (!response.ok) throw new Error(body.error ?? 'تعذر أرشفة الطاولة'); setNotice('تمت أرشفة الطاولة.'); startTransition(() => router.refresh()) } catch (cause) { setError(cause instanceof Error ? cause.message : 'تعذر أرشفة الطاولة') } finally { setSaving(false) } }
 
   return (
     <div className="flex flex-col gap-4">
@@ -32,7 +50,8 @@ export function TablesBoard({ tables, canEditLayout = false }: { tables: StaffTa
           <span className="text-lg font-bold text-foreground">{formatNumber(occupied)}</span>
           <span className="text-warning">مشغولة</span>
         </span>
-        <Link href="/tables/print" className="ms-auto">
+        {canEditLayout ? <Button size="sm" className="ms-auto" onClick={openCreate}><Icon name="plus" size={14} />إضافة طاولة</Button> : null}
+        <Link href="/tables/print" className={!canEditLayout ? 'ms-auto' : undefined}>
           <Button size="sm" variant="outline">
             <Icon name="orders" size={14} />
             طباعة QR
@@ -40,6 +59,9 @@ export function TablesBoard({ tables, canEditLayout = false }: { tables: StaffTa
         </Link>
         <div className="flex rounded-md border border-border p-0.5"><Button size="sm" variant={view === 'grid' ? 'primary' : 'ghost'} onClick={() => setView('grid')}>شبكة</Button><Button size="sm" variant={view === 'floor' ? 'primary' : 'ghost'} onClick={() => setView('floor')}>مخطط القاعة</Button></div>
       </div>
+      {notice ? <p className="rounded-md bg-success/10 px-3 py-2 text-sm text-success">{notice}</p> : null}
+      {error ? <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}
+      {formOpen ? <div role="dialog" aria-modal="true" aria-label={editing ? 'تعديل طاولة' : 'إضافة طاولة'} className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4"><Card className="w-full max-w-lg"><CardContent className="space-y-4 p-5"><h2 className="text-lg font-bold">{editing ? 'تعديل طاولة' : 'إضافة طاولة'}</h2><div className="grid gap-3 sm:grid-cols-2"><label className="text-sm">رقم الطاولة<Input value={number} onChange={(event) => setNumber(event.target.value)} maxLength={20} /></label><label className="text-sm">السعة<Input type="number" min="1" max="100" value={capacity} onChange={(event) => setCapacity(event.target.value)} /></label><label className="text-sm">الاسم (اختياري)<Input value={name} onChange={(event) => setName(event.target.value)} maxLength={50} /></label><label className="text-sm">المنطقة (اختياري)<Input value={zone} onChange={(event) => setZone(event.target.value)} maxLength={80} /></label>{!editing ? <label className="text-sm sm:col-span-2">الفرع<select className="mt-1 h-10 w-full rounded-md border border-border bg-background px-3" value={branchId} onChange={(event) => setBranchId(event.target.value)}><option value="">اختر الفرع</option>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label> : null}</div>{error ? <p className="text-sm text-destructive">{error}</p> : null}<div className="flex gap-2"><Button disabled={saving} onClick={() => void saveTable()}>{saving ? 'جارٍ الحفظ…' : 'حفظ'}</Button><Button variant="ghost" disabled={saving} onClick={() => setFormOpen(false)}>إلغاء</Button></div></CardContent></Card></div> : null}
 
       {tables.length === 0 ? (
         <EmptyState icon="tables" title="لا توجد طاولات" description="أضف طاولات الفرع من قاعدة البيانات أولاً." />
@@ -76,6 +98,7 @@ export function TablesBoard({ tables, canEditLayout = false }: { tables: StaffTa
                     فتح المنيو
                   </Button>
                 </Link>
+                {canEditLayout ? <div className="grid grid-cols-2 gap-2"><Button size="sm" variant="outline" onClick={() => openEdit(t)}>تعديل</Button><Button size="sm" variant="destructive" disabled={saving || t.openOrders > 0} onClick={() => void archive(t)}>أرشفة</Button></div> : null}
               </CardContent>
             </Card>
           ))}

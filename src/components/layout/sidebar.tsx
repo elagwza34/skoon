@@ -62,7 +62,7 @@ export function Sidebar({ open, onClose, branchName, groups = DEFAULT_GROUPS }: 
             priority
             className="h-11 w-11 shrink-0 object-contain"
           />
-          <div className="flex flex-col leading-tight">
+          <div className="flex min-w-0 flex-col leading-tight">
             <span className="text-base font-bold text-foreground">سكون</span>
             <span className="text-[11px] text-muted-foreground">نظام إدارة الكافيه</span>
           </div>
@@ -95,12 +95,12 @@ export function Sidebar({ open, onClose, branchName, groups = DEFAULT_GROUPS }: 
                         : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
                     )}
                   >
-                    <Icon name={item.icon} size={20} />
+                    <Icon name={item.icon} size={20} className="shrink-0" />
                     <span className="flex-1 truncate">{item.label}</span>
                     {item.badge != null ? (
                       <span
                         className={cn(
-                          "inline-flex min-w-5 items-center justify-center rounded-full px-1.5 py-0.5 text-[11px] font-semibold",
+                          "inline-flex min-w-5 shrink-0 items-center justify-center whitespace-nowrap rounded-full px-1.5 py-0.5 text-[11px] font-semibold",
                           active ? "bg-primary text-primary-foreground" : "bg-accent text-accent-foreground",
                         )}
                       >

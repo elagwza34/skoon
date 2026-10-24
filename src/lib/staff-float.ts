@@ -51,9 +51,11 @@ export function sharedFloatTotals(rows: { type: string; amount: unknown; sourceA
   return { baseline, additions, withdrawals, available, requiresReconciliation: !rows.some((row) => row.type === 'fixed_float_baseline') }
 }
 
-export async function getSharedFloatSummary(session: StaffSession): Promise<SharedFloatSummary> {
-  if (session.branchId === null) throw new FloatError('Choose a branch', 400)
-  const branchId = BigInt(session.branchId)
+export async function getSharedFloatSummary(session: StaffSession, branchIdRaw?: string): Promise<SharedFloatSummary> {
+  let branchId: bigint | null = session.branchId ? BigInt(session.branchId) : null
+  if (session.role === ROLE.OWNER && branchIdRaw && /^\d+$/.test(branchIdRaw)) branchId = BigInt(branchIdRaw)
+  if (session.role === ROLE.OWNER && !branchId) branchId = await firstBranchId()
+  if (!branchId || !staffCanAccessBranch(session, branchId)) throw new FloatError('Choose a branch', 400)
   const movements = await prisma.financialMovement.findMany({ where: { branchId }, orderBy: { occurredAt: 'desc' }, take: 300, select: { id: true, type: true, amount: true, sourceAccount: true, destinationAccount: true, reason: true, occurredAt: true, actorId: true, advanceId: true, metadata: true, sourceShiftId: true, actor: { select: { name: true } } } })
   const totals = sharedFloatTotals(movements)
   const balances = new Map<string, { cashier: string; amount: number }>()

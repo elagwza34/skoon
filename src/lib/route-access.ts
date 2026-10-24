@@ -85,6 +85,7 @@ export function permissionForPath(pathname: string): string | null {
 /** Pure check: may this role (with these granted permissions) open `pathname`? */
 export function canSeeRoute(role: string, permissions: readonly string[], pathname: string): boolean {
   if (isOwner(role)) return true
+  if (pathname === '/finance' || pathname.startsWith('/finance/')) return false
   // Attendance-correction approval affects payroll inputs and is explicitly
   // Owner-only. Keep this exception in the shared route gate so hidden links
   // and direct URL access cannot diverge.

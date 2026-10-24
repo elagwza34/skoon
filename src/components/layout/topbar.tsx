@@ -56,7 +56,7 @@ export function Topbar({ onMenu, user }: TopbarProps) {
 
   return (
     <header className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur">
-      <div className="flex items-center gap-3 px-4 py-3 lg:px-6">
+      <div className="flex min-w-0 items-center gap-2 px-3 py-3 sm:gap-3 sm:px-4 lg:px-6">
         <button
           type="button"
           onClick={onMenu}
@@ -71,7 +71,7 @@ export function Topbar({ onMenu, user }: TopbarProps) {
           <TodayDate />
         </div>
 
-        <div className="ms-auto flex items-center gap-2">
+        <div className="ms-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
           <div className="hidden md:block">
             <TopbarSearch />
           </div>

@@ -51,10 +51,15 @@ import {
 import { floatMovementSchema } from '../src/lib/staff-float'
 import { recalculateInvoiceTotals, splitInvoices, type InvoiceRow } from '../src/lib/staff-invoices'
 import { posOrderSchema } from '../src/lib/staff-pos'
-import { isKitchenTicketVisible, itemPreparationState } from '../src/lib/staff-orders'
+import { isKitchenTicketVisible, itemPreparationState, OrderError, transitionOrderStatus } from '../src/lib/staff-orders'
 import { canTransitionOrder } from '../src/lib/staff-orders'
-import { isWaiterTableOrderActive } from '../src/lib/staff-waiter'
+import { canViewOwnerWaiterMonitor, isWaiterTableOrderActive } from '../src/lib/staff-waiter'
 import { isTransferEligible, requiresEmergencyServing } from '../src/lib/staff-waiter-operations'
+import { canMutateServiceRequest, serviceRequestMonitorGroup } from '../src/lib/service-request-policy'
+import { actOnServiceRequest, ServiceRequestError } from '../src/lib/staff-service-requests'
+import type { StaffSession } from '../src/lib/session'
+import { calculateVat, normalizeVatReportFilters, parseVatDate } from '../src/lib/vat-report'
+import { FinanceError, getOwnerFinanceWorkspace } from '../src/lib/staff-finance'
 import { getGuestOrders, saveGuestOrder } from '../src/lib/guest-orders'
 import { SETTING_DEFS, SettingsError } from '../src/lib/staff-settings-write'
 import {
@@ -66,6 +71,7 @@ import {
   canSeeRoute,
 } from '../src/lib/route-access'
 import { canManageEmployeeLifecycle, canReadEmployeeDirectory, canReadSensitiveEmployeeData, canResetEmployeePassword } from '../src/lib/hr-authz'
+import { CatalogError, targetBranch } from '../src/lib/staff-catalog-write'
 import { effectivePeriodsOverlap, evaluateAttendance, validateWeeklySchedule } from '../src/lib/hr-scheduling-policy'
 import { classifyUnassignedWaiterOrder } from '../src/lib/waiter-readiness-policy'
 import {
@@ -108,6 +114,91 @@ test('waiter lifecycle: cancelled and served orders do not occupy a table', () =
   assert.equal(isWaiterTableOrderActive('ready'), true)
   assert.equal(isWaiterTableOrderActive('served'), false)
   assert.equal(isWaiterTableOrderActive('cancelled'), false)
+})
+
+test('owner waiter monitor is read-only while the waiter service workflow remains available', () => {
+  assert.equal(canViewOwnerWaiterMonitor(ROLE.OWNER), true)
+  assert.equal(canViewOwnerWaiterMonitor(ROLE.WAITER), false)
+  assert.equal(canMutateServiceRequest(ROLE.OWNER), false)
+  assert.equal(canMutateServiceRequest(ROLE.WAITER), true)
+  assert.equal(canMutateServiceRequest(ROLE.MANAGER), true)
+  assert.equal(canMutateServiceRequest(ROLE.KITCHEN), false)
+})
+
+test('owner finance workspace is owner-only and does not require an operational shift', () => {
+  assert.equal(canSeeRoute(ROLE.OWNER, [], '/finance'), true)
+  assert.equal(canSeeRoute(ROLE.MANAGER, ['reports.view'], '/finance'), false)
+  assert.equal(requiresOperationalShift(ROLE.OWNER), false)
+  assert.equal(requiresOperationalShift(ROLE.CASHIER), true)
+})
+
+test('finance service rejects non-owner access before reading financial records', async () => {
+  const manager: StaffSession = { id: '00000000-0000-0000-0000-000000000002', email: null, name: 'Manager', role: ROLE.MANAGER, branchId: '1', permissions: ['reports.view'] }
+  await assert.rejects(() => getOwnerFinanceWorkspace(manager), (error: unknown) => error instanceof FinanceError && error.status === 403)
+})
+
+test('owner direct operational waiter and service-request mutations are rejected before database access', async () => {
+  const owner: StaffSession = { id: '00000000-0000-0000-0000-000000000001', email: null, name: 'Owner', role: ROLE.OWNER, branchId: null, permissions: [] }
+  await assert.rejects(
+    () => transitionOrderStatus(owner, '1', 'preparing'),
+    (error: unknown) => error instanceof OrderError && error.status === 403,
+  )
+  await assert.rejects(
+    () => actOnServiceRequest(owner, 1n, { action: 'accept' }),
+    (error: unknown) => error instanceof ServiceRequestError && error.status === 403,
+  )
+})
+
+test('service-request monitor filtering groups only persisted operational states', () => {
+  assert.equal(serviceRequestMonitorGroup('pending'), 'pending')
+  assert.equal(serviceRequestMonitorGroup('accepted'), 'claimed')
+  assert.equal(serviceRequestMonitorGroup('in_progress'), 'claimed')
+  assert.equal(serviceRequestMonitorGroup('resolved'), 'completed')
+  assert.equal(serviceRequestMonitorGroup('cancelled'), 'completed')
+})
+
+test('VAT: fully settled invoices use stored tax snapshots and count once', () => {
+  const result = calculateVat([{ id: '1', number: 'INV-1', branchId: '1', branch: 'Main', createdAt: new Date('2026-01-01T00:00:00Z'), subtotal: '100.00', discount: '0.00', tax: '14.00', total: '114.00', taxRate: '14', payments: [{ status: 'completed', amount: '114.00', createdAt: new Date('2026-01-02T10:00:00Z') }] }])
+  assert.equal(result.collectedVatCents, 1400)
+  assert.equal(result.netVatCents, 1400)
+  assert.equal(result.salesExcludingVatCents, 10000)
+  assert.equal(result.salesIncludingVatCents, 11400)
+  assert.equal(result.paidInvoices, 1)
+  assert.equal(result.rows.length, 1)
+})
+
+test('VAT: partial and multiple payments are excluded without inventing allocation', () => {
+  const base = { branchId: '1', branch: 'Main', createdAt: new Date(), subtotal: '100.00', discount: '0.00', tax: '14.00', total: '114.00', taxRate: '14' }
+  const result = calculateVat([
+    { ...base, id: '1', number: 'PARTIAL', payments: [{ status: 'completed', amount: '50.00', createdAt: new Date() }] },
+    { ...base, id: '2', number: 'SPLIT', payments: [{ status: 'completed', amount: '57.00', createdAt: new Date() }, { status: 'completed', amount: '57.00', createdAt: new Date() }] },
+  ])
+  assert.equal(result.collectedVatCents, 0)
+  assert.equal(result.paidInvoices, 0)
+  assert.deepEqual(result.excluded.map((row) => row.reason), ['partial_or_mismatched_payment_no_tax_allocation', 'multiple_settled_payments_no_tax_allocation'])
+})
+
+test('VAT: full refunds, tax-exempt invoices, and distinct invoice tax rates reconcile exactly', () => {
+  const base = { branchId: '1', branch: 'Main', createdAt: new Date(), subtotal: '100.00', discount: '0.00' }
+  const result = calculateVat([
+    { ...base, id: '1', number: 'REFUND', tax: '14.00', total: '114.00', taxRate: '14', payments: [{ status: 'refunded', amount: '114.00', createdAt: new Date() }] },
+    { ...base, id: '2', number: 'EXEMPT', tax: '0.00', total: '100.00', taxRate: '0', payments: [{ status: 'completed', amount: '100.00', createdAt: new Date() }] },
+    { ...base, id: '3', number: 'RATE-5', tax: '5.00', total: '105.00', taxRate: '5', payments: [{ status: 'completed', amount: '105.00', createdAt: new Date() }] },
+  ])
+  assert.equal(result.refundedVatCents, 1400)
+  assert.equal(result.collectedVatCents, 500)
+  assert.equal(result.netVatCents, -900)
+  assert.equal(result.paidInvoices, 2)
+})
+
+test('VAT: date input is bounded and valid for branch/date-filtered server queries', () => {
+  assert.equal(parseVatDate('2026-10-01')?.toISOString(), '2026-10-01T00:00:00.000Z')
+  assert.equal(parseVatDate('2026-10-01', true)?.toISOString(), '2026-10-01T23:59:59.999Z')
+  assert.throws(() => parseVatDate('2026/10/01'))
+  const filters = normalizeVatReportFilters({ from: '2026-10-01', to: '2026-10-31', branchId: '42' })
+  assert.equal(filters.branchId, 42n)
+  assert.equal(filters.from?.toISOString(), '2026-10-01T00:00:00.000Z')
+  assert.throws(() => normalizeVatReportFilters({ branchId: 'other-branch' }))
 })
 
 test('waiter responsibility: table transfers never move paid or terminal orders', () => {
@@ -340,6 +431,14 @@ test('authz: operational shift policy exempts Owner and Manager only', () => {
   assert.equal(requiresOperationalShift(ROLE.WAITER), true)
   assert.equal(requiresOperationalShift(ROLE.KITCHEN), true)
   assert.equal(requiresOperationalShift('unknown'), false)
+})
+
+test('catalog: owner product creation requires an explicit target branch while managers are branch-bound', () => {
+  const owner: StaffSession = { id: '00000000-0000-0000-0000-000000000001', email: null, name: 'Owner', role: ROLE.OWNER, branchId: null, permissions: [] }
+  const manager: StaffSession = { id: '00000000-0000-0000-0000-000000000002', email: null, name: 'Manager', role: ROLE.MANAGER, branchId: '7', permissions: [] }
+  assert.equal(targetBranch(owner, '8'), 8n)
+  assert.equal(targetBranch(manager, '8'), 7n)
+  assert.throws(() => targetBranch(owner), (error: unknown) => error instanceof CatalogError && error.status === 400)
 })
 
 test('authz: canAccessBranch (owner=null any, staff=own only)', () => {

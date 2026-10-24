@@ -5,6 +5,9 @@ import { prisma } from '@/lib/prisma'
 import type { StaffSession } from '@/lib/session'
 import { getOpenShift } from '@/lib/staff-shifts'
 import { notifyRole } from '@/lib/notifications'
+import { canMutateServiceRequest } from '@/lib/service-request-policy'
+
+export { canMutateServiceRequest } from '@/lib/service-request-policy'
 
 export class ServiceRequestError extends Error { constructor(message: string, readonly status = 400) { super(message); this.name = 'ServiceRequestError' } }
 const requestSchema = z.object({ token: z.string().length(16), type: z.enum(['waiter_call','bill','water','utensils','assistance','complaint']), details: z.string().trim().max(500).optional() })
@@ -45,10 +48,10 @@ export async function listServiceRequests(session: StaffSession, input: unknown)
 /** Atomic claim prevents two waiters from accepting the same available request. */
 export async function actOnServiceRequest(session: StaffSession, id: bigint, input: unknown) {
   const parsed = actionSchema.safeParse(input); if (!parsed.success) throw new ServiceRequestError('Invalid service-request action')
-  if (session.role !== ROLE.WAITER && session.role !== ROLE.MANAGER && session.role !== ROLE.OWNER) throw new ServiceRequestError('Service supervision is not permitted', 403)
+  if (!canMutateServiceRequest(session.role)) throw new ServiceRequestError('Service-request monitoring is read-only for this role', 403)
   if (requiresOperationalShift(session.role) && (!session.branchId || !await getOpenShift(session.id, BigInt(session.branchId)))) throw new ServiceRequestError('An open shift is required', 409)
   try { return await prisma.$transaction(async (tx) => {
-    const scope = session.role === ROLE.OWNER ? {} : { branchId: BigInt(session.branchId!) }
+    const scope = { branchId: BigInt(session.branchId!) }
     const row = await tx.serviceRequest.findFirst({ where: { id, ...scope }, select: { id: true, branchId: true, status: true, claimedById: true } })
     if (!row) throw new ServiceRequestError('Service request not found', 404)
     if (parsed.data.action === 'accept') {
@@ -62,7 +65,7 @@ export async function actOnServiceRequest(session: StaffSession, id: bigint, inp
       if (session.role === ROLE.WAITER && row.claimedById !== session.id) throw new ServiceRequestError('Only the assigned waiter may start this request', 403)
       await tx.serviceRequest.update({ where: { id }, data: { status: 'in_progress' } })
     } else {
-      if (session.role !== ROLE.MANAGER && session.role !== ROLE.OWNER) throw new ServiceRequestError('Manager authority is required', 403)
+      if (session.role !== ROLE.MANAGER) throw new ServiceRequestError('Manager authority is required', 403)
       if (parsed.data.action === 'reassign' && !parsed.data.assigneeId) throw new ServiceRequestError('Assignee is required')
       await tx.serviceRequest.update({ where: { id }, data: parsed.data.action === 'reassign' ? { claimedById: parsed.data.assigneeId, claimedAt: new Date(), status: 'accepted' } : { priority: 10 } })
     }

@@ -14,7 +14,7 @@ import type { ReportsSummary } from '@/lib/staff-reports'
  * Reports board — revenue + orders aggregates from the real DB.
  * Day-range selector navigates (?days=7/30/90); chart + tables re-render.
  */
-export function ReportsBoard({ summary }: { summary: ReportsSummary }) {
+export function ReportsBoard({ summary, vatSummary }: { summary: ReportsSummary; vatSummary?: { netCollectedVat: number; paidInvoices: number } }) {
   const points = summary.daily.map((d) => ({
     label: d.label, value: d.revenue, display: formatCurrency(d.revenue),
   }))
@@ -46,6 +46,7 @@ export function ReportsBoard({ summary }: { summary: ReportsSummary }) {
         <StatCard label="عدد الطلبات" value={formatNumber(summary.totalOrders)} icon="orders" hint={`آخر ${summary.days} يوم — شامل الملغي`} />
         <StatCard label="طلبات مدفوعة" value={formatNumber(summary.paidOrders)} icon="pos" hint="بمدفوعات مكتملة في النطاق" />
         <StatCard label="متوسط المحصّل للمدفوع" value={formatCurrency(summary.avgCollectedPerPaidOrder)} icon="trendingUp" hint="المحصّل ÷ المدفوعة" />
+        {vatSummary ? <Link href="/reports?tab=vat" className="rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><StatCard label="صافي ضريبة القيمة المضافة" value={formatCurrency(vatSummary.netCollectedVat)} icon="reports" hint={`${formatNumber(vatSummary.paidInvoices)} فواتير VAT مؤهلة`} /></Link> : null}
       </div>
 
       {summary.byMethod.length > 0 ? (

@@ -4,6 +4,7 @@ import { getStaffTables } from '@/lib/staff-tables'
 import { TablesBoard } from '@/components/tables/tables-board'
 import { getOpenShift } from '@/lib/staff-shifts'
 import { isOwner, requiresOperationalShift } from '@/lib/authz'
+import { prisma } from '@/lib/prisma'
 
 export const dynamic = 'force-dynamic'
 
@@ -21,5 +22,8 @@ export default async function TablesPage() {
   }
 
   const tables = await getStaffTables(session)
-  return <TablesBoard tables={tables} canEditLayout={isOwner(session.role)} />
+  const branches = isOwner(session.role)
+    ? await prisma.cafeBranch.findMany({ where: { isActive: true }, orderBy: { name: 'asc' }, select: { id: true, name: true } })
+    : []
+  return <TablesBoard tables={tables} canEditLayout={isOwner(session.role)} branches={branches.map((branch) => ({ id: branch.id.toString(), name: branch.name }))} />
 }

@@ -28,7 +28,17 @@ interface ProductDraft {
 
 const EMPTY_DRAFT: ProductDraft = { name: '', description: '', price: '', categoryId: '', isAvailable: true }
 
-export function ProductsBoard({ catalog, canEdit, canToggle }: { catalog: StaffCatalog; canEdit: boolean; canToggle?: boolean }) {
+export function ProductsBoard({
+  catalog,
+  canEdit,
+  canToggle,
+  branches = [],
+}: {
+  catalog: StaffCatalog
+  canEdit: boolean
+  canToggle?: boolean
+  branches?: { id: string; name: string }[]
+}) {
   const router = useRouter()
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState('all')
@@ -40,6 +50,7 @@ export function ProductsBoard({ catalog, canEdit, canToggle }: { catalog: StaffC
   // Product create/edit form state (owner/manager)
   const [showForm, setShowForm] = useState(false)
   const [draft, setDraft] = useState<ProductDraft>(EMPTY_DRAFT)
+  const [createBranchId, setCreateBranchId] = useState(branches[0]?.id ?? '')
   const [saving, setSaving] = useState(false)
 
   // Category management state (owner/manager)
@@ -86,7 +97,12 @@ export function ProductsBoard({ catalog, canEdit, canToggle }: { catalog: StaffC
   function openCreate() {
     setError(null)
     setSuccess(null)
-    setDraft({ ...EMPTY_DRAFT, categoryId: catalog.categories[0]?.id ?? '' })
+    const initialBranchId = branches[0]?.id ?? ''
+    const initialCategory = initialBranchId
+      ? catalog.categories.find((item) => item.branchId === initialBranchId)
+      : catalog.categories[0]
+    setCreateBranchId(initialBranchId)
+    setDraft({ ...EMPTY_DRAFT, categoryId: initialCategory?.id ?? '' })
     setShowForm(true)
   }
 
@@ -115,6 +131,10 @@ export function ProductsBoard({ catalog, canEdit, canToggle }: { catalog: StaffC
       setError('اختر التصنيف')
       return
     }
+    if (!draft.id && branches.length > 0 && !createBranchId) {
+      setError('اختر الفرع')
+      return
+    }
     if (!draft.name.trim()) {
       setError('اسم المنتج مطلوب')
       return
@@ -130,6 +150,7 @@ export function ProductsBoard({ catalog, canEdit, canToggle }: { catalog: StaffC
         price: priceNum,
         categoryId: draft.categoryId,
         isAvailable: draft.isAvailable,
+        ...(isEdit ? {} : { branchId: createBranchId }),
       }
       const res = await fetch(isEdit ? `/api/staff/products/${draft.id}` : '/api/staff/products', {
         method: isEdit ? 'PATCH' : 'POST',
@@ -147,6 +168,10 @@ export function ProductsBoard({ catalog, canEdit, canToggle }: { catalog: StaffC
       setSaving(false)
     }
   }
+
+  const formCategories = draft.id || !createBranchId
+    ? catalog.categories
+    : catalog.categories.filter((item) => item.branchId === createBranchId)
 
   async function addCategory() {
     if (catBusy) return
@@ -226,6 +251,25 @@ export function ProductsBoard({ catalog, canEdit, canToggle }: { catalog: StaffC
                 placeholder="اسم المنتج" aria-label="اسم المنتج" maxLength={150}
               />
             </label>
+            {!draft.id && branches.length > 0 ? (
+              <label className="flex flex-col gap-1 text-sm">
+                <span className="text-muted-foreground">الفرع</span>
+                <select
+                  value={createBranchId}
+                  onChange={(e) => {
+                    const branchId = e.target.value
+                    const firstCategory = catalog.categories.find((item) => item.branchId === branchId)
+                    setCreateBranchId(branchId)
+                    setDraft((current) => ({ ...current, categoryId: firstCategory?.id ?? '' }))
+                  }}
+                  aria-label="فرع المنتج"
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
+                >
+                  <option value="">اختر الفرع…</option>
+                  {branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
+                </select>
+              </label>
+            ) : null}
             <label className="flex flex-col gap-1 text-sm">
               <span className="text-muted-foreground">السعر (ج.م)</span>
               <Input
@@ -242,7 +286,7 @@ export function ProductsBoard({ catalog, canEdit, canToggle }: { catalog: StaffC
                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
               >
                 <option value="" disabled>اختر التصنيف…</option>
-                {catalog.categories.map((c) => (
+                {formCategories.map((c) => (
                   <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
               </select>

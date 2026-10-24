@@ -9,6 +9,7 @@ import type { StaffSession } from '@/lib/session'
 
 export interface CatalogCategory {
   id: string
+  branchId: string
   name: string
   sortOrder: number | null
   productsCount: number
@@ -41,7 +42,7 @@ export async function getStaffCatalog(session: StaffSession): Promise<StaffCatal
       where: { ...branchScope, deletedAt: null },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
       select: {
-        id: true, name: true, sortOrder: true,
+        id: true, branchId: true, name: true, sortOrder: true,
         _count: { select: { products: { where: { deletedAt: null } } } },
       },
     }),
@@ -59,6 +60,7 @@ export async function getStaffCatalog(session: StaffSession): Promise<StaffCatal
   return {
     categories: categories.map((c) => ({
       id: c.id.toString(), name: c.name, sortOrder: c.sortOrder,
+      branchId: c.branchId.toString(),
       productsCount: c._count.products,
     })),
     products: products.map((p) => ({

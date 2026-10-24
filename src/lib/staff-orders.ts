@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
-import { ROLE, hasAtLeast, isOwner, requiresOperationalShift, type RoleSlug } from '@/lib/authz'
+import { ROLE, hasAtLeast, requiresOperationalShift, type RoleSlug } from '@/lib/authz'
 import { staffCanAccessBranch, type StaffSession } from '@/lib/session'
 import { notifyRole, type NotificationType } from '@/lib/notifications'
 import { getOpenShift, ShiftError } from '@/lib/staff-shifts'
@@ -194,7 +194,9 @@ export function itemPreparationState(item: { qty: number; preparedQty: number; p
  * serialization point used by the existing status and serving writers.
  */
 export async function prepareOrderItems(session: StaffSession, orderIdRaw: string, input: unknown) {
-  if (!(session.role === ROLE.KITCHEN || isOwner(session.role))) throw new OrderError('Forbidden', 403)
+  // Owners supervise kitchen activity but are not kitchen operators. Keeping
+  // this server-side prevents direct API calls from bypassing the read-only UI.
+  if (session.role !== ROLE.KITCHEN) throw new OrderError('Kitchen role required', 403)
   if (!/^\d+$/.test(orderIdRaw)) throw new OrderError('Order not found', 404)
   const parsed = prepareItemsSchema.safeParse(input)
   if (!parsed.success) throw new OrderError('Invalid item-preparation request', 400)
@@ -238,7 +240,7 @@ export async function prepareOrderItems(session: StaffSession, orderIdRaw: strin
 
 /** Replace lines on an unsent waiter order. Prices and totals are always re-derived on the server. */
 export async function editWaiterOrder(session: StaffSession, orderIdRaw: string, input: unknown) {
-  if (!hasAtLeast(session.role, ROLE.WAITER)) throw new OrderError('Forbidden', 403)
+  if (session.role !== ROLE.WAITER) throw new OrderError('Waiter role required', 403)
   if (!/^\d+$/.test(orderIdRaw)) throw new OrderError('Order not found', 404)
   const parsed = waiterOrderEditSchema.safeParse(input)
   if (!parsed.success) throw new OrderError('Invalid order edit', 400)
@@ -284,6 +286,8 @@ export async function transitionOrderStatus(
   toRaw: string,
   reasonRaw?: unknown,
 ) {
+  // Owners monitor waiter operations but never perform their state changes.
+  if (session.role === ROLE.OWNER) throw new OrderError('Owner waiter monitoring is read-only', 403)
   if (!/^\d+$/.test(orderId)) throw new OrderError('Order not found', 404)
   const parsed = toStatusSchema.safeParse(toRaw)
   if (!parsed.success) throw new OrderError('Invalid target status', 400)
@@ -382,7 +386,7 @@ export async function transitionOrderStatus(
  * The order reaches `served` only after every non-voided line is fully served.
  */
 export async function serveOrderItems(session: StaffSession, orderIdRaw: string, input: unknown) {
-  if (!hasAtLeast(session.role, ROLE.WAITER)) throw new OrderError('Forbidden', 403)
+  if (session.role !== ROLE.WAITER) throw new OrderError('Waiter role required', 403)
   if (!/^\d+$/.test(orderIdRaw)) throw new OrderError('Order not found', 404)
   const parsed = serveItemsSchema.safeParse(input)
   if (!parsed.success) throw new OrderError('Invalid item-serving request', 400)
@@ -436,7 +440,7 @@ export async function serveOrderItems(session: StaffSession, orderIdRaw: string,
  * kitchen board and the bell can never disagree.
  */
 export async function sendOrderToKitchen(session: StaffSession, orderId: string) {
-  if (!hasAtLeast(session.role, ROLE.WAITER)) throw new OrderError('Forbidden', 403)
+  if (session.role !== ROLE.WAITER) throw new OrderError('Waiter role required', 403)
   if (!/^\d+$/.test(orderId)) throw new OrderError('الطلب غير موجود', 404)
 
   const order = await prisma.order.findUnique({

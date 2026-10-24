@@ -60,7 +60,7 @@ export function AppShell({
       <Sidebar open={open} onClose={() => setOpen(false)} branchName={branchName} groups={groups} />
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar onMenu={() => setOpen((o) => !o)} user={user} />
-        <main className="flex-1 p-4 lg:p-6">{children}</main>
+        <main className="min-w-0 flex-1 p-3 sm:p-4 lg:p-6">{children}</main>
       </div>
     </div>
   );

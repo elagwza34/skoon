@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation'
 import { requirePageAccess } from '@/lib/require-page-access'
 import { getOpenShift } from '@/lib/staff-shifts'
-import { requiresOperationalShift } from '@/lib/authz'
+import { isOwner, requiresOperationalShift } from '@/lib/authz'
 import { listKitchenOrders } from '@/lib/staff-orders'
 import { KitchenBoard } from '@/components/kitchen/kitchen-board'
 
@@ -23,5 +23,5 @@ export default async function KitchenPage() {
   }
 
   const orders = await listKitchenOrders(session, 100);
-  return <KitchenBoard orders={orders} />;
+  return <KitchenBoard orders={orders} readOnly={isOwner(session.role)} />;
 }
