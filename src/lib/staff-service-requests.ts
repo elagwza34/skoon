@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client'
 import { z } from 'zod'
-import { ROLE } from '@/lib/authz'
+import { ROLE, requiresOperationalShift } from '@/lib/authz'
 import { prisma } from '@/lib/prisma'
 import type { StaffSession } from '@/lib/session'
 import { getOpenShift } from '@/lib/staff-shifts'
@@ -46,7 +46,7 @@ export async function listServiceRequests(session: StaffSession, input: unknown)
 export async function actOnServiceRequest(session: StaffSession, id: bigint, input: unknown) {
   const parsed = actionSchema.safeParse(input); if (!parsed.success) throw new ServiceRequestError('Invalid service-request action')
   if (session.role !== ROLE.WAITER && session.role !== ROLE.MANAGER && session.role !== ROLE.OWNER) throw new ServiceRequestError('Service supervision is not permitted', 403)
-  if (session.role !== ROLE.OWNER && (!session.branchId || !await getOpenShift(session.id, BigInt(session.branchId)))) throw new ServiceRequestError('An open shift is required', 409)
+  if (requiresOperationalShift(session.role) && (!session.branchId || !await getOpenShift(session.id, BigInt(session.branchId)))) throw new ServiceRequestError('An open shift is required', 409)
   try { return await prisma.$transaction(async (tx) => {
     const scope = session.role === ROLE.OWNER ? {} : { branchId: BigInt(session.branchId!) }
     const row = await tx.serviceRequest.findFirst({ where: { id, ...scope }, select: { id: true, branchId: true, status: true, claimedById: true } })

@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { requirePageAccess } from '@/lib/require-page-access'
 import { getOpenShift } from '@/lib/staff-shifts'
+import { requiresOperationalShift } from '@/lib/authz'
 import { getWaiterWorkspace } from '@/lib/staff-waiter'
 import { WaiterBoard } from '@/components/waiter/waiter-board'
 
@@ -18,7 +19,7 @@ export default async function WaiterPage() {
   const session = await requirePageAccess('/waiter')
 
   // Waiter must have an open shift before performing waiter duties.
-  if (session.branchId) {
+  if (requiresOperationalShift(session.role) && session.branchId) {
     const shift = await getOpenShift(session.id, BigInt(session.branchId))
     if (!shift) redirect('/shifts')
   }

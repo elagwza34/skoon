@@ -5,7 +5,7 @@ import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { getStaffSession } from '@/lib/session'
 import { homeForRole } from '@/lib/route-access'
-import { isOwner } from '@/lib/authz'
+import { requiresOperationalShift } from '@/lib/authz'
 import { getOpenShift } from '@/lib/staff-shifts'
 
 /**
@@ -59,8 +59,9 @@ export async function loginAction(
   if (!requested) {
     const session = await getStaffSession()
     if (!session) redirect('/dashboard')
-    // Owner bypasses shift requirements entirely.
-    if (!isOwner(session.role) && session.branchId) {
+    // Login is identity-only. Only operational roles are routed through the
+    // existing shift-opening workflow; it never writes attendance itself.
+    if (requiresOperationalShift(session.role) && session.branchId) {
       const shift = await getOpenShift(session.id, BigInt(session.branchId))
       if (!shift) redirect('/shifts')
     }

@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
-import { ROLE, hasAtLeast, isOwner } from '@/lib/authz'
+import { ROLE, hasAtLeast, isOwner, requiresOperationalShift } from '@/lib/authz'
 import { staffCanAccessBranch, type StaffSession } from '@/lib/session'
 
 /**
@@ -260,6 +260,9 @@ export async function openShift(session: StaffSession, input: unknown): Promise<
       orderBy: { occurredAt: 'asc' },
     })
     const opening = incoming ? Number(incoming.amount) : requestedOpening
+    // Shift.openedAt is the HR clock-in source of truth. It is created in this
+    // same transaction as the operational shift, making retries/concurrent
+    // opens unable to create a second attendance interval.
     const created = await tx.shift.create({
       data: {
         branchId,
@@ -349,10 +352,23 @@ export async function closeShift(
 
   const closed = await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('shift-close:' || ${shiftId.toString()}))`
+    // Lock the shift row before checking waiter ownership so an accepted
+    // responsibility handover and a close cannot race past each other.
+    await tx.$queryRaw`SELECT id FROM shifts WHERE id = ${shiftId} FOR UPDATE`
+    if (session.role === ROLE.WAITER) {
+      const outstandingResponsibilities = await tx.order.count({
+        where: { branchId: shift.branchId, responsibleWaiterId: session.id, status: { in: ['new', 'preparing', 'ready'] } },
+      })
+      if (outstandingResponsibilities > 0) {
+        throw new ShiftError('Transfer or resolve outstanding waiter responsibilities before closing the shift', 409)
+      }
+    }
     const closedAt = new Date()
     const routeToSafe = crossedLocalMidnight(shift.openedAt, closedAt, branch.timezone)
     if (!routeToSafe && !recipient && cashHandling) throw new ShiftError('اختر كاشيراً مستلماً قبل منتصف الليل', 422)
     // Guard inside the transaction: a concurrent close loses the race cleanly.
+    // Shift.closedAt is the paired HR clock-out. It is written atomically with
+    // reconciliation, never by login/logout/session expiry.
     const updated = await tx.shift.updateMany({
       where: { id: shiftId, status: 'open', cashierId: session.id },
       data: {
@@ -419,10 +435,10 @@ export async function closeShift(
 
 /**
  * Require an open shift for the acting employee on their branch. Returns the
- * shift or throws a 409 ShiftError. Owner is exempt (returns null).
+ * shift or throws a 409 ShiftError. Owner and Manager are exempt (return null).
  */
 export async function requireOpenShift(session: StaffSession): Promise<ShiftRow | null> {
-  if (isOwner(session.role)) return null
+  if (!requiresOperationalShift(session.role)) return null
   if (session.branchId === null) throw new ShiftError('غير مصرح — لا فرع مرتبط بالمستخدم', 403)
   const shift = await getOpenShift(session.id, BigInt(session.branchId))
   if (!shift) throw new ShiftError('لا توجد وردية مفتوحة لهذا الموظف — افتح وردية أولًا من صفحة الورديات (/shifts)', 409)

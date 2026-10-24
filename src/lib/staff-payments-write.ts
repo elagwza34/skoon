@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { createHash } from 'node:crypto'
 import { prisma } from '@/lib/prisma'
-import { ROLE, hasAtLeast } from '@/lib/authz'
+import { ROLE, hasAtLeast, requiresOperationalShift } from '@/lib/authz'
 import { staffCanAccessBranch, type StaffSession } from '@/lib/session'
 import { notifyRole } from '@/lib/notifications'
 import { getOpenShift } from '@/lib/staff-shifts'
@@ -98,9 +98,10 @@ export async function finalizeOrderPayment(
     if (prior) { if (prior.fingerprint !== collectionFingerprint) throw new PaymentError('Idempotency key was reused with a different request', 409); return prior.result as unknown as PaymentResult }
   }
 
-  // Till discipline: money may only be collected inside an open shift for the acting employee.
-  const openShift = await getOpenShift(session.id, order.branchId)
-  if (!openShift) {
+  // Operational staff collect only inside their shift. Manager/Owner retain
+  // their existing financial authority without being forced into a till shift.
+  const openShift = requiresOperationalShift(session.role) ? await getOpenShift(session.id, order.branchId) : null
+  if (requiresOperationalShift(session.role) && !openShift) {
     throw new PaymentError('لا توجد وردية مفتوحة لهذا الموظف — افتح وردية أولًا من صفحة الورديات (/shifts)', 409)
   }
   if (order.status === 'cancelled') throw new PaymentError('لا يمكن تحصيل طلب ملغي', 409)
@@ -131,7 +132,7 @@ export async function finalizeOrderPayment(
       data: {
         orderId: order.id,
         branchId: order.branchId,
-        shiftId: openShift.id,
+        shiftId: openShift?.id ?? null,
         method,
         amount: outstanding.toFixed(2),
         amountDue: outstanding.toFixed(2),
@@ -223,10 +224,10 @@ export async function refundOrderPayment(
     if (prior) { if (prior.fingerprint !== refundFingerprint) throw new PaymentError('Idempotency key was reused with a different request', 409); return prior.result as unknown as RefundResult }
   }
 
-  // Till discipline: a refund is a financial action tied to the acting
-  // employee's open shift. Cash-handling roles must have an open shift.
-  const openShift = await getOpenShift(session.id, order.branchId)
-  if (!openShift) {
+  // Required operational shifts remain enforced. Manager/Owner refunds stay
+  // auditable without inventing a shift that does not exist.
+  const openShift = requiresOperationalShift(session.role) ? await getOpenShift(session.id, order.branchId) : null
+  if (requiresOperationalShift(session.role) && !openShift) {
     throw new PaymentError('لا توجد وردية مفتوحة لهذا الموظف — افتح وردية أولًا من صفحة الورديات (/shifts)', 409)
   }
 
@@ -254,7 +255,7 @@ export async function refundOrderPayment(
         newValues: {
           refundedPayments: updated.count,
           reason: parsed.data.reason,
-          shiftId: openShift.id.toString(),
+          shiftId: openShift?.id.toString() ?? null,
         },
       },
     })

@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { prisma } from '@/lib/prisma'
-import { ROLE } from '@/lib/authz'
+import { ROLE, requiresOperationalShift } from '@/lib/authz'
 import { staffCanAccessBranch, type StaffSession } from '@/lib/session'
 import { PosError, posOrderSchema } from '@/lib/staff-pos'
 import { notifyRole } from '@/lib/notifications'
@@ -24,10 +24,10 @@ export async function createPosOrder(session: StaffSession, input: unknown, idem
   const key = idempotencyKey?.trim() || null
   if (key && (key.length < 8 || key.length > 100)) throw new PosError('Invalid idempotency key', 400)
 
-  // Till discipline: a POS order may only be created inside an open shift,
-  // so every order/payment of this branch belongs to a reconcilable session.
-  const openShift = await getOpenShift(session.id, branchId)
-  if (!openShift) {
+  // Operational roles need a reconcilable shift. Supervisors may act without
+  // one; their authorized order is deliberately not attributed to a till.
+  const openShift = requiresOperationalShift(session.role) ? await getOpenShift(session.id, branchId) : null
+  if (requiresOperationalShift(session.role) && !openShift) {
     throw new PosError('لا توجد وردية مفتوحة لهذا الموظف — افتح وردية أولًا من صفحة الورديات (/shifts)', 409)
   }
 
@@ -107,7 +107,10 @@ export async function createPosOrder(session: StaffSession, input: unknown, idem
         orderNumber, orderRef, orderType: 'dine_in', status: 'new', source: session.role === ROLE.WAITER ? 'waiter' : 'pos',
         customerName: parsed.data.customerName?.trim() || null,
         createdById: session.id,
-        shiftId: openShift.id,
+        // A waiter-created ticket is immediately their responsibility. The
+        // immutable creator remains separate for audit and historical reports.
+        responsibleWaiterId: session.role === ROLE.WAITER ? session.id : null,
+        shiftId: openShift?.id ?? null,
         itemsSubtotal: subtotal, discountAmount: '0', taxAmount: '0',
         total: subtotal, paymentStatus: 'unpaid',
         items: {
@@ -121,6 +124,11 @@ export async function createPosOrder(session: StaffSession, input: unknown, idem
       },
       select: { id: true, orderNumber: true, total: true },
     })
+    if (session.role === ROLE.WAITER) {
+      await tx.orderResponsibilityHistory.create({
+        data: { orderId: order.id, branchId, assignedToId: session.id, assignedById: session.id, source: 'manual_create', reason: 'Manual waiter order creation' },
+      })
+    }
     // Ring the branch's waiters — a new POS order needs their attention (or, if
     // the waiter placed it themselves, it still shows on their own board).
     await notifyRole(tx, ROLE.WAITER, branchId, {

@@ -24,7 +24,7 @@ const nextConfig: NextConfig = {
       },
       {
         protocol: "https",
-        hostname: "skoon.awexen.com",
+        hostname: "skooncafe.com",
         pathname: "/images/**",
       },
     ],

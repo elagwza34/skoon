@@ -21,6 +21,22 @@ export const ROLE = {
 export type RoleSlug = (typeof ROLE)[keyof typeof ROLE]
 
 /**
+ * Roles that must be inside an active operational shift before branch work.
+ * This is intentionally separate from authorization permissions: Owner and
+ * Manager may supervise authorized work without opening a workstation shift.
+ */
+export const OPERATIONAL_SHIFT_REQUIRED_ROLES = [
+  ROLE.CASHIER,
+  ROLE.WAITER,
+  ROLE.KITCHEN,
+] as const satisfies readonly RoleSlug[]
+
+/** Authoritative, type-safe operational-shift policy for server guards. */
+export function requiresOperationalShift(role: string): role is (typeof OPERATIONAL_SHIFT_REQUIRED_ROLES)[number] {
+  return (OPERATIONAL_SHIFT_REQUIRED_ROLES as readonly string[]).includes(role)
+}
+
+/**
  * Privilege rank (higher = more privileged). Used for "at least" checks.
  * Owner > Manager > Cashier > Waiter > Kitchen.
  */

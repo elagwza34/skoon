@@ -7,69 +7,30 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Icon } from '@/components/ui/icon'
 import { loginAction, type LoginState } from '@/app/login/actions'
-
-/** Browser-only key for the auto-fill credential store (cleartext JSON). */
-const CREDENTIAL_KEY = 'skoon/login-credentials'
+import { clearLegacyLoginCredentials } from '@/lib/auth/login-storage'
 
 /**
- * Staff login form — client component bound to the `loginAction` server action.
- * Shows a generic credential error (anti-enumeration) and an explanatory note
- * when bounced with `reason=unprovisioned` (signed in but no `public.users` row).
- *
- * @remarks
- * Auto-fill: on mount the form re-hydrates from `localStorage` under
- * `skoon/login-credentials` and each keystroke persists `{ email, password }`
- * back to the same key. Design intent: returning staff can log in without
- * retyping. Credentials are stored in cleartext in the browser (intentional —
- * the server-side auth layer remains the security boundary).
+ * Staff login form bound to the login server action. It deliberately leaves
+ * password storage to the browser or the user's password manager.
  */
 export function LoginForm({ next, reason }: { next?: string; reason?: string }) {
   const [state, formAction, pending] = useActionState<LoginState, FormData>(loginAction, {})
-
-  const [email, setEmail] = useState<string>('')
-  const [password, setPassword] = useState<string>('')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
 
   useEffect(() => {
     try {
-      const raw = window.localStorage.getItem(CREDENTIAL_KEY)
-      if (!raw) return
-      const parsed = JSON.parse(raw) as { email?: string; password?: string }
-      if (typeof parsed.email === 'string' && parsed.email) setEmail(parsed.email)
-      if (typeof parsed.password === 'string' && parsed.password) setPassword(parsed.password)
+      clearLegacyLoginCredentials(window.localStorage)
     } catch {
-      // Ignore malformed stored credentials; start with a clean form.
+      // Storage can be unavailable in private or restricted browsing modes.
     }
   }, [])
-
-  function persistCredentials() {
-    try {
-      window.localStorage.setItem(CREDENTIAL_KEY, JSON.stringify({ email, password }))
-    } catch {
-      // Storage full or unavailable — silent no-op.
-    }
-  }
-
-  function onEmailChange(e: React.ChangeEvent<HTMLInputElement>) {
-    setEmail(e.target.value)
-    persistCredentials()
-  }
-
-  function onPasswordChange(e: React.ChangeEvent<HTMLInputElement>) {
-    setPassword(e.target.value)
-    persistCredentials()
-  }
 
   return (
     <div className="flex min-h-dvh items-center justify-center bg-background p-4" dir="rtl">
       <Card className="w-full max-w-sm">
         <CardHeader className="items-center text-center">
-          <Image
-            src="/logo.png"
-            alt="شعار سكون"
-            width={72}
-            height={72}
-            className="mx-auto h-16 w-16 object-contain"
-          />
+          <Image src="/logo.png" alt="شعار سكون" width={72} height={72} className="mx-auto h-16 w-16 object-contain" />
           <CardTitle className="text-xl">سكون — دخول الفريق</CardTitle>
           <CardDescription>ادخل بحسابك للوصول للوحة التحكم</CardDescription>
         </CardHeader>
@@ -85,8 +46,9 @@ export function LoginForm({ next, reason }: { next?: string; reason?: string }) 
                 placeholder="you@skoon.app"
                 required
                 dir="ltr"
+                autoComplete="username"
                 value={email}
-                onChange={onEmailChange}
+                onChange={(event) => setEmail(event.target.value)}
               />
             </label>
 
@@ -98,21 +60,21 @@ export function LoginForm({ next, reason }: { next?: string; reason?: string }) 
                 placeholder="••••••••"
                 required
                 dir="ltr"
+                autoComplete="current-password"
                 value={password}
-                onChange={onPasswordChange}
+                onChange={(event) => setPassword(event.target.value)}
               />
             </label>
 
             {reason === 'unprovisioned' ? (
               <p className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
-                الحساب مسجّل الدخول بس لسه غير مفعّل في النظام — كلّم مدير النظام يفعّل حسابك.
+                الحساب مسجّل الدخول لكنه غير مفعّل في النظام — راجع مدير النظام لتفعيل حسابك.
               </p>
             ) : null}
 
             {reason === 'config' ? (
               <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-                إعدادات الموقع غير مكتملة على السيرفر (متغيّرات بيئة ناقصة). راجع
-                إعدادات البيئة ثم أعد المحاولة.
+                إعدادات الموقع غير مكتملة على الخادم. راجع إعدادات البيئة ثم أعد المحاولة.
               </p>
             ) : null}
 

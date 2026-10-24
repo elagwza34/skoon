@@ -13,6 +13,8 @@ import { Icon } from "@/components/ui/icon";
 import { getManagerOperations } from '@/lib/manager-operations'
 import { ManagerOperationsCenter } from '@/components/dashboard/manager-operations-center'
 import { ManagerServiceRequestPanel } from '@/components/dashboard/manager-service-request-panel'
+import { getWaiterOperationalReadiness } from '@/lib/staff-waiter-readiness'
+import { WaiterOperationalReadinessPanel } from '@/components/dashboard/waiter-operational-readiness-panel'
 
 /** Signed percent change between two numbers. */
 function pctDelta(now: number, before: number): { delta: string; dir: "up" | "down" } {
@@ -25,6 +27,7 @@ export default async function DashboardPage() {
 
   const stats = await getDashboardStats(session);
   const managerOperations = await getManagerOperations(session)
+  const waiterReadiness = await getWaiterOperationalReadiness(session)
 
   const salesDelta = pctDelta(stats.totalSalesToday, stats.totalSalesYesterday);
   const ordersDelta = pctDelta(stats.ordersToday, stats.ordersYesterday);
@@ -82,6 +85,7 @@ export default async function DashboardPage() {
 
       {managerOperations ? <ManagerOperationsCenter data={managerOperations} /> : null}
       {managerOperations ? <ManagerServiceRequestPanel metrics={managerOperations.serviceRequests} /> : null}
+      {waiterReadiness ? <WaiterOperationalReadinessPanel data={waiterReadiness} /> : null}
 
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="min-w-0 lg:col-span-2">

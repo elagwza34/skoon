@@ -11,6 +11,10 @@ export interface StaffTable {
   status: 'available' | 'occupied'
   publicToken: string
   openOrders: number
+  floorPlanZone: string | null
+  floorPlanX: number | null
+  floorPlanY: number | null
+  floorPlanRotation: number
 }
 
 export async function getStaffTables(session: StaffSession): Promise<StaffTable[]> {
@@ -21,7 +25,7 @@ export async function getStaffTables(session: StaffSession): Promise<StaffTable[
     prisma.cafeTable.findMany({
       where: { ...branchScope, isActive: true, deletedAt: null },
       orderBy: [{ sortOrder: 'asc' }, { number: 'asc' }],
-      select: { id: true, number: true, name: true, capacity: true, publicToken: true },
+      select: { id: true, number: true, name: true, capacity: true, publicToken: true, floorPlanZone: true, floorPlanX: true, floorPlanY: true, floorPlanRotation: true },
     }),
     prisma.order.groupBy({
       by: ['cafeTableId'],
@@ -36,6 +40,7 @@ export async function getStaffTables(session: StaffSession): Promise<StaffTable[
       id: t.id.toString(), number: t.number, name: t.name, capacity: t.capacity,
       status: open > 0 ? ('occupied' as const) : ('available' as const),
       publicToken: t.publicToken, openOrders: open,
+      floorPlanZone: t.floorPlanZone, floorPlanX: t.floorPlanX === null ? null : Number(t.floorPlanX), floorPlanY: t.floorPlanY === null ? null : Number(t.floorPlanY), floorPlanRotation: t.floorPlanRotation,
     }
   })
 }

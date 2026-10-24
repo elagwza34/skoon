@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
-import { ROLE, hasAtLeast, isOwner, type RoleSlug } from '@/lib/authz'
+import { ROLE, hasAtLeast, isOwner, requiresOperationalShift, type RoleSlug } from '@/lib/authz'
 import { staffCanAccessBranch, type StaffSession } from '@/lib/session'
 import { notifyRole, type NotificationType } from '@/lib/notifications'
 import { getOpenShift, ShiftError } from '@/lib/staff-shifts'
@@ -174,6 +174,7 @@ const waiterOrderEditSchema = z.object({
 })
 const serveItemsSchema = z.object({
   items: z.array(z.object({ orderItemId: z.string().regex(/^\d+$/), quantity: z.coerce.number().int().positive().max(99) })).min(1).max(30),
+  interventionReason: z.string().trim().min(3).max(255).optional(),
 })
 const prepareItemsSchema = z.object({
   mode: z.enum(['start', 'ready']),
@@ -200,7 +201,7 @@ export async function prepareOrderItems(session: StaffSession, orderIdRaw: strin
   const orderId = BigInt(orderIdRaw)
   const order = await prisma.order.findUnique({ where: { id: orderId }, select: { id: true, branchId: true, orderNumber: true } })
   if (!order || !staffCanAccessBranch(session, order.branchId)) throw new OrderError('Order not found', 404)
-  if (!isOwner(session.role) && !await getOpenShift(session.id, order.branchId)) throw new OrderError('An open shift is required', 409)
+  if (requiresOperationalShift(session.role) && !await getOpenShift(session.id, order.branchId)) throw new OrderError('An open shift is required', 409)
 
   return prisma.$transaction(async (tx) => {
     const locked = await tx.$queryRaw<{ status: string }[]>`SELECT status FROM orders WHERE id = ${orderId} FOR UPDATE`
@@ -242,10 +243,10 @@ export async function editWaiterOrder(session: StaffSession, orderIdRaw: string,
   const parsed = waiterOrderEditSchema.safeParse(input)
   if (!parsed.success) throw new OrderError('Invalid order edit', 400)
   const orderId = BigInt(orderIdRaw)
-  const order = await prisma.order.findUnique({ where: { id: orderId }, select: { id: true, branchId: true, createdById: true } })
+  const order = await prisma.order.findUnique({ where: { id: orderId }, select: { id: true, branchId: true, responsibleWaiterId: true } })
   if (!order || !staffCanAccessBranch(session, order.branchId)) throw new OrderError('Order not found', 404)
-  if (session.role === ROLE.WAITER && order.createdById !== session.id) throw new OrderError('Forbidden', 403)
-  if (!isOwner(session.role)) {
+  if (session.role === ROLE.WAITER && order.responsibleWaiterId !== session.id) throw new OrderError('Forbidden', 403)
+  if (requiresOperationalShift(session.role)) {
     if (session.branchId === null || !await getOpenShift(session.id, order.branchId)) throw new OrderError('An open shift is required', 409)
   }
 
@@ -293,13 +294,13 @@ export async function transitionOrderStatus(
 
   const order = await prisma.order.findUnique({
     where: { id: BigInt(orderId) },
-    select: { id: true, branchId: true, status: true, paymentStatus: true, orderNumber: true },
+    select: { id: true, branchId: true, status: true, paymentStatus: true, orderNumber: true, responsibleWaiterId: true },
   })
   if (!order) throw new OrderError('Order not found', 404)
   if (!staffCanAccessBranch(session, order.branchId)) throw new OrderError('Forbidden', 403)
 
   // The acting employee must have an open shift for their branch.
-  if (!isOwner(session.role)) {
+  if (requiresOperationalShift(session.role)) {
   if (session.branchId === null) throw new OrderError('غير مصرح — لا فرع مرتبط بالمستخدم', 403)
   const activeShift = await getOpenShift(session.id, BigInt(session.branchId))
   if (!activeShift) throw new OrderError('لا توجد وردية مفتوحة لهذا الموظف — افتح وردية أولًا من صفحة الورديات (/shifts)', 409)
@@ -309,6 +310,12 @@ export async function transitionOrderStatus(
   const minRole = TRANSITIONS[current]?.[to]
   if (!minRole) throw new OrderError(`لا يمكن نقل الطلب من "${current}" إلى "${to}"`, 409)
   if (!hasAtLeast(session.role, minRole)) throw new OrderError('Forbidden', 403)
+  // The legacy whole-order "served" endpoint may only be used by the
+  // responsible waiter. Cross-waiter service must use serveOrderItems with an
+  // explicit intervention reason, which preserves the emergency audit trail.
+  if (to === 'served' && session.role === ROLE.WAITER && order.responsibleWaiterId !== session.id) {
+    throw new OrderError('Emergency serving must use item serving with an intervention reason', 403)
+  }
   if (to === 'cancelled' && order.paymentStatus === 'paid') throw new OrderError('A paid order must be refunded through the payment correction flow', 409)
 
   await prisma.$transaction(async (tx) => {
@@ -380,13 +387,21 @@ export async function serveOrderItems(session: StaffSession, orderIdRaw: string,
   const parsed = serveItemsSchema.safeParse(input)
   if (!parsed.success) throw new OrderError('Invalid item-serving request', 400)
   const orderId = BigInt(orderIdRaw)
-  const order = await prisma.order.findUnique({ where: { id: orderId }, select: { id: true, branchId: true, status: true, orderNumber: true } })
+  const order = await prisma.order.findUnique({ where: { id: orderId }, select: { id: true, branchId: true, status: true, orderNumber: true, responsibleWaiterId: true } })
   if (!order || !staffCanAccessBranch(session, order.branchId)) throw new OrderError('Order not found', 404)
-  if (!isOwner(session.role) && !await getOpenShift(session.id, order.branchId)) throw new OrderError('An open shift is required', 409)
+  if (requiresOperationalShift(session.role) && !await getOpenShift(session.id, order.branchId)) throw new OrderError('An open shift is required', 409)
+  const emergency = session.role === ROLE.WAITER && order.responsibleWaiterId !== session.id
+  if (emergency && !parsed.data.interventionReason) throw new OrderError('Emergency serving requires an intervention reason', 400)
 
   return prisma.$transaction(async (tx) => {
     const locked = await tx.$queryRaw<{ status: string }[]>`SELECT status FROM orders WHERE id = ${orderId} FOR UPDATE`
     if (!['preparing', 'ready'].includes(locked[0]?.status ?? '')) throw new OrderError('Only prepared order items can be served', 409)
+    // Emergency service is a fall-back, not a way to bypass a responsible
+    // waiter who is currently on an operational shift.
+    if (emergency && order.responsibleWaiterId) {
+      const responsibleShift = await tx.shift.findFirst({ where: { cashierId: order.responsibleWaiterId, branchId: order.branchId, status: 'open' }, select: { id: true } })
+      if (responsibleShift) throw new OrderError('The responsible waiter is still available; use normal responsibility handover', 409)
+    }
     const requested = new Map<string, number>()
     for (const item of parsed.data.items) {
       if (requested.has(item.orderItemId)) throw new OrderError('An item may only be served once per request', 400)
@@ -406,7 +421,7 @@ export async function serveOrderItems(session: StaffSession, orderIdRaw: string,
       await tx.orderStatusHistory.create({ data: { orderId, fromStatus: locked[0].status, toStatus: 'served', changedById: session.id } })
       await emitStatusNotifications(tx, { to: 'served', orderId, branchId: order.branchId, orderNumber: order.orderNumber })
     }
-    await tx.auditLog.create({ data: { userId: session.id, branchId: order.branchId, action: 'order.items_served', entityType: 'order', entityId: orderId, newValues: { items: parsed.data.items, orderComplete: complete } } })
+    await tx.auditLog.create({ data: { userId: session.id, branchId: order.branchId, action: emergency ? 'order.items_emergency_served' : 'order.items_served', entityType: 'order', entityId: orderId, newValues: { items: parsed.data.items, orderComplete: complete, responsibleWaiterId: order.responsibleWaiterId, interventionReason: parsed.data.interventionReason ?? null, interventionAt: emergency ? new Date().toISOString() : null } } })
     return { id: orderId.toString(), served: parsed.data.items, orderComplete: complete, status: complete ? 'served' : 'ready' }
   })
 }
@@ -426,15 +441,17 @@ export async function sendOrderToKitchen(session: StaffSession, orderId: string)
 
   const order = await prisma.order.findUnique({
     where: { id: BigInt(orderId) },
-    select: { id: true, branchId: true, status: true, orderNumber: true, sentToKitchenAt: true },
+    select: { id: true, branchId: true, status: true, orderNumber: true, sentToKitchenAt: true, source: true, responsibleWaiterId: true, qrApprovedAt: true },
   })
   if (!order) throw new OrderError('الطلب غير موجود', 404)
   if (!staffCanAccessBranch(session, order.branchId)) throw new OrderError('غير مصرح', 403)
+  if (session.role === ROLE.WAITER && order.responsibleWaiterId !== session.id) throw new OrderError('Only the responsible waiter may dispatch this order', 403)
+  if (order.source === 'qr' && !order.qrApprovedAt) throw new OrderError('QR orders must be claimed and approved before dispatch', 409)
   if (order.status !== 'new') throw new OrderError('لا يمكن إرسال طلب ليس في حالة "جديد" للمطبخ', 409)
   if (order.sentToKitchenAt) throw new OrderError('تم إرسال الطلب للمطبخ مسبقاً', 409)
 
   // The waiter must have an open shift for their branch.
-  if (!isOwner(session.role)) {
+  if (requiresOperationalShift(session.role)) {
   if (session.branchId === null) throw new OrderError('غير مصرح — لا فرع مرتبط بالمستخدم', 403)
   const activeShift = await getOpenShift(session.id, BigInt(session.branchId))
   if (!activeShift) throw new OrderError('لا توجد وردية مفتوحة لهذا الويتر — افتح وردية أولًا من صفحة الورديات (/shifts)', 409)

@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
-import { ROLE, hasAtLeast } from '@/lib/authz'
+import { ROLE, hasAtLeast, requiresOperationalShift } from '@/lib/authz'
 import { staffCanAccessBranch, type StaffSession } from '@/lib/session'
 import { getOpenShift } from '@/lib/staff-shifts'
 
@@ -53,7 +53,7 @@ export async function editOpenInvoice(session: StaffSession, orderIdRaw: string,
   const orderId = BigInt(orderIdRaw)
   const order = await prisma.order.findUnique({ where: { id: orderId }, select: { branchId: true } })
   if (!order || !staffCanAccessBranch(session, order.branchId)) throw new InvoiceError('Invoice not found', 404)
-  if (!await getOpenShift(session.id, order.branchId)) throw new InvoiceError('An open shift is required', 409)
+  if (requiresOperationalShift(session.role) && !await getOpenShift(session.id, order.branchId)) throw new InvoiceError('An open shift is required', 409)
   return prisma.$transaction(async (tx) => {
     const orderRows = await tx.$queryRaw<{ total: unknown; status: string; discount_type: string | null; discount_value: unknown; tax_rate: unknown }[]>`SELECT total, status, discount_type, discount_value, tax_rate FROM orders WHERE id = ${orderId} FOR UPDATE`
     const locked = orderRows[0]

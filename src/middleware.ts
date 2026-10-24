@@ -1,6 +1,8 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { getPublicEnv } from '@/lib/env'
+import { normalizedRequestId } from '@/lib/request-correlation'
+import { isStaffApiPath, unauthenticatedStaffResponse } from '@/lib/api-auth-response'
 
 /**
  * Edge middleware — Supabase Auth session refresh + route protection.
@@ -37,6 +39,11 @@ function isPublicPath(pathname: string): boolean {
 }
 
 export async function middleware(request: NextRequest) {
+  const requestId = normalizedRequestId(request.headers.get('x-request-id')) ?? crypto.randomUUID()
+  const diagnostic = (category: string, status: number) => {
+    // Deliberately excludes cookies, tokens, user IDs, and query values.
+    console.warn(JSON.stringify({ event: 'auth_denial', requestId, route: request.nextUrl.pathname, method: request.method, status, category }))
+  }
   // Create a response we can attach refreshed session cookies to.
   let response = NextResponse.next({ request })
 
@@ -63,10 +70,10 @@ export async function middleware(request: NextRequest) {
         },
       },
     })
-  } catch (err) {
+  } catch {
     configBroken = true
     // Names/messages only — getPublicEnv() never includes secret values.
-    console.error('[skoon] middleware public env invalid:', (err as Error).message)
+    diagnostic('INTERNAL_AUTH_ERROR', 500)
   }
 
   let user: { id: string } | null = null
@@ -75,13 +82,20 @@ export async function middleware(request: NextRequest) {
     try {
       const { data } = await supabase.auth.getUser()
       user = data.user
-    } catch (err) {
-      console.error('[skoon] middleware auth.getUser failed:', (err as Error).message)
+    } catch {
+      diagnostic('SESSION_INVALID', 401)
       user = null
     }
   }
 
   if (!user && !publicPath) {
+    if (isStaffApiPath(pathname)) {
+      diagnostic(configBroken ? 'INTERNAL_AUTH_ERROR' : 'AUTH_REQUIRED', 401)
+      const apiResponse = unauthenticatedStaffResponse()
+      response.cookies.getAll().forEach((cookie) => apiResponse.cookies.set(cookie))
+      apiResponse.headers.set('x-request-id', requestId)
+      return apiResponse
+    }
     // Unauthenticated on a staff path → bounce to login, preserving the target.
     const loginUrl = request.nextUrl.clone()
     loginUrl.pathname = '/login'
@@ -91,7 +105,10 @@ export async function middleware(request: NextRequest) {
     // Surface *why* when it is a missing/invalid env configuration, so the
     // login page can explain it instead of silently failing.
     if (configBroken) loginUrl.searchParams.set('reason', 'config')
-    return NextResponse.redirect(loginUrl)
+    diagnostic(configBroken ? 'INTERNAL_AUTH_ERROR' : 'AUTH_REQUIRED', 401)
+    const redirectResponse = NextResponse.redirect(loginUrl)
+    redirectResponse.headers.set('x-request-id', requestId)
+    return redirectResponse
   }
 
   if (user && pathname === '/login' && !request.nextUrl.searchParams.has('reason')) {
@@ -100,7 +117,9 @@ export async function middleware(request: NextRequest) {
     const dashUrl = request.nextUrl.clone()
     dashUrl.pathname = '/dashboard'
     dashUrl.search = ''
-    return NextResponse.redirect(dashUrl)
+    const redirectResponse = NextResponse.redirect(dashUrl)
+    redirectResponse.headers.set('x-request-id', requestId)
+    return redirectResponse
   }
 
   // Expose the resolved pathname to server components (e.g. the (app) layout's
@@ -111,9 +130,12 @@ export async function middleware(request: NextRequest) {
   // visible to server components.
   const requestHeaders = new Headers(request.headers)
   requestHeaders.set('x-pathname', pathname)
+  // Correlation only; handlers may log it but must never treat it as identity.
+  requestHeaders.set('x-request-id', requestId)
   const responseWithPath = NextResponse.next({ request: { headers: requestHeaders } })
   // Preserve any refreshed auth cookies that were set on `response` above.
   response.cookies.getAll().forEach((c) => responseWithPath.cookies.set(c))
+  responseWithPath.headers.set('x-request-id', requestId)
   return responseWithPath
 }
 

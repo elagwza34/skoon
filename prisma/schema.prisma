@@ -33,33 +33,38 @@ model CafeBranch {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  users                  User[]
-  cafeTables             CafeTable[]
-  categories             Category[]
-  products               Product[]
-  orders                 Order[]
-  payments               Payment[]
-  discounts              Discount[]
-  inventoryItems         InventoryItem[]
-  inventoryTransactions  InventoryTransaction[]
-  inventoryBatches       InventoryBatch[]
-  inventoryReservations  InventoryReservation[]
-  wasteEvents            WasteEvent[]
-  employeeAccountability EmployeeAccountability[]
-  stockCounts            StockCount[]
-  wasteOperations        WasteOperation[]
-  auditLogs              AuditLog[]
-  shifts                 Shift[]
-  financialMovements     FinancialMovement[]
-  financialOperations    FinancialOperation[]
-  employeeProfiles       EmployeeProfile[]
-  employeeContracts      EmploymentContract[]
-  compensationRates      CompensationRate[]
-  workSchedules          WorkSchedule[]
-  attendanceCorrections  AttendanceCorrection[]
-  leaveRequests          LeaveRequest[]
-  officialHolidays       OfficialHoliday[]
-  serviceRequests        ServiceRequest[]
+  users                       User[]
+  cafeTables                  CafeTable[]
+  categories                  Category[]
+  products                    Product[]
+  orders                      Order[]
+  payments                    Payment[]
+  discounts                   Discount[]
+  inventoryItems              InventoryItem[]
+  inventoryTransactions       InventoryTransaction[]
+  inventoryBatches            InventoryBatch[]
+  inventoryReservations       InventoryReservation[]
+  wasteEvents                 WasteEvent[]
+  employeeAccountability      EmployeeAccountability[]
+  stockCounts                 StockCount[]
+  wasteOperations             WasteOperation[]
+  auditLogs                   AuditLog[]
+  shifts                      Shift[]
+  financialMovements          FinancialMovement[]
+  financialOperations         FinancialOperation[]
+  employeeProfiles            EmployeeProfile[]
+  employeeContracts           EmploymentContract[]
+  orderResponsibilityHistory  OrderResponsibilityHistory[]
+  orderTableTransfers         OrderTableTransfer[]
+  waiterShiftHandovers        WaiterShiftHandover[]
+  compensationRates           CompensationRate[]
+  workSchedules               WorkSchedule[]
+  attendanceCorrections       AttendanceCorrection[]
+  leaveRequests               LeaveRequest[]
+  officialHolidays            OfficialHoliday[]
+  serviceRequests             ServiceRequest[]
+  waiterReconciliationReviews WaiterOrderReconciliationReview[]
+  waiterReconciliationAudits  WaiterOrderReconciliationAudit[]
 
   @@index([isActive])
   @@map("branches")
@@ -133,42 +138,53 @@ model User {
   // REMOVED (Supabase Auth owns credentials): passwordHash, failedLoginCount,
   // lockedUntil, mustChangePassword.
 
-  role                      Role                     @relation(fields: [roleId], references: [id])
-  branch                    CafeBranch?              @relation(fields: [branchId], references: [id], onDelete: SetNull)
-  createdOrders             Order[]                  @relation("orderCreatedBy")
-  statusChanges             OrderStatusHistory[]     @relation("statusChangedBy")
-  payments                  Payment[]                @relation("paymentPaidBy")
-  createdDiscounts          Discount[]               @relation("discountCreatedBy")
-  inventoryTransactions     InventoryTransaction[]   @relation("txnCreatedBy")
-  preparationStartedItems   OrderItem[]              @relation("itemPreparationStartedBy")
-  responsibleWasteEvents    WasteEvent[]             @relation("wasteResponsible")
-  recordedWasteEvents       WasteEvent[]             @relation("wasteRecordedBy")
-  accountabilityRecords     EmployeeAccountability[] @relation("accountabilityEmployee")
-  reviewedAccountability    EmployeeAccountability[] @relation("accountabilityReviewer")
-  accountabilityWaivers     AccountabilityWaiver[]   @relation("waiverManager")
-  responsibleStockCounts    StockCount[]             @relation("stockCountResponsible")
-  postedStockCounts         StockCount[]             @relation("stockCountPostedBy")
-  auditLogs                 AuditLog[]
-  updatedSettings           AppSetting[]             @relation("settingUpdatedBy")
-  cashierShifts             Shift[]                  @relation("shiftCashier")
-  financialMovements        FinancialMovement[]      @relation("movementActor")
-  receivedMovements         FinancialMovement[]      @relation("movementRecipient")
+  role                                Role                              @relation(fields: [roleId], references: [id])
+  branch                              CafeBranch?                       @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  createdOrders                       Order[]                           @relation("orderCreatedBy")
+  qrDecidedOrders                     Order[]                           @relation("orderQrDecisionBy")
+  statusChanges                       OrderStatusHistory[]              @relation("statusChangedBy")
+  payments                            Payment[]                         @relation("paymentPaidBy")
+  createdDiscounts                    Discount[]                        @relation("discountCreatedBy")
+  inventoryTransactions               InventoryTransaction[]            @relation("txnCreatedBy")
+  preparationStartedItems             OrderItem[]                       @relation("itemPreparationStartedBy")
+  responsibleWasteEvents              WasteEvent[]                      @relation("wasteResponsible")
+  recordedWasteEvents                 WasteEvent[]                      @relation("wasteRecordedBy")
+  accountabilityRecords               EmployeeAccountability[]          @relation("accountabilityEmployee")
+  reviewedAccountability              EmployeeAccountability[]          @relation("accountabilityReviewer")
+  accountabilityWaivers               AccountabilityWaiver[]            @relation("waiverManager")
+  responsibleStockCounts              StockCount[]                      @relation("stockCountResponsible")
+  postedStockCounts                   StockCount[]                      @relation("stockCountPostedBy")
+  auditLogs                           AuditLog[]
+  updatedSettings                     AppSetting[]                      @relation("settingUpdatedBy")
+  cashierShifts                       Shift[]                           @relation("shiftCashier")
+  financialMovements                  FinancialMovement[]               @relation("movementActor")
+  receivedMovements                   FinancialMovement[]               @relation("movementRecipient")
   // Notifications sent to this user (order status transitions, payments).
-  notifications             Notification[]
-  employeeProfile           EmployeeProfile?         @relation("employeeProfileUser")
-  archivedEmployeeProfiles  EmployeeProfile[]        @relation("employeeProfileArchivedBy")
-  uploadedEmployeeContracts EmploymentContract[]     @relation("employeeContractUploadedBy")
-  compensationSetBy         CompensationRate[]       @relation("compensationSetBy")
-  scheduledWork             WorkSchedule[]           @relation("workScheduleEmployee")
-  createdWorkSchedules      WorkSchedule[]           @relation("workScheduleCreatedBy")
-  attendanceCorrections     AttendanceCorrection[]   @relation("attendanceCorrectionEmployee")
-  proposedCorrections       AttendanceCorrection[]   @relation("attendanceCorrectionProposedBy")
-  approvedCorrections       AttendanceCorrection[]   @relation("attendanceCorrectionApprovedBy")
-  leaveRequests             LeaveRequest[]           @relation("leaveEmployee")
-  reviewedLeaveRequests     LeaveRequest[]           @relation("leaveReviewedBy")
-  createdOfficialHolidays   OfficialHoliday[]         @relation("holidayCreatedBy")
-  claimedServiceRequests    ServiceRequest[]          @relation("serviceRequestClaimedBy")
-  resolvedServiceRequests   ServiceRequest[]          @relation("serviceRequestResolvedBy")
+  notifications                       Notification[]
+  employeeProfile                     EmployeeProfile?                  @relation("employeeProfileUser")
+  archivedEmployeeProfiles            EmployeeProfile[]                 @relation("employeeProfileArchivedBy")
+  uploadedEmployeeContracts           EmploymentContract[]              @relation("employeeContractUploadedBy")
+  compensationSetBy                   CompensationRate[]                @relation("compensationSetBy")
+  scheduledWork                       WorkSchedule[]                    @relation("workScheduleEmployee")
+  createdWorkSchedules                WorkSchedule[]                    @relation("workScheduleCreatedBy")
+  attendanceCorrections               AttendanceCorrection[]            @relation("attendanceCorrectionEmployee")
+  proposedCorrections                 AttendanceCorrection[]            @relation("attendanceCorrectionProposedBy")
+  approvedCorrections                 AttendanceCorrection[]            @relation("attendanceCorrectionApprovedBy")
+  leaveRequests                       LeaveRequest[]                    @relation("leaveEmployee")
+  reviewedLeaveRequests               LeaveRequest[]                    @relation("leaveReviewedBy")
+  createdOfficialHolidays             OfficialHoliday[]                 @relation("holidayCreatedBy")
+  claimedServiceRequests              ServiceRequest[]                  @relation("serviceRequestClaimedBy")
+  resolvedServiceRequests             ServiceRequest[]                  @relation("serviceRequestResolvedBy")
+  responsibleOrders                   Order[]                           @relation("orderResponsibleWaiter")
+  responsibilityAssigned              OrderResponsibilityHistory[]      @relation("orderResponsibilityAssignedBy")
+  responsibilityReceived              OrderResponsibilityHistory[]      @relation("orderResponsibilityAssignedTo")
+  requestedWaiterHandovers            WaiterShiftHandover[]             @relation("waiterHandoverRequestedBy")
+  receivedWaiterHandovers             WaiterShiftHandover[]             @relation("waiterHandoverRecipient")
+  tableTransfersMade                  OrderTableTransfer[]
+  waiterReconciliationReviewsAuthored WaiterOrderReconciliationReview[] @relation("waiterReconciliationReviewer")
+  waiterReconciliationReviewsApproved WaiterOrderReconciliationReview[] @relation("waiterReconciliationApprover")
+  waiterReconciliationWaiters         WaiterOrderReconciliationReview[] @relation("waiterReconciliationProposedWaiter")
+  waiterReconciliationAuditEvents     WaiterOrderReconciliationAudit[]  @relation("waiterReconciliationAuditActor")
 
   @@index([roleId])
   @@index([branchId, isActive])
@@ -271,57 +287,60 @@ model CompensationRate {
 // Schedule revisions are effective dated; actual attendance continues to come
 // exclusively from Shift timestamps rather than a second clock system.
 model WorkSchedule {
-  id             BigInt   @id @default(autoincrement())
-  employeeId     String   @map("employee_id") @db.Uuid
-  branchId       BigInt   @map("branch_id")
-  effectiveFrom  DateTime @map("effective_from") @db.Date
+  id             BigInt    @id @default(autoincrement())
+  employeeId     String    @map("employee_id") @db.Uuid
+  branchId       BigInt    @map("branch_id")
+  effectiveFrom  DateTime  @map("effective_from") @db.Date
   effectiveUntil DateTime? @map("effective_until") @db.Date
-  timezone       String   @default("Africa/Cairo") @db.VarChar(50)
-  graceMinutes   Int      @default(0) @map("grace_minutes")
-  status         String   @default("active") @db.VarChar(20)
-  createdById    String   @map("created_by") @db.Uuid
-  createdAt      DateTime @default(now()) @map("created_at")
+  timezone       String    @default("Africa/Cairo") @db.VarChar(50)
+  graceMinutes   Int       @default(0) @map("grace_minutes")
+  status         String    @default("active") @db.VarChar(20)
+  createdById    String    @map("created_by") @db.Uuid
+  createdAt      DateTime  @default(now()) @map("created_at")
 
-  employee User @relation("workScheduleEmployee", fields: [employeeId], references: [id], onDelete: Restrict)
-  branch CafeBranch @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  createdBy User @relation("workScheduleCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
-  days WorkScheduleDay[]
+  employee  User              @relation("workScheduleEmployee", fields: [employeeId], references: [id], onDelete: Restrict)
+  branch    CafeBranch        @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  createdBy User              @relation("workScheduleCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  days      WorkScheduleDay[]
+
   @@index([employeeId, effectiveFrom])
   @@index([branchId, status])
   @@map("work_schedules")
 }
 
 model WorkScheduleDay {
-  id         BigInt @id @default(autoincrement())
-  scheduleId BigInt @map("schedule_id")
-  weekday    Int    @db.SmallInt
-  restDay    Boolean @default(false) @map("rest_day")
-  startsAt   String? @map("starts_at") @db.VarChar(5)
-  endsAt     String? @map("ends_at") @db.VarChar(5)
+  id         BigInt       @id @default(autoincrement())
+  scheduleId BigInt       @map("schedule_id")
+  weekday    Int          @db.SmallInt
+  restDay    Boolean      @default(false) @map("rest_day")
+  startsAt   String?      @map("starts_at") @db.VarChar(5)
+  endsAt     String?      @map("ends_at") @db.VarChar(5)
   schedule   WorkSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+
   @@unique([scheduleId, weekday])
   @@map("work_schedule_days")
 }
 
 model AttendanceCorrection {
-  id              BigInt @id @default(autoincrement())
-  branchId        BigInt @map("branch_id")
-  employeeId      String @map("employee_id") @db.Uuid
-  shiftId         BigInt? @map("shift_id")
-  proposedById    String @map("proposed_by") @db.Uuid
-  approvedById    String? @map("approved_by") @db.Uuid
-  status          String @default("pending") @db.VarChar(20)
-  reason          String @db.VarChar(500)
+  id               BigInt    @id @default(autoincrement())
+  branchId         BigInt    @map("branch_id")
+  employeeId       String    @map("employee_id") @db.Uuid
+  shiftId          BigInt?   @map("shift_id")
+  proposedById     String    @map("proposed_by") @db.Uuid
+  approvedById     String?   @map("approved_by") @db.Uuid
+  status           String    @default("pending") @db.VarChar(20)
+  reason           String    @db.VarChar(500)
   proposedOpenedAt DateTime? @map("proposed_opened_at")
   proposedClosedAt DateTime? @map("proposed_closed_at")
-  createdAt       DateTime @default(now()) @map("created_at")
-  decidedAt       DateTime? @map("decided_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  decidedAt        DateTime? @map("decided_at")
 
-  branch CafeBranch @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  employee User @relation("attendanceCorrectionEmployee", fields: [employeeId], references: [id], onDelete: Restrict)
-  shift Shift? @relation(fields: [shiftId], references: [id], onDelete: Restrict)
-  proposedBy User @relation("attendanceCorrectionProposedBy", fields: [proposedById], references: [id], onDelete: Restrict)
-  approvedBy User? @relation("attendanceCorrectionApprovedBy", fields: [approvedById], references: [id], onDelete: Restrict)
+  branch     CafeBranch @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  employee   User       @relation("attendanceCorrectionEmployee", fields: [employeeId], references: [id], onDelete: Restrict)
+  shift      Shift?     @relation(fields: [shiftId], references: [id], onDelete: Restrict)
+  proposedBy User       @relation("attendanceCorrectionProposedBy", fields: [proposedById], references: [id], onDelete: Restrict)
+  approvedBy User?      @relation("attendanceCorrectionApprovedBy", fields: [approvedById], references: [id], onDelete: Restrict)
+
   @@index([employeeId, status, createdAt])
   @@index([branchId, status])
   @@map("attendance_corrections")
@@ -399,25 +418,32 @@ model ServiceRequest {
 }
 
 model CafeTable {
-  id          BigInt    @id @default(autoincrement())
-  branchId    BigInt    @map("branch_id")
-  number      String    @db.VarChar(20)
-  name        String?   @db.VarChar(50)
-  capacity    Int       @default(4) @db.SmallInt
-  publicToken String    @unique @map("public_token") @db.Char(16)
-  qrImagePath String?   @map("qr_image_path") @db.VarChar(255)
-  isActive    Boolean   @default(true) @map("is_active")
-  sortOrder   Int       @default(0) @map("sort_order")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
-  deletedAt   DateTime? @map("deleted_at")
+  id                BigInt    @id @default(autoincrement())
+  branchId          BigInt    @map("branch_id")
+  number            String    @db.VarChar(20)
+  name              String?   @db.VarChar(50)
+  capacity          Int       @default(4) @db.SmallInt
+  publicToken       String    @unique @map("public_token") @db.Char(16)
+  qrImagePath       String?   @map("qr_image_path") @db.VarChar(255)
+  isActive          Boolean   @default(true) @map("is_active")
+  sortOrder         Int       @default(0) @map("sort_order")
+  floorPlanZone     String?   @map("floor_plan_zone") @db.VarChar(80)
+  floorPlanX        Decimal?  @map("floor_plan_x") @db.Decimal(7, 2)
+  floorPlanY        Decimal?  @map("floor_plan_y") @db.Decimal(7, 2)
+  floorPlanRotation Int       @default(0) @map("floor_plan_rotation") @db.SmallInt
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  deletedAt         DateTime? @map("deleted_at")
 
-  branch CafeBranch @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  orders Order[]
+  branch          CafeBranch           @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  orders          Order[]
   serviceRequests ServiceRequest[]
+  transferredFrom OrderTableTransfer[] @relation("orderTransferFromTable")
+  transferredTo   OrderTableTransfer[] @relation("orderTransferToTable")
 
   @@unique([branchId, number])
   @@index([branchId, isActive])
+  @@index([branchId, floorPlanZone])
   @@map("cafe_tables")
 }
 
@@ -553,50 +579,62 @@ model ProductAddon {
 // ============================ ORDERS ============================
 
 model Order {
-  id              BigInt    @id @default(autoincrement())
-  branchId        BigInt    @map("branch_id")
-  cafeTableId     BigInt    @map("cafe_table_id")
-  orderNumber     String    @unique @map("order_number") @db.VarChar(20)
-  orderRef        String    @unique @map("order_ref") @db.Char(24)
-  status          String    @default("NEW") @db.VarChar(20)
-  paymentStatus   String    @default("UNPAID") @map("payment_status") @db.VarChar(20)
-  orderType       String    @default("DINE_IN") @map("order_type") @db.VarChar(20)
-  customerName    String?   @map("customer_name") @db.VarChar(100)
-  customerPhone   String?   @map("customer_phone") @db.VarChar(20)
-  notes           String?   @db.Text
-  itemsSubtotal   Decimal   @map("items_subtotal") @db.Decimal(10, 2)
-  discountType    String?   @map("discount_type") @db.VarChar(20)
-  discountValue   Decimal   @default(0) @map("discount_value") @db.Decimal(10, 2)
-  discountAmount  Decimal   @default(0) @map("discount_amount") @db.Decimal(10, 2)
-  taxRate         Decimal   @default(0) @map("tax_rate") @db.Decimal(5, 2)
-  taxAmount       Decimal   @default(0) @map("tax_amount") @db.Decimal(10, 2)
-  total           Decimal   @db.Decimal(10, 2)
-  source          String    @db.VarChar(20)
-  isArchived      Boolean   @default(false) @map("is_archived")
-  acceptedAt      DateTime? @map("accepted_at")
-  readyAt         DateTime? @map("ready_at")
-  servedAt        DateTime? @map("served_at")
+  id                  BigInt    @id @default(autoincrement())
+  branchId            BigInt    @map("branch_id")
+  cafeTableId         BigInt    @map("cafe_table_id")
+  orderNumber         String    @unique @map("order_number") @db.VarChar(20)
+  orderRef            String    @unique @map("order_ref") @db.Char(24)
+  status              String    @default("NEW") @db.VarChar(20)
+  paymentStatus       String    @default("UNPAID") @map("payment_status") @db.VarChar(20)
+  orderType           String    @default("DINE_IN") @map("order_type") @db.VarChar(20)
+  customerName        String?   @map("customer_name") @db.VarChar(100)
+  customerPhone       String?   @map("customer_phone") @db.VarChar(20)
+  notes               String?   @db.Text
+  itemsSubtotal       Decimal   @map("items_subtotal") @db.Decimal(10, 2)
+  discountType        String?   @map("discount_type") @db.VarChar(20)
+  discountValue       Decimal   @default(0) @map("discount_value") @db.Decimal(10, 2)
+  discountAmount      Decimal   @default(0) @map("discount_amount") @db.Decimal(10, 2)
+  taxRate             Decimal   @default(0) @map("tax_rate") @db.Decimal(5, 2)
+  taxAmount           Decimal   @default(0) @map("tax_amount") @db.Decimal(10, 2)
+  total               Decimal   @db.Decimal(10, 2)
+  source              String    @db.VarChar(20)
+  isArchived          Boolean   @default(false) @map("is_archived")
+  acceptedAt          DateTime? @map("accepted_at")
+  readyAt             DateTime? @map("ready_at")
+  servedAt            DateTime? @map("served_at")
   // Set by the waiter when they push the order to the kitchen ("إرسال للمطبخ").
   // Null until sent — the kitchen board only shows orders the waiter dispatched.
-  sentToKitchenAt DateTime? @map("sent_to_kitchen_at")
-  completedAt     DateTime? @map("completed_at")
-  cancelledAt     DateTime? @map("cancelled_at")
-  cancelReason    String?   @map("cancel_reason") @db.VarChar(255)
-  createdById     String?   @map("created_by") @db.Uuid
-  shiftId         BigInt?   @map("shift_id")
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
+  sentToKitchenAt     DateTime? @map("sent_to_kitchen_at")
+  completedAt         DateTime? @map("completed_at")
+  cancelledAt         DateTime? @map("cancelled_at")
+  cancelReason        String?   @map("cancel_reason") @db.VarChar(255)
+  createdById         String?   @map("created_by") @db.Uuid
+  // Current operational owner. Original creation remains immutable in createdById.
+  responsibleWaiterId String?   @map("responsible_waiter_id") @db.Uuid
+  qrClaimedAt         DateTime? @map("qr_claimed_at")
+  qrApprovedAt        DateTime? @map("qr_approved_at")
+  qrRejectedAt        DateTime? @map("qr_rejected_at")
+  qrDecisionById      String?   @map("qr_decision_by") @db.Uuid
+  shiftId             BigInt?   @map("shift_id")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
 
-  branch        CafeBranch           @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  cafeTable     CafeTable            @relation(fields: [cafeTableId], references: [id], onDelete: Restrict)
-  createdBy     User?                @relation("orderCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  shift         Shift?               @relation("orderShift", fields: [shiftId], references: [id], onDelete: SetNull)
-  items         OrderItem[]
-  payments      Payment[]
-  serviceRequests ServiceRequest[]
-  statusHistory OrderStatusHistory[]
-  redemptions   DiscountRedemption[]
-  notifications Notification[]
+  branch                          CafeBranch                        @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  cafeTable                       CafeTable                         @relation(fields: [cafeTableId], references: [id], onDelete: Restrict)
+  createdBy                       User?                             @relation("orderCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  responsibleWaiter               User?                             @relation("orderResponsibleWaiter", fields: [responsibleWaiterId], references: [id], onDelete: SetNull)
+  qrDecisionBy                    User?                             @relation("orderQrDecisionBy", fields: [qrDecisionById], references: [id], onDelete: SetNull)
+  shift                           Shift?                            @relation("orderShift", fields: [shiftId], references: [id], onDelete: SetNull)
+  items                           OrderItem[]
+  payments                        Payment[]
+  serviceRequests                 ServiceRequest[]
+  statusHistory                   OrderStatusHistory[]
+  redemptions                     DiscountRedemption[]
+  notifications                   Notification[]
+  responsibilityHistory           OrderResponsibilityHistory[]
+  tableTransfers                  OrderTableTransfer[]
+  waiterReconciliationReviews     WaiterOrderReconciliationReview[]
+  waiterReconciliationAuditEvents WaiterOrderReconciliationAudit[]
 
   @@index([branchId, status])
   @@index([cafeTableId, status])
@@ -604,7 +642,135 @@ model Order {
   @@index([status])
   @@index([paymentStatus])
   @@index([shiftId])
+  @@index([branchId, responsibleWaiterId, status])
   @@map("orders")
+}
+
+/// Immutable assignment ledger. Order.responsibleWaiterId is only the current
+/// operational projection; this history preserves every claim and handover.
+model OrderResponsibilityHistory {
+  id           BigInt   @id @default(autoincrement())
+  orderId      BigInt   @map("order_id")
+  branchId     BigInt   @map("branch_id")
+  assignedToId String?  @map("assigned_to") @db.Uuid
+  assignedById String   @map("assigned_by") @db.Uuid
+  reason       String   @db.VarChar(255)
+  source       String   @db.VarChar(30)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  order      Order      @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  branch     CafeBranch @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  assignedTo User?      @relation("orderResponsibilityAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
+  assignedBy User       @relation("orderResponsibilityAssignedBy", fields: [assignedById], references: [id], onDelete: Restrict)
+
+  @@index([orderId, createdAt])
+  @@index([branchId, assignedToId, createdAt])
+  @@map("order_responsibility_history")
+}
+
+/// An audited move between two existing tables. This does not implement table
+/// merging, and rows are never edited after creation.
+model OrderTableTransfer {
+  id              BigInt   @id @default(autoincrement())
+  orderId         BigInt   @map("order_id")
+  branchId        BigInt   @map("branch_id")
+  fromTableId     BigInt   @map("from_table_id")
+  toTableId       BigInt   @map("to_table_id")
+  transferredById String   @map("transferred_by") @db.Uuid
+  reason          String   @db.VarChar(255)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  order         Order      @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  branch        CafeBranch @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  fromTable     CafeTable  @relation("orderTransferFromTable", fields: [fromTableId], references: [id], onDelete: Restrict)
+  toTable       CafeTable  @relation("orderTransferToTable", fields: [toTableId], references: [id], onDelete: Restrict)
+  transferredBy User       @relation(fields: [transferredById], references: [id], onDelete: Restrict)
+
+  @@index([orderId, createdAt])
+  @@index([branchId, toTableId, createdAt])
+  @@map("order_table_transfers")
+}
+
+/// A responsibility handover must be accepted by the recipient before any order
+/// owner is changed. It is separate from cash handover on Shift.
+model WaiterShiftHandover {
+  id                BigInt    @id @default(autoincrement())
+  branchId          BigInt    @map("branch_id")
+  senderShiftId     BigInt    @map("sender_shift_id")
+  requestedById     String    @map("requested_by") @db.Uuid
+  recipientWaiterId String    @map("recipient_waiter_id") @db.Uuid
+  status            String    @default("pending") @db.VarChar(20)
+  notes             String?   @db.VarChar(500)
+  acceptedAt        DateTime? @map("accepted_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  branch          CafeBranch @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  senderShift     Shift      @relation("waiterHandoverSenderShift", fields: [senderShiftId], references: [id], onDelete: Restrict)
+  requestedBy     User       @relation("waiterHandoverRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict)
+  recipientWaiter User       @relation("waiterHandoverRecipient", fields: [recipientWaiterId], references: [id], onDelete: Restrict)
+
+  @@index([branchId, recipientWaiterId, status])
+  @@index([senderShiftId, status])
+  @@map("waiter_shift_handovers")
+}
+
+/// Approval metadata for legacy orders. It is intentionally separate from
+/// OrderResponsibilityHistory: approving a proposal never assigns a waiter.
+model WaiterOrderReconciliationReview {
+  id               BigInt    @id @default(autoincrement())
+  orderId          BigInt    @map("order_id")
+  branchId         BigInt    @map("branch_id")
+  reviewerId       String    @map("reviewer_id") @db.Uuid
+  approverId       String?   @map("approver_id") @db.Uuid
+  proposedWaiterId String?   @map("proposed_waiter_id") @db.Uuid
+  decision         String?   @db.VarChar(40)
+  reason           String?   @db.Text
+  reviewStatus     String    @default("pending_review") @map("review_status") @db.VarChar(30)
+  previousState    Json      @map("previous_state") @db.JsonB
+  approvedAt       DateTime? @map("approved_at")
+  executionStatus  String    @default("not_executed") @map("execution_status") @db.VarChar(30)
+  executedAt       DateTime? @map("executed_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  order          Order                            @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  branch         CafeBranch                       @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  reviewer       User                             @relation("waiterReconciliationReviewer", fields: [reviewerId], references: [id], onDelete: Restrict)
+  approver       User?                            @relation("waiterReconciliationApprover", fields: [approverId], references: [id], onDelete: SetNull)
+  proposedWaiter User?                            @relation("waiterReconciliationProposedWaiter", fields: [proposedWaiterId], references: [id], onDelete: SetNull)
+  auditEvents    WaiterOrderReconciliationAudit[]
+
+  @@index([branchId, reviewStatus, createdAt])
+  @@index([orderId, createdAt])
+  @@index([proposedWaiterId, reviewStatus])
+  @@map("waiter_order_reconciliation_reviews")
+}
+
+/// Append-only audit events for review, approval, and separately authorized execution.
+model WaiterOrderReconciliationAudit {
+  id              BigInt   @id @default(autoincrement())
+  reviewId        BigInt   @map("review_id")
+  orderId         BigInt   @map("order_id")
+  branchId        BigInt   @map("branch_id")
+  actorId         String   @map("actor_id") @db.Uuid
+  eventType       String   @map("event_type") @db.VarChar(40)
+  decision        String?  @db.VarChar(40)
+  reason          String?  @db.Text
+  previousState   Json     @map("previous_state") @db.JsonB
+  reviewStatus    String   @map("review_status") @db.VarChar(30)
+  executionStatus String   @map("execution_status") @db.VarChar(30)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  review WaiterOrderReconciliationReview @relation(fields: [reviewId], references: [id], onDelete: Restrict)
+  order  Order                           @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  branch CafeBranch                      @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  actor  User                            @relation("waiterReconciliationAuditActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([reviewId, createdAt])
+  @@index([orderId, createdAt])
+  @@index([branchId, createdAt])
+  @@map("waiter_order_reconciliation_audit")
 }
 
 model OrderItem {
@@ -770,12 +936,13 @@ model Shift {
   createdAt           DateTime  @default(now()) @map("created_at")
   updatedAt           DateTime  @updatedAt @map("updated_at")
 
-  branch             CafeBranch          @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  cashier            User?               @relation("shiftCashier", fields: [cashierId], references: [id], onDelete: SetNull)
-  orders             Order[]             @relation("orderShift")
-  payments           Payment[]           @relation("paymentShift")
-  financialMovements FinancialMovement[]
-  attendanceCorrections AttendanceCorrection[]
+  branch                 CafeBranch             @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  cashier                User?                  @relation("shiftCashier", fields: [cashierId], references: [id], onDelete: SetNull)
+  orders                 Order[]                @relation("orderShift")
+  payments               Payment[]              @relation("paymentShift")
+  financialMovements     FinancialMovement[]
+  attendanceCorrections  AttendanceCorrection[]
+  waiterHandoverRequests WaiterShiftHandover[]  @relation("waiterHandoverSenderShift")
 
   @@index([branchId, status])
   @@index([cashierId])

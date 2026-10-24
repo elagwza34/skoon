@@ -10,11 +10,15 @@ import assert from 'node:assert/strict'
 import { planStockCount } from '../src/lib/stock-count-policy'
 
 import { getPublicEnv } from '../src/lib/env'
+import { unauthenticatedStaffResponse, forbiddenStaffResponse, isStaffApiPath } from '../src/lib/api-auth-response'
+import { normalizedRequestId } from '../src/lib/request-correlation'
+import { clearLegacyLoginCredentials, LEGACY_LOGIN_CREDENTIAL_KEY } from '../src/lib/auth/login-storage'
 import {
   ROLE,
   isKnownRole,
   hasAtLeast,
   isOwner,
+  requiresOperationalShift,
   canAccessBranch,
   hasPermission,
 } from '../src/lib/authz'
@@ -50,6 +54,7 @@ import { posOrderSchema } from '../src/lib/staff-pos'
 import { isKitchenTicketVisible, itemPreparationState } from '../src/lib/staff-orders'
 import { canTransitionOrder } from '../src/lib/staff-orders'
 import { isWaiterTableOrderActive } from '../src/lib/staff-waiter'
+import { isTransferEligible, requiresEmergencyServing } from '../src/lib/staff-waiter-operations'
 import { getGuestOrders, saveGuestOrder } from '../src/lib/guest-orders'
 import { SETTING_DEFS, SettingsError } from '../src/lib/staff-settings-write'
 import {
@@ -62,6 +67,14 @@ import {
 } from '../src/lib/route-access'
 import { canManageEmployeeLifecycle, canReadEmployeeDirectory, canReadSensitiveEmployeeData, canResetEmployeePassword } from '../src/lib/hr-authz'
 import { effectivePeriodsOverlap, evaluateAttendance, validateWeeklySchedule } from '../src/lib/hr-scheduling-policy'
+import { classifyUnassignedWaiterOrder } from '../src/lib/waiter-readiness-policy'
+import {
+  approvalExecutesOrderMutation,
+  canReviewLegacyResponsibility,
+  canTransitionReconciliationReview,
+  isLegacySnapshotCurrent,
+  validateLegacyReconciliationProposal,
+} from '../src/lib/waiter-reconciliation-policy'
 
 test('waiter lifecycle: only dispatched new tickets enter the kitchen queue', () => {
   assert.equal(isKitchenTicketVisible('new', false), false)
@@ -97,12 +110,61 @@ test('waiter lifecycle: cancelled and served orders do not occupy a table', () =
   assert.equal(isWaiterTableOrderActive('cancelled'), false)
 })
 
+test('waiter responsibility: table transfers never move paid or terminal orders', () => {
+  assert.equal(isTransferEligible('new', 'unpaid'), true)
+  assert.equal(isTransferEligible('preparing', 'unpaid'), true)
+  assert.equal(isTransferEligible('ready', 'unpaid'), true)
+  assert.equal(isTransferEligible('served', 'unpaid'), false)
+  assert.equal(isTransferEligible('new', 'paid'), false)
+})
+
+test('waiter responsibility: only a different waiter requires an emergency-serving reason', () => {
+  assert.equal(requiresEmergencyServing('waiter', 'waiter-a', 'waiter-a'), false)
+  assert.equal(requiresEmergencyServing('waiter', 'waiter-a', 'waiter-b'), true)
+  assert.equal(requiresEmergencyServing('manager', 'waiter-a', 'manager-a'), false)
+})
+
+test('waiter readiness: legacy responsibility review is proposal-only and classifies actual order state', () => {
+  assert.deepEqual(classifyUnassignedWaiterOrder({ status: 'preparing', paymentStatus: 'unpaid', source: 'qr' }).bucket, 'operational')
+  assert.deepEqual(classifyUnassignedWaiterOrder({ status: 'new', paymentStatus: 'unpaid', source: 'qr' }).bucket, 'ambiguous')
+  assert.deepEqual(classifyUnassignedWaiterOrder({ status: 'new', paymentStatus: 'paid', source: 'pos' }).bucket, 'historical')
+  assert.match(classifyUnassignedWaiterOrder({ status: 'served', paymentStatus: 'unpaid', source: 'qr' }).proposal, /مراجعة تشغيلية/)
+})
+
+test('waiter reconciliation: proposals require an authorized human decision and an eligible same-branch waiter', () => {
+  const order = { branchId: '1', status: 'new', paymentStatus: 'unpaid', source: 'qr', responsibleWaiterId: null, updatedAt: '2026-10-24T10:00:00.000Z' }
+  const eligible = [{ id: 'waiter-a', branchId: '1', role: 'waiter', isActive: true, hasOpenShift: true }]
+  assert.equal(canReviewLegacyResponsibility('owner'), true)
+  assert.equal(canReviewLegacyResponsibility('manager'), true)
+  assert.equal(canReviewLegacyResponsibility('waiter'), false)
+  assert.equal(validateLegacyReconciliationProposal({ order, decision: 'assign_waiter', reason: 'تغطية الطلب المفتوح', proposedWaiterId: 'waiter-a', eligibleWaiters: eligible }).ok, true)
+  assert.equal(validateLegacyReconciliationProposal({ order, decision: 'assign_waiter', reason: 'سبب', proposedWaiterId: 'other-branch', eligibleWaiters: eligible }).ok, false)
+  assert.equal(validateLegacyReconciliationProposal({ order, decision: 'review_later', reason: 'x', eligibleWaiters: eligible }).ok, false)
+})
+
+test('waiter reconciliation: historical orders, stale snapshots, duplicate approval paths, and execution are protected', () => {
+  const historical = { branchId: '1', status: 'new', paymentStatus: 'paid', source: 'pos', responsibleWaiterId: null, updatedAt: '1' }
+  assert.equal(validateLegacyReconciliationProposal({ order: historical, decision: 'keep_unassigned', reason: 'مراجعة', eligibleWaiters: [] }).ok, false)
+  const snapshot = { branchId: '1', status: 'new', paymentStatus: 'unpaid', source: 'qr', responsibleWaiterId: null, updatedAt: '1' }
+  assert.equal(isLegacySnapshotCurrent(snapshot, { ...snapshot, updatedAt: '2' }), false)
+  assert.equal(canTransitionReconciliationReview('proposed', 'approved'), true)
+  assert.equal(canTransitionReconciliationReview('approved', 'approved'), false)
+  assert.equal(canTransitionReconciliationReview('approved', 'rejected'), false)
+  assert.equal(approvalExecutesOrderMutation(), false)
+})
+
 // --- Route-access matrix: every role → what they may open ------------------
 
 test('route-access: owner sees every mapped page', () => {
-  for (const path of ['/orders', '/pos', '/kitchen', '/waiter', '/tables', '/products', '/inventory', '/customers', '/staff', '/reports', '/settings', '/shifts']) {
+  for (const path of ['/orders', '/pos', '/cashier', '/kitchen', '/waiter', '/tables', '/tables/print', '/products', '/inventory', '/customers', '/staff', '/staff/leave', '/staff/attendance-corrections', '/reports', '/settings', '/fixed-float/baseline', '/fixed-float/settlements', '/shifts']) {
     assert.equal(canSeeRoute('owner', [], path), true, `owner must open ${path}`)
   }
+})
+
+test('route-access: attendance-correction review is owner-only', () => {
+  assert.equal(canSeeRoute('manager', ['staff.view'], '/staff/attendance-corrections'), false)
+  assert.equal(canSeeRoute('manager', ['staff.view'], '/staff/attendance-corrections/1'), false)
+  assert.equal(canSeeRoute('owner', [], '/staff/attendance-corrections'), true)
 })
 
 test('route-access: waiter sees only orders + tables (+ dashboard)', () => {
@@ -269,6 +331,15 @@ test('authz: hasAtLeast privilege ordering', () => {
 test('authz: isOwner', () => {
   assert.equal(isOwner('owner'), true)
   assert.equal(isOwner('manager'), false)
+})
+
+test('authz: operational shift policy exempts Owner and Manager only', () => {
+  assert.equal(requiresOperationalShift(ROLE.OWNER), false)
+  assert.equal(requiresOperationalShift(ROLE.MANAGER), false)
+  assert.equal(requiresOperationalShift(ROLE.CASHIER), true)
+  assert.equal(requiresOperationalShift(ROLE.WAITER), true)
+  assert.equal(requiresOperationalShift(ROLE.KITCHEN), true)
+  assert.equal(requiresOperationalShift('unknown'), false)
 })
 
 test('authz: canAccessBranch (owner=null any, staff=own only)', () => {
@@ -943,4 +1014,34 @@ test('stock count: positive and zero variance require auditable valuation', () =
   assert.equal(planStockCount({ snapshot: 10, current: 10, counted: 12, reserved: 0, fifo: [] }).blocked, 'MISSING_POSITIVE_VALUATION')
   assert.deepEqual(planStockCount({ snapshot: 10, current: 10, counted: 12, reserved: 0, fifo: [], positiveUnitCost: 4 }), { variance: 2, direction: 'positive', cost: 8 })
   assert.deepEqual(planStockCount({ snapshot: 10, current: 10, counted: 10, reserved: 0, fifo: [] }), { variance: 0, direction: 'zero', cost: 0 })
+})
+
+test('API auth responses distinguish authentication from authorization', async () => {
+  const unauthenticated = unauthenticatedStaffResponse()
+  const forbidden = forbiddenStaffResponse()
+  assert.equal(unauthenticated.status, 401)
+  assert.equal(forbidden.status, 403)
+  assert.deepEqual(await unauthenticated.json(), { error: 'غير مصرح' })
+  assert.deepEqual(await forbidden.json(), { error: 'غير مصرح' })
+})
+
+test('request correlation accepts bounded safe IDs only', () => {
+  assert.equal(normalizedRequestId('proxy_123-abc'), 'proxy_123-abc')
+  assert.equal(normalizedRequestId('short'), null)
+  assert.equal(normalizedRequestId('safe\r\nforged'), null)
+  assert.equal(normalizedRequestId('x'.repeat(129)), null)
+  assert.equal(normalizedRequestId(null), null)
+})
+
+test('staff API paths use JSON authentication semantics while public APIs do not', () => {
+  assert.equal(isStaffApiPath('/api/staff/inventory/counts'), true)
+  assert.equal(isStaffApiPath('/api/staff'), true)
+  assert.equal(isStaffApiPath('/api/public/orders'), false)
+  assert.equal(isStaffApiPath('/api/staffing'), false)
+})
+
+test('legacy login cleanup removes only the obsolete credential key without reading it', () => {
+  const removed: string[] = []
+  clearLegacyLoginCredentials({ removeItem(key) { removed.push(key) } })
+  assert.deepEqual(removed, [LEGACY_LOGIN_CREDENTIAL_KEY])
 })

@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { requirePageAccess } from '@/lib/require-page-access'
 import { getOpenShift } from '@/lib/staff-shifts'
+import { requiresOperationalShift } from '@/lib/authz'
 import { listKitchenOrders } from '@/lib/staff-orders'
 import { KitchenBoard } from '@/components/kitchen/kitchen-board'
 
@@ -16,7 +17,7 @@ export default async function KitchenPage() {
   const session = await requirePageAccess('/kitchen')
 
   // Kitchen employee must have an open shift before performing kitchen duties.
-  if (session.branchId) {
+  if (requiresOperationalShift(session.role) && session.branchId) {
     const shift = await getOpenShift(session.id, BigInt(session.branchId))
     if (!shift) redirect('/shifts')
   }

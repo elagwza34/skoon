@@ -1,12 +1,20 @@
 import type { Metadata, Viewport } from 'next'
 import type { ReactNode } from 'react'
-import { Cairo } from 'next/font/google'
+import localFont from 'next/font/local'
 import { ThemeProvider } from '@/lib/theme'
 import './globals.css'
 
-const cairo = Cairo({ weight: '400', subsets: ['arabic'], display: 'swap' })
+// Cairo is bundled from the upstream Google Fonts OFL source so production
+// builds never need outbound access to fonts.googleapis.com.
+const cairo = localFont({
+  src: '../../public/fonts/Cairo-Variable.ttf',
+  display: 'swap',
+  weight: '200 1000',
+  style: 'normal',
+})
 
 export const metadata: Metadata = {
+  metadataBase: new URL('https://sokooncafe.com'),
   title: 'سكون — علامة تجارية للكافيه',
   description: 'علامة تجارية للكافيه',
   icons: {

@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server'
 import { getStaffSession } from '@/lib/session'
 import { StockCountError, startStockCount, saveStockCountLines, submitStockCount, previewStockCountVariances, postStockCount, cancelStockCount } from '@/lib/staff-stock-count-write'
+import { unauthenticatedStaffResponse } from '@/lib/api-auth-response'
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string; action: string }> }) {
-  const session = await getStaffSession(); if (!session) return NextResponse.json({ error: 'غير مصرح' }, { status: 403 })
+  const session = await getStaffSession(); if (!session) return unauthenticatedStaffResponse()
   const { id, action } = await params
   try {
     const body = await request.json().catch(() => ({}))

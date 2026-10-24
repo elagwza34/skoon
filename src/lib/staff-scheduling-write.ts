@@ -95,6 +95,31 @@ export async function requestAttendanceCorrection(session: StaffSession, input: 
   }) } catch (error) { return migrationError(error) }
 }
 
+/**
+ * Owner review queue for attendance corrections. Corrections affect payroll
+ * inputs, so listing the cross-branch queue follows the same Owner-only
+ * authority as the final decision.
+ */
+export async function listAttendanceCorrections(session: StaffSession) {
+  if (!canApproveAttendanceCorrections(session.role)) {
+    throw new SchedulingError('Attendance correction review is not permitted', 403)
+  }
+  try {
+    return await prisma.attendanceCorrection.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+      include: {
+        employee: { select: { id: true, name: true } },
+        proposedBy: { select: { id: true, name: true } },
+        approvedBy: { select: { id: true, name: true } },
+        shift: { select: { id: true, openedAt: true, closedAt: true } },
+      },
+    })
+  } catch (error) {
+    return migrationError(error)
+  }
+}
+
 export async function decideAttendanceCorrection(session: StaffSession, id: bigint, approve: boolean) {
   if (!canApproveAttendanceCorrections(session.role)) throw new SchedulingError('Owner approval is required', 403)
   try { return await prisma.$transaction(async (tx) => {

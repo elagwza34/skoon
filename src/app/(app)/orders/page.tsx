@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation'
 import { requirePageAccess } from '@/lib/require-page-access'
 import { listStaffOrders } from '@/lib/staff-orders'
-import { hasAtLeast, ROLE, isOwner } from '@/lib/authz'
+import { hasAtLeast, ROLE, requiresOperationalShift } from '@/lib/authz'
 import { getOpenShift } from '@/lib/staff-shifts'
 import { OrdersBoard } from '@/components/orders/orders-board'
 
@@ -15,7 +15,7 @@ export default async function OrdersPage() {
   const session = await requirePageAccess('/orders')
 
   // Operational staff must have an open shift before working orders.
-  if (!isOwner(session.role) && session.branchId) {
+  if (requiresOperationalShift(session.role) && session.branchId) {
     const shift = await getOpenShift(session.id, BigInt(session.branchId))
     if (!shift) redirect('/shifts')
   }

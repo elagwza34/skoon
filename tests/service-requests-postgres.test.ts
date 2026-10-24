@@ -42,7 +42,6 @@ test('Service requests PostgreSQL: QR cooldown, complaint limit, atomic claims, 
       { id: ids.owner, roleId: ownerRole.id, name: 'SR Owner' },
     ] })
     await prisma.shift.createMany({ data: [
-      { branchId: branch.id, openBy: 'SR Manager', cashierId: ids.manager, status: 'open' },
       { branchId: branch.id, openBy: 'SR Waiter A', cashierId: ids.waiterA, status: 'open' },
       { branchId: branch.id, openBy: 'SR Waiter B', cashierId: ids.waiterB, status: 'open' },
       { branchId: other.id, openBy: 'SR Outsider', cashierId: ids.outsider, status: 'open' },
@@ -72,6 +71,8 @@ test('Service requests PostgreSQL: QR cooldown, complaint limit, atomic claims, 
     await assert.rejects(() => actOnServiceRequest(losing, BigInt(first.id), { action: 'resolve', reason: 'not mine' }), /assigned waiter/)
     await assert.rejects(() => actOnServiceRequest(losing, BigInt(first.id), { action: 'in_progress' }), /assigned waiter/)
     await assert.rejects(() => actOnServiceRequest(noShiftWaiter, BigInt(first.id), { action: 'in_progress' }), /open shift is required/i)
+    // Managers retain their authorized supervisory actions without an
+    // operational shift or attendance record in the current MVP.
     await actOnServiceRequest(manager, BigInt(first.id), { action: 'reassign', assigneeId: ids.waiterB })
     await assert.rejects(() => actOnServiceRequest(waiterA, BigInt(first.id), { action: 'resolve', reason: 'stale owner' }), /assigned waiter/)
     await actOnServiceRequest(waiterB, BigInt(first.id), { action: 'in_progress' })
