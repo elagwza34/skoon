@@ -13,6 +13,8 @@ import { getPublicEnv } from '../src/lib/env'
 import { unauthenticatedStaffResponse, forbiddenStaffResponse, isStaffApiPath } from '../src/lib/api-auth-response'
 import { normalizedRequestId } from '../src/lib/request-correlation'
 import { clearLegacyLoginCredentials, LEGACY_LOGIN_CREDENTIAL_KEY } from '../src/lib/auth/login-storage'
+import { safeInternalRedirect } from '../src/lib/auth/safe-redirect'
+import { isSameOriginStaffApiRequest } from '../src/components/auth/auth-expiry-guard'
 import {
   ROLE,
   isKnownRole,
@@ -70,8 +72,8 @@ import {
   permissionForPath,
   canSeeRoute,
 } from '../src/lib/route-access'
-import { canManageEmployeeLifecycle, canReadEmployeeDirectory, canReadSensitiveEmployeeData, canResetEmployeePassword } from '../src/lib/hr-authz'
-import { CatalogError, targetBranch } from '../src/lib/staff-catalog-write'
+import { canManageEmployeeLifecycle, canReadEmployeeDirectory, canReadSensitiveEmployeeData, canResetEmployeePassword, employeeDeactivationBlocker } from '../src/lib/hr-authz'
+import { canManageProducts, CatalogError, targetBranch } from '../src/lib/staff-catalog-write'
 import { effectivePeriodsOverlap, evaluateAttendance, validateWeeklySchedule } from '../src/lib/hr-scheduling-policy'
 import { classifyUnassignedWaiterOrder } from '../src/lib/waiter-readiness-policy'
 import {
@@ -279,11 +281,11 @@ test('route-access: kitchen sees only the kitchen board', () => {
   assert.equal(canSeeRoute('kitchen', perms, '/pos'), false)
 })
 
-test('route-access: cashier sees POS + orders, not menu/staff', () => {
+test('route-access: cashier sees POS, orders, and product management but not staff', () => {
   const perms = ['orders.view', 'orders.update', 'orders.cancel', 'orders.refund', 'orders.payment', 'tables.view']
   assert.equal(canSeeRoute('cashier', perms, '/pos'), true)
   assert.equal(canSeeRoute('cashier', perms, '/orders'), true)
-  assert.equal(canSeeRoute('cashier', perms, '/products'), false)
+  assert.equal(canSeeRoute('cashier', perms, '/products'), true)
   assert.equal(canSeeRoute('cashier', perms, '/staff'), false)
   assert.equal(canSeeRoute('cashier', perms, '/settings'), false)
 })
@@ -362,6 +364,7 @@ test('route-access: /cashier requires orders.payment (cashier+ only)', () => {
 
 test('route-access: ops-shell exception lets only the cashier render /cashier', () => {
   assert.equal(canRenderInOpsShell('cashier', '/cashier'), true)
+  assert.equal(canRenderInOpsShell('cashier', '/products'), true)
   assert.equal(canRenderInOpsShell('waiter', '/cashier'), false)
   assert.equal(canRenderInOpsShell('kitchen', '/cashier'), false)
   assert.equal(canRenderInOpsShell('manager', '/cashier'), false)
@@ -409,6 +412,23 @@ test('authz: isKnownRole', () => {
   assert.equal(isKnownRole('owner'), true)
   assert.equal(isKnownRole('admin'), false)
   assert.equal(isKnownRole(''), false)
+})
+
+test('auth redirect: accepts only safe same-origin application paths', () => {
+  assert.equal(safeInternalRedirect('/waiter?tab=active'), '/waiter?tab=active')
+  assert.equal(safeInternalRedirect('/finance#vat'), '/finance#vat')
+  assert.equal(safeInternalRedirect('//attacker.example'), null)
+  assert.equal(safeInternalRedirect('/\\attacker.example'), null)
+  assert.equal(safeInternalRedirect('https://attacker.example'), null)
+  assert.equal(safeInternalRedirect('/dashboard\nSet-Cookie: bad'), null)
+})
+
+test('auth expiry guard: only same-origin staff API 401 responses clear stale client UI', () => {
+  const origin = 'https://sokoon.example'
+  assert.equal(isSameOriginStaffApiRequest('/api/staff/orders/1', origin), true)
+  assert.equal(isSameOriginStaffApiRequest('https://sokoon.example/api/staff', origin), true)
+  assert.equal(isSameOriginStaffApiRequest('https://other.example/api/staff/orders', origin), false)
+  assert.equal(isSameOriginStaffApiRequest('/api/public/orders', origin), false)
 })
 
 test('authz: hasAtLeast privilege ordering', () => {
@@ -1143,4 +1163,27 @@ test('legacy login cleanup removes only the obsolete credential key without read
   const removed: string[] = []
   clearLegacyLoginCredentials({ removeItem(key) { removed.push(key) } })
   assert.deepEqual(removed, [LEGACY_LOGIN_CREDENTIAL_KEY])
+})
+
+test('product management roles are Owner, Manager, and Cashier only', () => {
+  assert.equal(canManageProducts(ROLE.OWNER), true)
+  assert.equal(canManageProducts(ROLE.MANAGER), true)
+  assert.equal(canManageProducts(ROLE.CASHIER), true)
+  assert.equal(canManageProducts(ROLE.WAITER), false)
+  assert.equal(canManageProducts(ROLE.KITCHEN), false)
+})
+
+test('product route allows Cashier but excludes Waiter and Kitchen regardless of menu permissions', () => {
+  assert.equal(canSeeRoute(ROLE.CASHIER, [], '/products'), true)
+  assert.equal(canSeeRoute(ROLE.MANAGER, [], '/products'), true)
+  assert.equal(canSeeRoute(ROLE.WAITER, ['menu.view'], '/products'), false)
+  assert.equal(canSeeRoute(ROLE.KITCHEN, ['menu.view'], '/products'), false)
+})
+
+test('employee deactivation never removes the current or last active Owner and preserves open shifts', () => {
+  const base = { actorId: 'owner-a', targetId: 'employee-a', targetRole: ROLE.CASHIER, activeOwnerCount: 1, hasOpenShift: false }
+  assert.equal(employeeDeactivationBlocker(base), null)
+  assert.equal(employeeDeactivationBlocker({ ...base, targetId: 'owner-a' }), 'SELF')
+  assert.equal(employeeDeactivationBlocker({ ...base, targetRole: ROLE.OWNER, activeOwnerCount: 1 }), 'LAST_OWNER')
+  assert.equal(employeeDeactivationBlocker({ ...base, hasOpenShift: true }), 'OPEN_SHIFT')
 })

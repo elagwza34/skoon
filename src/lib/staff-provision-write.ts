@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { ROLE, isKnownRole, type RoleSlug } from '@/lib/authz'
 import { staffCanAccessBranch, type StaffSession } from '@/lib/session'
 import { canManageEmployeeLifecycle, canResetEmployeePassword } from '@/lib/hr-authz'
+import { employeeDeactivationBlocker } from '@/lib/hr-authz'
 
 /**
  * Staff provisioning — server-only, trusted path (docs/OWNER-PROVISIONING.md).
@@ -252,6 +253,21 @@ export async function updateStaff(
     finalRoleSlug === ROLE.OWNER ? null : assignment ? assignment.branchId : target.branchId
 
   const updated = await prisma.$transaction(async (tx) => {
+    if (isActive === false && target.isActive) {
+      const [activeOwnerCount, openShift] = await Promise.all([
+        targetRole === ROLE.OWNER
+          ? tx.user.count({ where: { isActive: true, deletedAt: null, role: { is: { slug: ROLE.OWNER } } } })
+          : Promise.resolve(0),
+        tx.shift.findFirst({ where: { cashierId: target.id, status: 'open' }, select: { id: true } }),
+      ])
+      const blocker = employeeDeactivationBlocker({
+        actorId: session.id, targetId: target.id, targetRole,
+        activeOwnerCount, hasOpenShift: Boolean(openShift),
+      })
+      if (blocker === 'SELF') throw new StaffProvisionError('Cannot deactivate your own account', 409)
+      if (blocker === 'LAST_OWNER') throw new StaffProvisionError('The last active Owner cannot be deactivated', 409)
+      if (blocker === 'OPEN_SHIFT') throw new StaffProvisionError('Settle or hand over the open shift before deactivation', 409)
+    }
     const row = await tx.user.update({
       where: { id: target.id },
       data: {

@@ -10,6 +10,7 @@ import { TablesStatus } from "@/components/dashboard/tables-status";
 import { QuickActions } from "@/components/dashboard/quick-actions";
 import { formatCurrency, formatNumber, formatPercent } from "@/lib/format";
 import { Icon } from "@/components/ui/icon";
+import { logoutAction } from '@/app/login/actions'
 import { getManagerOperations } from '@/lib/manager-operations'
 import { ManagerOperationsCenter } from '@/components/dashboard/manager-operations-center'
 import { ManagerServiceRequestPanel } from '@/components/dashboard/manager-service-request-panel'
@@ -44,7 +45,7 @@ export default async function DashboardPage() {
             <span className="h-1.5 w-1.5 rounded-full bg-info animate-pulse" aria-hidden="true" />
             حي (محدث تلقائياً)
           </span>
-          <form action="/login?next=/dashboard">
+          <form action={logoutAction}>
             <button
               type="submit"
               className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"

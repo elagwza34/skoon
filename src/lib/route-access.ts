@@ -63,6 +63,7 @@ export function canRenderInOpsShell(role: string, pathname: string): boolean {
     return role === ROLE.CASHIER || role === ROLE.WAITER || role === ROLE.KITCHEN
   }
   if (role === ROLE.CASHIER && pathname === '/cashier') return true
+  if (role === ROLE.CASHIER && (pathname === '/products' || pathname.startsWith('/products/'))) return true
   return false
 }
 
@@ -85,6 +86,9 @@ export function permissionForPath(pathname: string): string | null {
 /** Pure check: may this role (with these granted permissions) open `pathname`? */
 export function canSeeRoute(role: string, permissions: readonly string[], pathname: string): boolean {
   if (isOwner(role)) return true
+  if (pathname === '/products' || pathname.startsWith('/products/')) {
+    return role === ROLE.MANAGER || role === ROLE.CASHIER
+  }
   if (pathname === '/finance' || pathname.startsWith('/finance/')) return false
   // Attendance-correction approval affects payroll inputs and is explicitly
   // Owner-only. Keep this exception in the shared route gate so hidden links

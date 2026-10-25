@@ -9,6 +9,20 @@ export function canManageEmployeeLifecycle(role: string): boolean {
   return role === ROLE.OWNER
 }
 
+/** Pure safety gate shared by profile archival and account deactivation. */
+export function employeeDeactivationBlocker(input: {
+  actorId: string
+  targetId: string
+  targetRole: string
+  activeOwnerCount: number
+  hasOpenShift: boolean
+}): string | null {
+  if (input.actorId === input.targetId) return 'SELF'
+  if (input.targetRole === ROLE.OWNER && input.activeOwnerCount <= 1) return 'LAST_OWNER'
+  if (input.hasOpenShift) return 'OPEN_SHIFT'
+  return null
+}
+
 /** Employee directories are an administrative/operational manager surface. */
 export function canReadEmployeeDirectory(role: string): boolean {
   return role === ROLE.OWNER || role === ROLE.MANAGER

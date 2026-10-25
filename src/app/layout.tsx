@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import type { ReactNode } from 'react'
 import localFont from 'next/font/local'
 import { ThemeProvider } from '@/lib/theme'
+import { AuthExpiryGuard } from '@/components/auth/auth-expiry-guard'
 import './globals.css'
 
 // Cairo is bundled from the upstream Google Fonts OFL source so production
@@ -48,7 +49,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body suppressHydrationWarning className={`${cairo.className} min-h-dvh bg-background font-sans text-foreground antialiased`}>
-        <ThemeProvider>{children}</ThemeProvider>
+        <ThemeProvider><AuthExpiryGuard />{children}</ThemeProvider>
       </body>
     </html>
   )

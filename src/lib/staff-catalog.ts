@@ -25,19 +25,22 @@ export interface CatalogProduct {
   categoryName: string
   isActive: boolean
   isAvailable: boolean
+  taxRate: string
+  inventoryItemId: string | null
   sortOrder: number | null
 }
 
 export interface StaffCatalog {
   categories: CatalogCategory[]
   products: CatalogProduct[]
+  inventoryItems: { id: string; branchId: string; name: string }[]
 }
 
 export async function getStaffCatalog(session: StaffSession): Promise<StaffCatalog> {
   const branchScope =
     session.role === ROLE.OWNER ? {} : { branchId: BigInt(session.branchId as string) }
 
-  const [categories, products] = await Promise.all([
+  const [categories, products, inventoryItems] = await Promise.all([
     prisma.category.findMany({
       where: { ...branchScope, deletedAt: null },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
@@ -51,9 +54,15 @@ export async function getStaffCatalog(session: StaffSession): Promise<StaffCatal
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
       select: {
         id: true, name: true, description: true, price: true, imagePath: true,
-        categoryId: true, isActive: true, isAvailable: true, sortOrder: true,
+        categoryId: true, isActive: true, isAvailable: true, taxRate: true, inventoryItemId: true, sortOrder: true,
         category: { select: { name: true } },
       },
+    }),
+    prisma.inventoryItem.findMany({
+      where: { ...branchScope, isActive: true, deletedAt: null },
+      orderBy: { name: 'asc' },
+      take: 500,
+      select: { id: true, branchId: true, name: true },
     }),
   ])
 
@@ -67,8 +76,10 @@ export async function getStaffCatalog(session: StaffSession): Promise<StaffCatal
       id: p.id.toString(), name: p.name, description: p.description,
       price: p.price.toString(), imagePath: p.imagePath,
       categoryId: p.categoryId.toString(), categoryName: p.category.name,
-      isActive: p.isActive, isAvailable: p.isAvailable, sortOrder: p.sortOrder,
+      isActive: p.isActive, isAvailable: p.isAvailable, taxRate: p.taxRate.toString(),
+      inventoryItemId: p.inventoryItemId?.toString() ?? null, sortOrder: p.sortOrder,
     })),
+    inventoryItems: inventoryItems.map((item) => ({ id: item.id.toString(), branchId: item.branchId.toString(), name: item.name })),
   }
 }
 

@@ -24,19 +24,23 @@ interface ProductDraft {
   price: string
   categoryId: string
   isAvailable: boolean
+  taxRate: string
+  inventoryItemId: string
 }
 
-const EMPTY_DRAFT: ProductDraft = { name: '', description: '', price: '', categoryId: '', isAvailable: true }
+const EMPTY_DRAFT: ProductDraft = { name: '', description: '', price: '', categoryId: '', isAvailable: true, taxRate: '0', inventoryItemId: '' }
 
 export function ProductsBoard({
   catalog,
   canEdit,
   canToggle,
+  canManageCategories = false,
   branches = [],
 }: {
   catalog: StaffCatalog
   canEdit: boolean
   canToggle?: boolean
+  canManageCategories?: boolean
   branches?: { id: string; name: string }[]
 }) {
   const router = useRouter()
@@ -52,6 +56,7 @@ export function ProductsBoard({
   const [draft, setDraft] = useState<ProductDraft>(EMPTY_DRAFT)
   const [createBranchId, setCreateBranchId] = useState(branches[0]?.id ?? '')
   const [saving, setSaving] = useState(false)
+  const [archivingId, setArchivingId] = useState<string | null>(null)
 
   // Category management state (owner/manager)
   const [newCategory, setNewCategory] = useState('')
@@ -116,6 +121,8 @@ export function ProductsBoard({
       price: p.price,
       categoryId: p.categoryId,
       isAvailable: p.isAvailable,
+      taxRate: p.taxRate,
+      inventoryItemId: p.inventoryItemId ?? '',
     })
     setShowForm(true)
   }
@@ -123,8 +130,13 @@ export function ProductsBoard({
   async function saveProduct() {
     if (saving) return
     const priceNum = Number(draft.price)
+    const taxRate = Number(draft.taxRate || '0')
     if (!Number.isFinite(priceNum) || priceNum <= 0) {
       setError('السعر يجب أن يكون رقماً موجباً')
+      return
+    }
+    if (!Number.isFinite(taxRate) || taxRate < 0 || taxRate > 100) {
+      setError('Tax rate must be between 0 and 100')
       return
     }
     if (!draft.categoryId) {
@@ -150,6 +162,8 @@ export function ProductsBoard({
         price: priceNum,
         categoryId: draft.categoryId,
         isAvailable: draft.isAvailable,
+        taxRate,
+        inventoryItemId: draft.inventoryItemId || null,
         ...(isEdit ? {} : { branchId: createBranchId }),
       }
       const res = await fetch(isEdit ? `/api/staff/products/${draft.id}` : '/api/staff/products', {
@@ -172,6 +186,27 @@ export function ProductsBoard({
   const formCategories = draft.id || !createBranchId
     ? catalog.categories
     : catalog.categories.filter((item) => item.branchId === createBranchId)
+  const formInventoryItems = draft.id || !createBranchId
+    ? catalog.inventoryItems
+    : catalog.inventoryItems.filter((item) => item.branchId === createBranchId)
+
+  async function archiveProduct(id: string) {
+    if (archivingId || !window.confirm('Archive this product? It will remain in historical orders.')) return
+    setArchivingId(id)
+    setError(null)
+    setSuccess(null)
+    try {
+      const res = await fetch(`/api/staff/products/${id}`, { method: 'DELETE' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error ?? 'Archive failed')
+      setSuccess('Product archived')
+      refresh()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Archive failed')
+    } finally {
+      setArchivingId(null)
+    }
+  }
 
   async function addCategory() {
     if (catBusy) return
@@ -239,7 +274,8 @@ export function ProductsBoard({
       ) : null}
 
       {canEdit && showForm ? (
-        <Card className="border-primary/40">
+        <div role="dialog" aria-modal="true" aria-label={draft.id ? 'Edit product' : 'Add product'} className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-3 pt-8 sm:items-center sm:p-6">
+        <Card className="w-full max-w-2xl border-primary/40">
           <CardHeader>
             <CardTitle>{draft.id ? 'تعديل منتج' : 'منتج جديد'}</CardTitle>
           </CardHeader>
@@ -251,6 +287,21 @@ export function ProductsBoard({
                 placeholder="اسم المنتج" aria-label="اسم المنتج" maxLength={150}
               />
             </label>
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="text-muted-foreground">Tax rate (%)</span>
+              <Input type="number" inputMode="decimal" min="0" max="100" step="0.01"
+                value={draft.taxRate} onChange={(e) => setDraft({ ...draft, taxRate: e.target.value })}
+                aria-label="Tax rate" />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="text-muted-foreground">Inventory mapping</span>
+              <select value={draft.inventoryItemId} onChange={(e) => setDraft({ ...draft, inventoryItemId: e.target.value })}
+                aria-label="Inventory mapping"
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background">
+                <option value="">No direct inventory item</option>
+                {formInventoryItems.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+              </select>
+            </label>
             {!draft.id && branches.length > 0 ? (
               <label className="flex flex-col gap-1 text-sm">
                 <span className="text-muted-foreground">الفرع</span>
@@ -260,7 +311,7 @@ export function ProductsBoard({
                     const branchId = e.target.value
                     const firstCategory = catalog.categories.find((item) => item.branchId === branchId)
                     setCreateBranchId(branchId)
-                    setDraft((current) => ({ ...current, categoryId: firstCategory?.id ?? '' }))
+                    setDraft((current) => ({ ...current, categoryId: firstCategory?.id ?? '', inventoryItemId: '' }))
                   }}
                   aria-label="فرع المنتج"
                   className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
@@ -316,9 +367,10 @@ export function ProductsBoard({
             </div>
           </CardContent>
         </Card>
+        </div>
       ) : null}
 
-      {canEdit ? (
+      {canManageCategories ? (
         <Card>
           <CardHeader>
             <CardTitle>التصنيفات</CardTitle>
@@ -390,6 +442,11 @@ export function ProductsBoard({
                       >
                         <Icon name={p.isAvailable ? 'close' : 'check'} size={14} />
                         {pendingId === p.id ? 'جاري الحفظ…' : p.isAvailable ? 'إخفاء' : 'إظهار'}
+                      </Button>
+                    ) : null}
+                    {canEdit ? (
+                      <Button size="sm" variant="ghost" disabled={archivingId === p.id} onClick={() => archiveProduct(p.id)}>
+                        <Icon name="trash" size={14} /> {archivingId === p.id ? 'Archiving…' : 'Archive'}
                       </Button>
                     ) : null}
                   </div>

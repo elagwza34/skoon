@@ -1,6 +1,7 @@
 import { requirePageAccess } from '@/lib/require-page-access'
 import { getStaffCatalog } from '@/lib/staff-catalog'
-import { hasAtLeast, ROLE } from '@/lib/authz'
+import { ROLE } from '@/lib/authz'
+import { canManageProducts } from '@/lib/staff-catalog-write'
 import { ProductsBoard } from '@/components/products/products-board'
 import { prisma } from '@/lib/prisma'
 
@@ -14,7 +15,7 @@ export default async function ProductsPage() {
   const session = await requirePageAccess('/products')
 
   const catalog = await getStaffCatalog(session)
-  const canEdit = hasAtLeast(session.role, ROLE.MANAGER)
+  const canEdit = canManageProducts(session.role)
   const branches = session.role === ROLE.OWNER
     ? await prisma.cafeBranch.findMany({
       where: { isActive: true },
@@ -25,7 +26,8 @@ export default async function ProductsPage() {
   return <ProductsBoard
     catalog={catalog}
     canEdit={canEdit}
-    canToggle={hasAtLeast(session.role, ROLE.CASHIER)}
+    canToggle={canEdit}
+    canManageCategories={session.role === ROLE.OWNER || session.role === ROLE.MANAGER}
     branches={branches.map((branch) => ({ id: branch.id.toString(), name: branch.name }))}
   />
 }

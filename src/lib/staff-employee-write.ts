@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { ROLE } from '@/lib/authz'
 import type { StaffSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
-import { canManageEmployeeLifecycle, canReadEmployeeDirectory } from '@/lib/hr-authz'
+import { canManageEmployeeLifecycle, canReadEmployeeDirectory, employeeDeactivationBlocker } from '@/lib/hr-authz'
 
 export class EmployeeHrError extends Error {
   constructor(message: string, readonly status = 400) {
@@ -197,9 +197,24 @@ export async function archiveEmployee(session: StaffSession, id: string, reason:
   if (!reason.trim() || reason.length > 255) throw new EmployeeHrError('Archive reason is required', 400)
   try {
     return await prisma.$transaction(async (tx) => {
-      const employee = await tx.user.findFirst({ where: { id, deletedAt: null }, select: { id: true, branchId: true } })
+      const employee = await tx.user.findFirst({
+        where: { id, deletedAt: null },
+        select: { id: true, branchId: true, role: { select: { slug: true } } },
+      })
       if (!employee) throw new EmployeeHrError('Employee not found', 404)
-      if (employee.id === session.id) throw new EmployeeHrError('Owner cannot archive the current account', 409)
+      const [activeOwnerCount, openShift] = await Promise.all([
+        employee.role.slug === ROLE.OWNER
+          ? tx.user.count({ where: { isActive: true, deletedAt: null, role: { is: { slug: ROLE.OWNER } } } })
+          : Promise.resolve(0),
+        tx.shift.findFirst({ where: { cashierId: employee.id, status: 'open' }, select: { id: true } }),
+      ])
+      const blocker = employeeDeactivationBlocker({
+        actorId: session.id, targetId: employee.id, targetRole: employee.role.slug,
+        activeOwnerCount, hasOpenShift: Boolean(openShift),
+      })
+      if (blocker === 'SELF') throw new EmployeeHrError('Owner cannot archive the current account', 409)
+      if (blocker === 'LAST_OWNER') throw new EmployeeHrError('The last active Owner cannot be archived', 409)
+      if (blocker === 'OPEN_SHIFT') throw new EmployeeHrError('Settle or hand over the open shift before archiving this employee', 409)
       const profile = await tx.employeeProfile.upsert({
         where: { userId: id }, create: { userId: id, branchId: employee.branchId, employmentStatus: 'archived', archivedAt: new Date(), archivedById: session.id, archiveReason: reason.trim() },
         update: { employmentStatus: 'archived', archivedAt: new Date(), archivedById: session.id, archiveReason: reason.trim() },

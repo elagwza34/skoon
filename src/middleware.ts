@@ -63,10 +63,13 @@ export async function middleware(request: NextRequest) {
         getAll() {
           return request.cookies.getAll()
         },
-        setAll(cookiesToSet) {
+        setAll(cookiesToSet, authHeaders) {
           cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
           response = NextResponse.next({ request })
           cookiesToSet.forEach(({ name, value, options }) => response.cookies.set(name, value, options))
+          // @supabase/ssr provides cache headers on token refresh. Preserve
+          // them so an intermediary cannot cache Set-Cookie for another user.
+          Object.entries(authHeaders ?? {}).forEach(([key, value]) => response.headers.set(key, value))
         },
       },
     })
@@ -135,6 +138,7 @@ export async function middleware(request: NextRequest) {
   const responseWithPath = NextResponse.next({ request: { headers: requestHeaders } })
   // Preserve any refreshed auth cookies that were set on `response` above.
   response.cookies.getAll().forEach((c) => responseWithPath.cookies.set(c))
+  response.headers.forEach((value, key) => responseWithPath.headers.set(key, value))
   responseWithPath.headers.set('x-request-id', requestId)
   return responseWithPath
 }

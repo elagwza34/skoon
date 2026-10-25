@@ -7,6 +7,7 @@ import { getStaffSession } from '@/lib/session'
 import { homeForRole } from '@/lib/route-access'
 import { requiresOperationalShift } from '@/lib/authz'
 import { getOpenShift } from '@/lib/staff-shifts'
+import { safeInternalRedirect } from '@/lib/auth/safe-redirect'
 
 /**
  * Staff sign-in — Supabase Auth (email + password). Identity only.
@@ -45,29 +46,24 @@ export async function loginAction(
     return { error: 'البريد الإلكتروني أو كلمة المرور غير صحيحة' }
   }
 
-  const next = formData.get('next')
-  const requested =
-    typeof next === 'string' && next.startsWith('/') && !next.startsWith('//')
-      ? next
-      : null
+  const requested = safeInternalRedirect(formData.get('next'))
 
   // If the user came here to reach a specific page (the middleware set ?next),
   // honour it; the (app) layout's route guard will bounce them if it's outside
   // their role. Otherwise land them on the screen for their role (operational
   // staff go straight to their board, owner/manager to the dashboard).
   // Operational staff without an open shift are sent to /shifts first.
-  if (!requested) {
-    const session = await getStaffSession()
-    if (!session) redirect('/dashboard')
-    // Login is identity-only. Only operational roles are routed through the
-    // existing shift-opening workflow; it never writes attendance itself.
-    if (requiresOperationalShift(session.role) && session.branchId) {
-      const shift = await getOpenShift(session.id, BigInt(session.branchId))
-      if (!shift) redirect('/shifts')
-    }
-    redirect(homeForRole(session.role))
+  const session = await getStaffSession()
+  // Authenticated identities without an active trusted staff row fail closed.
+  // Keep /login reachable so middleware does not bounce this state in a loop.
+  if (!session) redirect('/login?reason=unprovisioned')
+  // Login is identity-only. Only operational roles are routed through the
+  // existing shift-opening workflow; it never writes attendance itself.
+  if (requiresOperationalShift(session.role) && session.branchId) {
+    const shift = await getOpenShift(session.id, BigInt(session.branchId))
+    if (!shift) redirect('/shifts')
   }
-  redirect(requested)
+  redirect(requested ?? homeForRole(session.role))
 }
 
 /** Sign out and return to the login screen. */
