@@ -74,6 +74,7 @@ import {
 } from '../src/lib/route-access'
 import { canManageEmployeeLifecycle, canReadEmployeeDirectory, canReadSensitiveEmployeeData, canResetEmployeePassword, employeeDeactivationBlocker } from '../src/lib/hr-authz'
 import { canManageProducts, CatalogError, targetBranch } from '../src/lib/staff-catalog-write'
+import { selectCatalogBranch } from '../src/lib/catalog-branch'
 import { effectivePeriodsOverlap, evaluateAttendance, validateWeeklySchedule } from '../src/lib/hr-scheduling-policy'
 import { classifyUnassignedWaiterOrder } from '../src/lib/waiter-readiness-policy'
 import {
@@ -1186,4 +1187,12 @@ test('employee deactivation never removes the current or last active Owner and p
   assert.equal(employeeDeactivationBlocker({ ...base, targetId: 'owner-a' }), 'SELF')
   assert.equal(employeeDeactivationBlocker({ ...base, targetRole: ROLE.OWNER, activeOwnerCount: 1 }), 'LAST_OWNER')
   assert.equal(employeeDeactivationBlocker({ ...base, hasOpenShift: true }), 'OPEN_SHIFT')
+})
+
+test('catalog branch resolver auto-selects exactly one eligible active branch only', () => {
+  assert.equal(selectCatalogBranch([7n]), 7n)
+  assert.throws(() => selectCatalogBranch([]), (error: unknown) => error instanceof CatalogError && error.status === 503)
+  assert.throws(() => selectCatalogBranch([7n, 8n]), (error: unknown) => error instanceof CatalogError && error.status === 409)
+  assert.equal(selectCatalogBranch([7n, 8n], '8'), 8n)
+  assert.throws(() => selectCatalogBranch([7n], '8'), (error: unknown) => error instanceof CatalogError && error.status === 403)
 })

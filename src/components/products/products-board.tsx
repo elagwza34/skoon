@@ -35,12 +35,14 @@ export function ProductsBoard({
   canEdit,
   canToggle,
   canManageCategories = false,
+  canCreateCategories = false,
   branches = [],
 }: {
   catalog: StaffCatalog
   canEdit: boolean
   canToggle?: boolean
   canManageCategories?: boolean
+  canCreateCategories?: boolean
   branches?: { id: string; name: string }[]
 }) {
   const router = useRouter()
@@ -54,7 +56,7 @@ export function ProductsBoard({
   // Product create/edit form state (owner/manager)
   const [showForm, setShowForm] = useState(false)
   const [draft, setDraft] = useState<ProductDraft>(EMPTY_DRAFT)
-  const [createBranchId, setCreateBranchId] = useState(branches[0]?.id ?? '')
+  const [createBranchId, setCreateBranchId] = useState(branches.length === 1 ? branches[0].id : '')
   const [saving, setSaving] = useState(false)
   const [archivingId, setArchivingId] = useState<string | null>(null)
 
@@ -102,7 +104,7 @@ export function ProductsBoard({
   function openCreate() {
     setError(null)
     setSuccess(null)
-    const initialBranchId = branches[0]?.id ?? ''
+    const initialBranchId = branches.length === 1 ? branches[0].id : ''
     const initialCategory = initialBranchId
       ? catalog.categories.find((item) => item.branchId === initialBranchId)
       : catalog.categories[0]
@@ -164,7 +166,7 @@ export function ProductsBoard({
         isAvailable: draft.isAvailable,
         taxRate,
         inventoryItemId: draft.inventoryItemId || null,
-        ...(isEdit ? {} : { branchId: createBranchId }),
+        ...(isEdit || branches.length <= 1 ? {} : { branchId: createBranchId }),
       }
       const res = await fetch(isEdit ? `/api/staff/products/${draft.id}` : '/api/staff/products', {
         method: isEdit ? 'PATCH' : 'POST',
@@ -183,12 +185,12 @@ export function ProductsBoard({
     }
   }
 
-  const formCategories = draft.id || !createBranchId
+  const formCategories = draft.id
     ? catalog.categories
-    : catalog.categories.filter((item) => item.branchId === createBranchId)
-  const formInventoryItems = draft.id || !createBranchId
+    : createBranchId ? catalog.categories.filter((item) => item.branchId === createBranchId) : []
+  const formInventoryItems = draft.id
     ? catalog.inventoryItems
-    : catalog.inventoryItems.filter((item) => item.branchId === createBranchId)
+    : createBranchId ? catalog.inventoryItems.filter((item) => item.branchId === createBranchId) : []
 
   async function archiveProduct(id: string) {
     if (archivingId || !window.confirm('Archive this product? It will remain in historical orders.')) return
@@ -219,7 +221,7 @@ export function ProductsBoard({
       const res = await fetch('/api/staff/categories', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, ...(branches.length > 1 ? { branchId: createBranchId } : {}) }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data?.error ?? 'فشل إضافة التصنيف')
@@ -302,7 +304,7 @@ export function ProductsBoard({
                 {formInventoryItems.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
               </select>
             </label>
-            {!draft.id && branches.length > 0 ? (
+            {!draft.id && branches.length > 1 ? (
               <label className="flex flex-col gap-1 text-sm">
                 <span className="text-muted-foreground">الفرع</span>
                 <select
@@ -370,7 +372,7 @@ export function ProductsBoard({
         </div>
       ) : null}
 
-      {canManageCategories ? (
+      {canCreateCategories ? (
         <Card>
           <CardHeader>
             <CardTitle>التصنيفات</CardTitle>
@@ -381,10 +383,20 @@ export function ProductsBoard({
                 value={newCategory} onChange={(e) => setNewCategory(e.target.value)}
                 placeholder="تصنيف جديد…" aria-label="اسم تصنيف جديد" maxLength={100} className="max-w-xs"
               />
-              <Button size="sm" variant="outline" disabled={catBusy || !newCategory.trim()} onClick={addCategory}>
+              <Button size="sm" variant="outline" disabled={catBusy || !newCategory.trim() || (branches.length > 1 && !createBranchId)} onClick={addCategory}>
                 <Icon name="plus" size={16} /> إضافة
               </Button>
             </div>
+            {branches.length > 1 ? (
+              <label className="flex max-w-xs flex-col gap-1 text-sm">
+                <span className="text-muted-foreground">الفرع</span>
+                <select value={createBranchId} onChange={(e) => setCreateBranchId(e.target.value)} aria-label="فرع التصنيف"
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground">
+                  <option value="">اختر الفرع…</option>
+                  {branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
+                </select>
+              </label>
+            ) : null}
             {catalog.categories.length === 0 ? (
               <p className="text-sm text-muted-foreground">لا توجد تصنيفات بعد.</p>
             ) : (
@@ -393,13 +405,13 @@ export function ProductsBoard({
                   <li key={c.id} className="flex items-center gap-2 rounded-md border border-border px-2 py-1 text-sm">
                     <span className="text-foreground">{c.name}</span>
                     <Badge tone="muted">{c.productsCount}</Badge>
-                    <button
+                    {canManageCategories ? <button
                       type="button" onClick={() => deleteCategory(c.id)} disabled={catBusy}
                       aria-label={`حذف تصنيف ${c.name}`}
                       className="text-muted-foreground hover:text-destructive disabled:opacity-50"
                     >
                       <Icon name="trash" size={14} />
-                    </button>
+                    </button> : null}
                   </li>
                 ))}
               </ul>

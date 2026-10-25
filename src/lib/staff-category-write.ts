@@ -2,7 +2,8 @@ import { randomBytes } from 'crypto'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { staffCanAccessBranch, type StaffSession } from '@/lib/session'
-import { CatalogError, requireManager, targetBranch } from '@/lib/staff-catalog-write'
+import { CatalogError, canManageProducts } from '@/lib/staff-catalog-write'
+import { resolveCatalogBranch } from '@/lib/catalog-branch'
 
 /**
  * Category CRUD — server-only. Owner/manager only, branch-scoped.
@@ -35,10 +36,10 @@ function makeSlug(name: string): string {
 }
 
 export async function createStaffCategory(session: StaffSession, branchIdRaw: string | undefined, input: unknown) {
-  requireManager(session)
+  if (!canManageProducts(session.role)) throw new CatalogError('Forbidden', 403)
   const parsed = categorySchema.safeParse(input)
   if (!parsed.success) throw new CatalogError(parsed.error.issues[0]?.message ?? 'بيانات غير صالحة', 400)
-  const branchId = targetBranch(session, branchIdRaw)
+  const branchId = await resolveCatalogBranch(session, branchIdRaw)
 
   const name = parsed.data.name.trim()
   const dup = await prisma.category.findFirst({

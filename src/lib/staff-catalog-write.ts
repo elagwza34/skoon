@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { ROLE } from '@/lib/authz'
 import { staffCanAccessBranch, type StaffSession } from '@/lib/session'
 import { CatalogError } from '@/lib/staff-catalog'
+import { resolveCatalogBranch } from '@/lib/catalog-branch'
 
 // Re-export so category writes and API routes share one error type/source.
 export { CatalogError }
@@ -57,7 +58,7 @@ export async function createStaffProduct(session: StaffSession, branchIdRaw: str
   requireProductManager(session)
   const parsed = productSchema.safeParse(input)
   if (!parsed.success) throw new CatalogError(parsed.error.issues[0]?.message ?? 'بيانات غير صالحة', 400)
-  const branchId = targetBranch(session, branchIdRaw)
+  const branchId = await resolveCatalogBranch(session, branchIdRaw)
 
   const category = await prisma.category.findFirst({
     where: { id: BigInt(parsed.data.categoryId), branchId, deletedAt: null },

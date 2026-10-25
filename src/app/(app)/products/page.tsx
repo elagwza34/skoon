@@ -27,6 +27,7 @@ export default async function ProductsPage() {
     catalog={catalog}
     canEdit={canEdit}
     canToggle={canEdit}
+    canCreateCategories={canEdit}
     canManageCategories={session.role === ROLE.OWNER || session.role === ROLE.MANAGER}
     branches={branches.map((branch) => ({ id: branch.id.toString(), name: branch.name }))}
   />
