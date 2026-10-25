@@ -2,7 +2,7 @@ import { randomBytes } from 'crypto'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { staffCanAccessBranch, type StaffSession } from '@/lib/session'
-import { CatalogError, canManageProducts } from '@/lib/staff-catalog-write'
+import { CatalogError, canManageProducts, requireManager } from '@/lib/staff-catalog-write'
 import { resolveCatalogBranch } from '@/lib/catalog-branch'
 
 /**
