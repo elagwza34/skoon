@@ -26,9 +26,12 @@ interface ProductDraft {
   isAvailable: boolean
   taxRate: string
   inventoryItemId: string
+  attributeIds: string[]
+  variants: { valueIds: string[]; price: string; inventoryItemId: string }[]
 }
 
-const EMPTY_DRAFT: ProductDraft = { name: '', description: '', price: '', categoryId: '', isAvailable: true, taxRate: '0', inventoryItemId: '' }
+const EMPTY_DRAFT: ProductDraft = { name: '', description: '', price: '', categoryId: '', isAvailable: true, taxRate: '0', inventoryItemId: '', attributeIds: [], variants: [] }
+type VariantAttribute = { id: string; name: string; values: { id: string; label: string }[] }
 
 export function ProductsBoard({
   catalog,
@@ -59,6 +62,7 @@ export function ProductsBoard({
   const [createBranchId, setCreateBranchId] = useState(branches.length === 1 ? branches[0].id : '')
   const [saving, setSaving] = useState(false)
   const [archivingId, setArchivingId] = useState<string | null>(null)
+  const [variantAttributes, setVariantAttributes] = useState<VariantAttribute[]>([])
 
   // Category management state (owner/manager)
   const [newCategory, setNewCategory] = useState('')
@@ -111,6 +115,11 @@ export function ProductsBoard({
     setCreateBranchId(initialBranchId)
     setDraft({ ...EMPTY_DRAFT, categoryId: initialCategory?.id ?? '' })
     setShowForm(true)
+    void fetch('/api/staff/product-configuration', { cache: 'no-store' }).then(async (response) => {
+      if (!response.ok) return
+      const body = await response.json()
+      setVariantAttributes(body.attributes ?? [])
+    }).catch(() => undefined)
   }
 
   function openEdit(p: StaffCatalog['products'][number]) {
@@ -125,6 +134,7 @@ export function ProductsBoard({
       isAvailable: p.isAvailable,
       taxRate: p.taxRate,
       inventoryItemId: p.inventoryItemId ?? '',
+      attributeIds: [], variants: [],
     })
     setShowForm(true)
   }
@@ -166,6 +176,10 @@ export function ProductsBoard({
         isAvailable: draft.isAvailable,
         taxRate,
         inventoryItemId: draft.inventoryItemId || null,
+        ...(draft.attributeIds.length ? {
+          attributes: draft.attributeIds.map((attributeId) => ({ attributeId, isRequired: true, minSelections: 1, maxSelections: 1 })),
+          variants: draft.variants.map((variant) => ({ valueIds: variant.valueIds.map((valueId) => ({ valueId })), price: Number(variant.price), inventoryItemId: variant.inventoryItemId || null })),
+        } : {}),
         ...(isEdit || branches.length <= 1 ? {} : { branchId: createBranchId }),
       }
       const res = await fetch(isEdit ? `/api/staff/products/${draft.id}` : '/api/staff/products', {
@@ -359,6 +373,12 @@ export function ProductsBoard({
                 placeholder="وصف مختصر" aria-label="وصف المنتج" maxLength={500}
               />
             </label>
+            <div className="space-y-3 rounded-lg border border-primary/25 p-3 sm:col-span-2">
+              <div><p className="font-medium">متغيرات المنتج (اختياري)</p><p className="text-xs text-muted-foreground">اختر الخصائص ثم أضف كل تكوين بسعره المستقل. المنتج البسيط يبقى كما هو عند ترك هذا القسم فارغًا.</p></div>
+              {variantAttributes.length === 0 ? <p className="text-sm text-muted-foreground">أضف خصائص وقيمًا أولًا من قسم «خصائص ومتغيرات المنتجات» أسفل الصفحة.</p> : <div className="flex flex-wrap gap-2">{variantAttributes.map((attribute) => <label key={attribute.id} className="flex items-center gap-2 rounded border px-2 py-1 text-sm"><input type="checkbox" checked={draft.attributeIds.includes(attribute.id)} onChange={(event) => setDraft((current) => ({ ...current, attributeIds: event.target.checked ? [...current.attributeIds, attribute.id] : current.attributeIds.filter((id) => id !== attribute.id), variants: [] }))} />{attribute.name}</label>)}</div>}
+              {draft.attributeIds.length ? <Button size="sm" variant="outline" disabled={draft.attributeIds.some((id) => !(variantAttributes.find((attribute) => attribute.id === id)?.values.length))} onClick={() => setDraft((current) => ({ ...current, variants: [...current.variants, { valueIds: current.attributeIds.map((id) => variantAttributes.find((attribute) => attribute.id === id)?.values[0]?.id ?? ''), price: current.price, inventoryItemId: '' }] }))}><Icon name="plus" size={14} /> إضافة تكوين</Button> : null}
+              {draft.variants.map((variant, index) => <div key={index} className="grid gap-2 rounded border p-2 sm:grid-cols-[1fr_9rem_auto]"> <div className="grid gap-2 sm:grid-cols-2">{draft.attributeIds.map((attributeId) => { const attribute = variantAttributes.find((item) => item.id === attributeId); const valueIndex = draft.attributeIds.indexOf(attributeId); return <select key={attributeId} value={variant.valueIds[valueIndex] ?? ''} onChange={(event) => setDraft((current) => ({ ...current, variants: current.variants.map((item, itemIndex) => itemIndex !== index ? item : { ...item, valueIds: item.valueIds.map((value, currentIndex) => currentIndex === valueIndex ? event.target.value : value) }) }))} className="h-10 rounded border bg-background px-2 text-sm"><option value="">{attribute?.name}</option>{attribute?.values.map((value) => <option key={value.id} value={value.id}>{attribute.name}: {value.label}</option>)}</select> })}</div><Input type="number" min="0.01" step="0.01" value={variant.price} onChange={(event) => setDraft((current) => ({ ...current, variants: current.variants.map((item, itemIndex) => itemIndex === index ? { ...item, price: event.target.value } : item) }))} aria-label="سعر المتغير" /><Button size="sm" variant="ghost" onClick={() => setDraft((current) => ({ ...current, variants: current.variants.filter((_, itemIndex) => itemIndex !== index) }))}>حذف</Button></div>)}
+            </div>
             <div className="flex items-center gap-2 sm:col-span-2">
               <Button size="sm" disabled={saving} onClick={saveProduct}>
                 <Icon name="check" size={16} /> {saving ? 'جاري الحفظ…' : 'حفظ'}
