@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { formatCurrency, formatDateShort, formatTime } from '@/lib/format'
+import { formatCurrency, formatDateShort } from '@/lib/format'
 import type { InvoiceRow } from '@/lib/staff-invoices'
 
 export type ThermalPaymentResult = {
@@ -16,6 +16,7 @@ type PaperWidth = '80mm' | '58mm'
 
 const money = (value: number | string) => formatCurrency(Number(value))
 const orderTypeLabel = (value: string) => value.toLowerCase() === 'takeaway' ? 'سفري' : 'داخل الكافيه'
+const invoiceTime = (date: Date) => new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).format(date)
 
 export function ThermalReceiptPreview({ invoice, payment, autoPrint = false, onClose }: {
   invoice: InvoiceRow
@@ -82,7 +83,7 @@ export function ThermalReceiptPreview({ invoice, payment, autoPrint = false, onC
 
   return <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-2 sm:p-4" dir="rtl" role="dialog" aria-modal="true" aria-labelledby="thermal-receipt-title">
     <style>{`@media print {
-      @page { margin: 0; size: ${paperWidth === '80mm' ? '80mm 297mm' : '58mm 297mm'}; }
+      @page { margin: 0; }
       [data-thermal-receipt-shell] { width: 100% !important; max-width: 100% !important; overflow: visible !important; }
       .no-print { display: none !important; }
     }`}</style>
@@ -111,7 +112,7 @@ export function ThermalReceiptPreview({ invoice, payment, autoPrint = false, onC
             </div>)}
           </div>
           <div className="receipt-summary space-y-1 border-t border-black pt-2 text-xs">
-            <div className="flex justify-between gap-3 text-sm font-bold"><span>الإجمالي</span><strong dir="ltr">{money(invoice.total)}</strong></div>
+            <div className="flex justify-between gap-3 text-sm font-bold"><span>الإجمالي</span><strong dir="ltr">{money(invoice.subtotal)}</strong></div>
             <div className="flex justify-between gap-3"><span>الخصم</span><span dir="ltr">{Number(invoice.discount) > 0 ? `-${money(invoice.discount)}` : money(0)}</span></div>
             <div className="flex justify-between gap-3 border-t border-black pt-1 text-sm font-bold"><span>المدفوع</span><strong dir="ltr">{money(paid)}</strong></div>
           </div>
@@ -120,7 +121,7 @@ export function ThermalReceiptPreview({ invoice, payment, autoPrint = false, onC
             <MetadataRow label="الفرع" value={invoice.branch} />
             <MetadataRow label="رقم الفاتورة" value={invoice.number} ltr />
             <MetadataRow label="التاريخ" value={formatDateShort(createdAt)} />
-            <MetadataRow label="الوقت" value={formatTime(createdAt)} ltr />
+            <MetadataRow label="الوقت" value={invoiceTime(createdAt)} ltr />
             <MetadataRow label="نوع الطلب" value={orderTypeLabel(orderType)} />
             {isDineIn && invoice.table ? <MetadataRow label="الطاولة" value={invoice.table} /> : null}
             {invoice.creator ? <MetadataRow label="الكاشير" value={invoice.creator} /> : null}

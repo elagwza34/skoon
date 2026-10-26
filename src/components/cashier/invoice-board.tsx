@@ -15,16 +15,15 @@ type PaymentResult = ThermalPaymentResult & { remaining: string; invoice: Invoic
 type ReceiptPreviewState = { invoice: InvoiceRow; autoPrint?: boolean; payment?: ThermalPaymentResult }
 
 const money = (value: number | string) => formatMoney(Number(value))
-const dateTime = (value: string) => { const date = new Date(value); return `${formatDateShort(date)} ${formatTime(date)}` }
+const dateTime = (value: string) => { const date = new Date(value); const time = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).format(date); return `${formatDateShort(date)} ${time}` }
 const key = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`
 
 export function InvoiceBoard({ invoices, products, defaultTab = 'open', workspace = false }: {
   invoices: InvoiceRow[]; products: { id: string; name: string; price: string }[]; defaultTab?: InvoiceTab; workspace?: boolean
 }) {
   const router = useRouter(); const [query, setQuery] = useState(''); const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [preview, setPreview] = useState<ReceiptPreviewState | null>(null); const [received, setReceived] = useState(''); const [method, setMethod] = useState('cash') const [receivedNotice, setReceivedNotice] = useState<string | null>(null)
-  const [reason, setReason] = useState(''); const [notice, setNotice] = useState<string | null>(null); const [receipt, setReceipt] = useState<PaymentResult | null>(null); const [pending, startTransition] = useTransition()\n  \n  {/* Received amount notice */}
-  {receivedNotice && (\n    <p className=\"mt-1 text-red-600 text-xs font-normal\">{receivedNotice}</p>\n  )}
+  const [preview, setPreview] = useState<ReceiptPreviewState | null>(null); const [received, setReceived] = useState(''); const [method, setMethod] = useState('cash'); const [receivedNotice, setReceivedNotice] = useState<string | null>(null)
+  const [reason, setReason] = useState(''); const [notice, setNotice] = useState<string | null>(null); const [receipt, setReceipt] = useState<PaymentResult | null>(null); const [pending, startTransition] = useTransition()
   const [discountType, setDiscountType] = useState<'none' | 'percentage' | 'amount'>('none')
   const [discountValue, setDiscountValue] = useState('')
   const [invoiceNotes, setInvoiceNotes] = useState('')
@@ -36,7 +35,7 @@ export function InvoiceBoard({ invoices, products, defaultTab = 'open', workspac
   const editable = selected?.status !== 'cancelled' && Number(selected?.remaining ?? 0) > 0
   const readonlyList = defaultTab === 'paid' || defaultTab === 'cancelled'
   const refresh = (message?: string) => { setNotice(message ?? null); router.refresh() }
-  function collect() {
+  function resetSettlementDraft() {
 		if (!received || Number(received) <= 0) {
 			setReceivedNotice('يجب إدخال المبلغ المستلم قبل التحصيل');
 			setTimeout(() => setReceivedNotice(null), 5000);
@@ -105,7 +104,4 @@ function InvoiceEditor({ invoice, products, editable, pending, received, method,
  return <Card className={modal ? 'border-0 p-0 shadow-none' : 'p-4'}>{!modal && <div className="mb-3 flex justify-between"><div><h3 className="font-bold">{invoice.number}</h3><p className="text-xs text-muted-foreground">{dateTime(invoice.createdAt)} · {invoice.creator ?? '—'}</p></div><span>{invoice.status}</span></div>}<div className="space-y-2">{invoice.items.map(item => <div key={item.id} className="flex items-center justify-between gap-2 border-b py-2"><span>{item.name} × {item.quantity}</span><span>{money(item.lineTotal)}</span>{editable && <div className="flex gap-1"><Button size="sm" variant="secondary" disabled={pending || item.quantity <= 1} onClick={() => edit({ action: 'quantity', orderItemId: item.id, quantity: item.quantity - 1 })}>−</Button><Button size="sm" variant="secondary" disabled={pending} onClick={() => edit({ action: 'quantity', orderItemId: item.id, quantity: item.quantity + 1 })}>+</Button></div>}</div>)}</div>{editable && <select className="mt-3 w-full rounded-lg border p-2 text-sm" defaultValue="" onChange={e => { if (e.target.value) { edit({ action: 'add', productId: e.target.value, quantity: 1 }); e.currentTarget.value = '' } }}><option value="">إضافة صنف من الكتالوج…</option>{products.map(p => <option key={p.id} value={p.id}>{p.name} — {money(p.price)}</option>)}</select>}<Totals invoice={invoice} />{editable && <div className="mt-3 space-y-2 rounded-lg border border-amber-100 p-3"><div className="flex gap-2"><select value={discountType} onChange={e => setDiscountType(e.target.value as 'none' | 'percentage' | 'amount')} className="rounded-lg border p-2 text-sm"><option value="none">بدون خصم</option><option value="percentage">نسبة مئوية (%)</option><option value="amount">مبلغ ثابت</option></select><Input value={discountValue} onChange={e => setDiscountValue(e.target.value)} inputMode="decimal" placeholder="قيمة الخصم" className="rounded-lg border p-2 text-sm" /></div><Input value={invoiceNotes} onChange={e => setInvoiceNotes(e.target.value)} placeholder="ملاحظات على الفاتورة…" className="rounded-lg border p-2 text-sm w-full" />{financialNotice && <p className="text-xs text-destructive">{financialNotice}</p>}<Button disabled={pending} onClick={applyFinancials}>تطبيق الخصم والملاحظات</Button></div>}{(editable || cancellable) && <div className={modal ? 'sticky bottom-0 z-10 mt-4 grid gap-2 border-t bg-card py-3 sm:grid-cols-2' : 'mt-4 grid gap-2 sm:grid-cols-2'}>{editable && <><select value={method} onChange={e => setMethod(e.target.value)} className="rounded-lg border p-2"><option value="cash">نقدي</option><option value="mobile_wallet">محفظة إلكترونية</option><option value="instapay">انستا باي</option></select><Input value={received} onChange={e => setReceived(e.target.value)} inputMode="decimal" placeholder={`المستلم (المطلوب ${invoice.remaining})`} /><Button disabled={pending} onClick={collect}>تحصيل</Button><Button variant="secondary" onClick={onPrint}>طباعة / معاينة</Button></>}{cancellable && <div className="sm:col-span-2 rounded-lg border border-rose-200 p-3"><Input value={reason} onChange={e => setReason(e.target.value)} placeholder="سبب الإلغاء (مطلوب)" /><Button className="mt-2" variant="destructive" disabled={pending} onClick={cancel}>إلغاء الفاتورة</Button></div>}</div>}</Card>
 }
 
-{receivedNotice && (
-    <p className="mt-1 text-red-600 text-xs font-normal">{receivedNotice}</p>
-  )}
-  function Totals({ invoice }: { invoice: InvoiceRow }) { return <div className="mt-4 space-y-1 border-t pt-3 text-sm"><div className="flex justify-between"><span>الإجمالي</span><strong>{money(invoice.total)}</strong></div><div className="flex justify-between"><span>المحصل</span><span>{money(invoice.paid)}</span></div><div className="flex justify-between font-bold"><span>المتبقي</span><span>{money(invoice.remaining)}</span></div></div> }
+function Totals({ invoice }: { invoice: InvoiceRow }) { return <div className="mt-4 space-y-1 border-t pt-3 text-sm"><div className="flex justify-between"><span>الإجمالي قبل الخصم</span><strong>{money(invoice.subtotal)}</strong></div><div className="flex justify-between"><span>المحصل</span><span>{money(invoice.paid)}</span></div><div className="flex justify-between font-bold"><span>المتبقي</span><span>{money(invoice.remaining)}</span></div></div> }
