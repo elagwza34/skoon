@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, useTransition } from 'react'
+import { useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -48,6 +48,25 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+
+  function openInvite() {
+    setError(null)
+    setSuccess(null)
+    setInvOpen(true)
+  }
+
+  function closeInvite() {
+    if (!saving) setInvOpen(false)
+  }
+
+  useEffect(() => {
+    if (!invOpen) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !saving) setInvOpen(false)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [invOpen, saving])
 
   const rows = useMemo(() => {
     const q = query.trim()
@@ -169,14 +188,15 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
           placeholder="ابحث بالاسم أو البريد…" aria-label="بحث الموظفين" className="max-w-xs"
         />
         {directory.canManage ? (
-          <Button variant="outline" onClick={() => setInvOpen((v) => !v)}>
+          <Button variant="outline" onClick={openInvite}>
             <Icon name="plus" size={16} /> إضافة موظف
           </Button>
         ) : null}
       </div>
 
       {directory.canManage && invOpen ? (
-        <Card>
+        <div role="dialog" aria-modal="true" aria-label="إضافة موظف جديد" className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-3 sm:p-6">
+        <Card className="mx-auto my-4 w-full max-w-4xl sm:my-8">
           <CardHeader>
             <CardTitle>إضافة موظف جديد</CardTitle>
             <CardDescription>أنشئ اسم مستخدم وكلمة مرور مباشرة؛ لا تُرسل رسالة دعوة أو كلمة مرور بالبريد.</CardDescription>
@@ -248,6 +268,7 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
             </div>
           </CardContent>
         </Card>
+        </div>
       ) : null}
 
       <Card>
