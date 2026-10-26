@@ -89,6 +89,14 @@ export function ProductsBoard({
     startTransition(() => router.refresh())
   }
 
+  async function loadVariantAttributes(branchId: string) {
+    if (!branchId) { setVariantAttributes([]); return }
+    const response = await fetch(`/api/staff/product-configuration?branchId=${encodeURIComponent(branchId)}`, { cache: 'no-store' })
+    if (!response.ok) { setVariantAttributes([]); return }
+    const body = await response.json()
+    setVariantAttributes(body.attributes ?? [])
+  }
+
   async function toggle(id: string) {
     setPendingId(id)
     setError(null)
@@ -115,11 +123,7 @@ export function ProductsBoard({
     setCreateBranchId(initialBranchId)
     setDraft({ ...EMPTY_DRAFT, categoryId: initialCategory?.id ?? '' })
     setShowForm(true)
-    void fetch('/api/staff/product-configuration', { cache: 'no-store' }).then(async (response) => {
-      if (!response.ok) return
-      const body = await response.json()
-      setVariantAttributes(body.attributes ?? [])
-    }).catch(() => undefined)
+    void loadVariantAttributes(initialBranchId).catch(() => undefined)
   }
 
   function openEdit(p: StaffCatalog['products'][number]) {
@@ -137,6 +141,7 @@ export function ProductsBoard({
       attributeIds: [], variants: [],
     })
     setShowForm(true)
+    void loadVariantAttributes(p.branchId).catch(() => undefined)
   }
 
   async function saveProduct() {
@@ -328,6 +333,7 @@ export function ProductsBoard({
                     const firstCategory = catalog.categories.find((item) => item.branchId === branchId)
                     setCreateBranchId(branchId)
                     setDraft((current) => ({ ...current, categoryId: firstCategory?.id ?? '', inventoryItemId: '' }))
+                    void loadVariantAttributes(branchId)
                   }}
                   aria-label="فرع المنتج"
                   className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"

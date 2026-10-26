@@ -18,6 +18,7 @@ export interface CatalogCategory {
 
 export interface CatalogProduct {
   id: string
+  branchId: string
   name: string
   description: string | null
   price: string
@@ -58,7 +59,7 @@ export async function getStaffCatalog(session: StaffSession): Promise<StaffCatal
       where: { ...branchScope, deletedAt: null },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
       select: {
-        id: true, name: true, description: true, price: true, imagePath: true,
+        id: true, branchId: true, name: true, description: true, price: true, imagePath: true,
         categoryId: true, isActive: true, isAvailable: true, taxRate: true, inventoryItemId: true, sortOrder: true,
         category: { select: { name: true } },
       },
@@ -110,7 +111,7 @@ export async function getStaffCatalog(session: StaffSession): Promise<StaffCatal
     products: products.map((p) => {
       const agg = variantAgg.get(p.id.toString()) ?? { count: 0, ids: [] }
       return {
-        id: p.id.toString(), name: p.name, description: p.description,
+        id: p.id.toString(), branchId: p.branchId.toString(), name: p.name, description: p.description,
         price: p.price.toString(), imagePath: p.imagePath,
         categoryId: p.categoryId.toString(), categoryName: p.category.name,
         isActive: p.isActive, isAvailable: p.isAvailable, taxRate: p.taxRate.toString(),

@@ -33,6 +33,6 @@ export default async function ProductsPage() {
       canManageCategories={session.role === ROLE.OWNER || session.role === ROLE.MANAGER}
       branches={branches.map((branch) => ({ id: branch.id.toString(), name: branch.name }))}
     />
-    {session.role === ROLE.OWNER ? <ProductConfigurationBoard /> : null}
+    {session.role === ROLE.OWNER ? <ProductConfigurationBoard branches={branches.map((branch) => ({ id: branch.id.toString(), name: branch.name }))} /> : null}
   </div>
 }
