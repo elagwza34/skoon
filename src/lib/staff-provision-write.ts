@@ -44,6 +44,16 @@ const inviteSchema = z.object({
   role: z.string().trim().refine(isKnownRole, 'دور غير معروف'),
   branchId: z.string().regex(/^\d+$/, 'فرع غير صالح').optional(),
   accountMode: z.enum(['invite', 'password']).default('invite'),
+  phone: z.string().trim().max(20).optional(),
+  personalEmail: z.string().trim().email('البريد الشخصي غير صالح').max(150).optional(),
+  personalPhone: z.string().trim().max(30).optional(),
+  address: z.string().trim().max(500).optional(),
+  emergencyContactName: z.string().trim().max(150).optional(),
+  emergencyContactPhone: z.string().trim().max(30).optional(),
+  employmentType: z.string().trim().max(30).optional(),
+  hireDate: z.coerce.date().optional(),
+  probationStart: z.coerce.date().optional(),
+  probationEnd: z.coerce.date().optional(),
   permanentPassword: z.string().min(12, 'كلمة المرور يجب أن تكون 12 حرفاً على الأقل').max(72).optional(),
 }).superRefine((value, ctx) => {
   const username = value.username ? normalizeStaffUsername(value.username) : null
@@ -56,7 +66,17 @@ const inviteSchema = z.object({
   if ((value.accountMode === 'password' || username) && !value.permanentPassword) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['permanentPassword'], message: 'أدخل كلمة المرور الدائمة' })
   }
+  if ((value.probationStart && !value.probationEnd) || (!value.probationStart && value.probationEnd)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['probationEnd'], message: 'فترة التجربة تحتاج تاريخ بداية ونهاية' })
+  }
+  if (value.probationStart && value.probationEnd && value.probationEnd < value.probationStart) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['probationEnd'], message: 'نهاية فترة التجربة يجب أن تكون بعد بدايتها' })
+  }
 })
+
+function asDateOnly(value: Date) {
+  return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()))
+}
 
 const updateSchema = z.object({
   role: z.string().trim().refine(isKnownRole, 'دور غير معروف').optional(),
@@ -163,26 +183,47 @@ export async function inviteStaff(session: StaffSession, input: unknown): Promis
   }
 
   try {
-    const created = await prisma.user.create({
-      data: {
-        id: data.user.id,
-        name,
-        email,
-        roleId: assignment.roleId,
-        branchId: assignment.branchId,
-        isActive: true,
-      },
-      select: { id: true, name: true, email: true, branchId: true },
-    })
+    const created = await prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: {
+          id: data.user.id,
+          name,
+          email,
+          roleId: assignment.roleId,
+          branchId: assignment.branchId,
+          isActive: true,
+          ...(parsed.data.phone ? { phone: parsed.data.phone } : {}),
+        },
+        select: { id: true, name: true, email: true, branchId: true },
+      })
 
-    await prisma.auditLog.create({
-      data: {
-        userId: session.id,
-        branchId: assignment.branchId,
-        action: directPasswordAccount ? 'staff.create_with_password' : 'staff.invite',
-        entityType: 'user',
-        newValues: { userId: created.id, ...(username ? { username } : { email }), role: roleSlug, accountMode: directPasswordAccount ? 'password' : 'invite' },
-      },
+      await tx.employeeProfile.create({
+        data: {
+          userId: user.id,
+          branchId: assignment.branchId,
+          employmentType: parsed.data.employmentType || null,
+          hireDate: asDateOnly(parsed.data.hireDate ?? new Date()),
+          personalEmail: parsed.data.personalEmail || null,
+          personalPhone: parsed.data.personalPhone || null,
+          address: parsed.data.address || null,
+          emergencyContactName: parsed.data.emergencyContactName || null,
+          emergencyContactPhone: parsed.data.emergencyContactPhone || null,
+          probationStart: parsed.data.probationStart ? asDateOnly(parsed.data.probationStart) : null,
+          probationEnd: parsed.data.probationEnd ? asDateOnly(parsed.data.probationEnd) : null,
+          probationStatus: parsed.data.probationStart ? 'active' : null,
+        },
+      })
+
+      await tx.auditLog.create({
+        data: {
+          userId: session.id,
+          branchId: assignment.branchId,
+          action: directPasswordAccount ? 'staff.create_with_password' : 'staff.invite',
+          entityType: 'user',
+          newValues: { userId: user.id, ...(username ? { username } : { email }), role: roleSlug, accountMode: directPasswordAccount ? 'password' : 'invite', employeeProfileCreated: true },
+        },
+      })
+      return user
     })
 
     return {

@@ -35,6 +35,16 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
   const [branchId, setBranchId] = useState(directory.branches[0]?.id ?? '')
   const [permanentPassword, setPermanentPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [phone, setPhone] = useState('')
+  const [employmentType, setEmploymentType] = useState('')
+  const [hireDate, setHireDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [probationStart, setProbationStart] = useState('')
+  const [probationEnd, setProbationEnd] = useState('')
+  const [personalEmail, setPersonalEmail] = useState('')
+  const [personalPhone, setPersonalPhone] = useState('')
+  const [address, setAddress] = useState('')
+  const [emergencyContactName, setEmergencyContactName] = useState('')
+  const [emergencyContactPhone, setEmergencyContactPhone] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
@@ -63,6 +73,16 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
           branchId: role === 'owner' ? undefined : branchId || undefined,
           accountMode: 'password',
           permanentPassword,
+          ...(phone.trim() ? { phone: phone.trim() } : {}),
+          ...(employmentType.trim() ? { employmentType: employmentType.trim() } : {}),
+          ...(hireDate ? { hireDate } : {}),
+          ...(probationStart ? { probationStart } : {}),
+          ...(probationEnd ? { probationEnd } : {}),
+          ...(personalEmail.trim() ? { personalEmail: personalEmail.trim() } : {}),
+          ...(personalPhone.trim() ? { personalPhone: personalPhone.trim() } : {}),
+          ...(address.trim() ? { address: address.trim() } : {}),
+          ...(emergencyContactName.trim() ? { emergencyContactName: emergencyContactName.trim() } : {}),
+          ...(emergencyContactPhone.trim() ? { emergencyContactPhone: emergencyContactPhone.trim() } : {}),
         }),
       })
       const data = await res.json().catch(() => ({}))
@@ -72,6 +92,16 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
       setName('')
       setPermanentPassword('')
       setConfirmPassword('')
+      setPhone('')
+      setEmploymentType('')
+      setHireDate(new Date().toISOString().slice(0, 10))
+      setProbationStart('')
+      setProbationEnd('')
+      setPersonalEmail('')
+      setPersonalPhone('')
+      setAddress('')
+      setEmergencyContactName('')
+      setEmergencyContactPhone('')
       setInvOpen(false)
       startTransition(() => router.refresh())
     } catch (e) {
@@ -174,8 +204,24 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
                 </label>
               ) : null}
             </div>
+            <details className="mt-4 rounded-lg border border-border p-3">
+              <summary className="cursor-pointer text-sm font-medium">بيانات ملف HR الأساسية</summary>
+              <p className="mt-1 text-xs text-muted-foreground">تُنشأ بطاقة HR مع الحساب. أدخل البيانات المتاحة الآن ويمكن استكمالها لاحقًا من ملف الموظف.</p>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <label className="flex flex-col gap-1.5 text-sm"><span className="text-muted-foreground">هاتف العمل</span><Input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" /></label>
+                <label className="flex flex-col gap-1.5 text-sm"><span className="text-muted-foreground">نوع التوظيف</span><Input value={employmentType} onChange={(e) => setEmploymentType(e.target.value)} placeholder="دوام كامل / جزئي / تحت التجربة" /></label>
+                <label className="flex flex-col gap-1.5 text-sm"><span className="text-muted-foreground">تاريخ التعيين</span><Input type="date" value={hireDate} onChange={(e) => setHireDate(e.target.value)} /></label>
+                <label className="flex flex-col gap-1.5 text-sm"><span className="text-muted-foreground">البريد الشخصي</span><Input type="email" value={personalEmail} onChange={(e) => setPersonalEmail(e.target.value)} /></label>
+                <label className="flex flex-col gap-1.5 text-sm"><span className="text-muted-foreground">الهاتف الشخصي</span><Input value={personalPhone} onChange={(e) => setPersonalPhone(e.target.value)} inputMode="tel" /></label>
+                <label className="flex flex-col gap-1.5 text-sm"><span className="text-muted-foreground">العنوان</span><Input value={address} onChange={(e) => setAddress(e.target.value)} /></label>
+                <label className="flex flex-col gap-1.5 text-sm"><span className="text-muted-foreground">بداية فترة التجربة</span><Input type="date" value={probationStart} onChange={(e) => setProbationStart(e.target.value)} /></label>
+                <label className="flex flex-col gap-1.5 text-sm"><span className="text-muted-foreground">نهاية فترة التجربة</span><Input type="date" value={probationEnd} onChange={(e) => setProbationEnd(e.target.value)} /></label>
+                <label className="flex flex-col gap-1.5 text-sm"><span className="text-muted-foreground">اسم جهة الطوارئ</span><Input value={emergencyContactName} onChange={(e) => setEmergencyContactName(e.target.value)} /></label>
+                <label className="flex flex-col gap-1.5 text-sm"><span className="text-muted-foreground">هاتف جهة الطوارئ</span><Input value={emergencyContactPhone} onChange={(e) => setEmergencyContactPhone(e.target.value)} inputMode="tel" /></label>
+              </div>
+            </details>
             <div className="mt-4 flex items-center gap-3">
-              <Button onClick={createEmployee} disabled={saving || !username.trim() || !name.trim() || permanentPassword.length < 12 || permanentPassword !== confirmPassword}>
+              <Button onClick={createEmployee} disabled={saving || !username.trim() || !name.trim() || permanentPassword.length < 12 || permanentPassword !== confirmPassword || Boolean(probationStart) !== Boolean(probationEnd) || (probationStart !== '' && probationEnd !== '' && probationEnd < probationStart)}>
                 <Icon name="check" size={16} /> {saving ? 'جارٍ الإنشاء…' : 'إنشاء الحساب'}
               </Button>
               <Button variant="ghost" onClick={() => setInvOpen(false)}>إلغاء</Button>

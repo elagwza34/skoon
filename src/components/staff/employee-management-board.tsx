@@ -111,14 +111,20 @@ function EmployeeDetailPanel({ employee, canManage, onClose, onChanged, onArchiv
   const [phone, setPhone] = useState(employee.phone ?? '')
   const [employmentType, setEmploymentType] = useState(p?.employmentType ?? '')
   const [hireDate, setHireDate] = useState(dateInput(p?.hireDate))
+  const [personalEmail, setPersonalEmail] = useState(p?.personalEmail ?? '')
+  const [personalPhone, setPersonalPhone] = useState(p?.personalPhone ?? '')
+  const [address, setAddress] = useState(p?.address ?? '')
   const [emergencyName, setEmergencyName] = useState(p?.emergencyContactName ?? '')
   const [emergencyPhone, setEmergencyPhone] = useState(p?.emergencyContactPhone ?? '')
+  const [probationStart, setProbationStart] = useState(dateInput(p?.probationStart))
+  const [probationEnd, setProbationEnd] = useState(dateInput(p?.probationEnd))
+  const [probationStatus, setProbationStatus] = useState(p?.probationStatus ?? '')
   const [busy, setBusy] = useState(false)
 
   async function save() {
     setBusy(true); setError(null)
     try {
-      const response = await fetch(`/api/staff/employees/${employee.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, phone: phone || null, employmentType: employmentType || null, hireDate: hireDate || null, emergencyContactName: emergencyName || null, emergencyContactPhone: emergencyPhone || null }) })
+      const response = await fetch(`/api/staff/employees/${employee.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, phone: phone || null, employmentType: employmentType || null, hireDate: hireDate || null, personalEmail: personalEmail || null, personalPhone: personalPhone || null, address: address || null, emergencyContactName: emergencyName || null, emergencyContactPhone: emergencyPhone || null, probationStart: probationStart || null, probationEnd: probationEnd || null, probationStatus: probationStatus || null }) })
       const data = await response.json().catch(() => ({})); if (!response.ok) throw new Error(data.error ?? 'تعذر حفظ الملف')
       onChanged()
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'تعذر حفظ الملف') }
@@ -137,6 +143,15 @@ function EmployeeDetailPanel({ employee, canManage, onClose, onChanged, onArchiv
         <label className="text-sm">هاتف جهة الطوارئ<Input value={emergencyPhone} onChange={(event) => setEmergencyPhone(event.target.value)} /></label>
       </div>
       <div className="flex flex-wrap gap-2"><Button onClick={() => void save()} disabled={busy}>حفظ الملف</Button>{p?.employmentStatus === 'archived' || p?.employmentStatus === 'terminated' ? <Button variant="outline" onClick={() => void onReactivate()}>إعادة التفعيل</Button> : <><Button variant="outline" onClick={() => void onTerminate()}>إنهاء الخدمة</Button><Button variant="destructive" onClick={() => void onArchive()}>أرشفة</Button></>}</div>
+      <div className="grid gap-3 rounded-lg border border-border bg-background p-3 sm:grid-cols-2">
+        <label className="text-sm">البريد الشخصي<Input type="email" value={personalEmail} onChange={(event) => setPersonalEmail(event.target.value)} /></label>
+        <label className="text-sm">الهاتف الشخصي<Input value={personalPhone} onChange={(event) => setPersonalPhone(event.target.value)} /></label>
+        <label className="text-sm sm:col-span-2">العنوان<Input value={address} onChange={(event) => setAddress(event.target.value)} /></label>
+        <label className="text-sm">بداية فترة التجربة<Input type="date" value={probationStart} onChange={(event) => setProbationStart(event.target.value)} /></label>
+        <label className="text-sm">نهاية فترة التجربة<Input type="date" value={probationEnd} onChange={(event) => setProbationEnd(event.target.value)} /></label>
+        <label className="text-sm">حالة فترة التجربة<select value={probationStatus} onChange={(event) => setProbationStatus(event.target.value)} className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-3 text-foreground"><option value="">غير محددة</option><option value="active">قيد التجربة</option><option value="passed">تم التثبيت</option><option value="failed">لم يجتز</option><option value="cancelled">ملغاة</option></select></label>
+      </div>
+      <div><Button onClick={() => void save()} disabled={busy}>حفظ بيانات HR</Button></div>
       <HistoryPanels employee={employee} post={post} onChanged={onChanged} setError={setError} />
     </>}
   </section>

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge, type BadgeTone } from '@/components/ui/badge'
 import { Segmented } from '@/components/ui/segmented'
@@ -96,6 +97,7 @@ export function OwnerCommandCenter({ stats, managerOperations, waiterReadiness, 
         </div>
         <div className="col-span-12 lg:col-span-4">
           <QuickActionsCompact user={session} />
+          <Link href="/staff" className="flex min-h-10 items-center justify-center rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90">إدارة الموظفين وإضافة موظف</Link>
         </div>
       </div>
     </main>
