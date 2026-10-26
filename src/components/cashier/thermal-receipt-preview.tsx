@@ -81,11 +81,15 @@ export function ThermalReceiptPreview({ invoice, payment, autoPrint = false, onC
   const isDineIn = orderType.toLowerCase() === 'dine_in'
 
   return <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-2 sm:p-4" dir="rtl" role="dialog" aria-modal="true" aria-labelledby="thermal-receipt-title">
-    <style>{`@media print { @page { size: ${paperWidth} auto; margin: 0; } }`}</style>
+    <style>{`@media print {
+      @page { margin: 0; size: ${paperWidth === '80mm' ? '80mm 297mm' : '58mm 297mm'}; }
+      [data-thermal-receipt-shell] { width: 100% !important; max-width: 100% !important; overflow: visible !important; }
+      .no-print { display: none !important; }
+    }`}</style>
     <Card data-thermal-receipt-shell className="flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden">
       <header className="flex shrink-0 items-center justify-between gap-3 border-b bg-card px-4 py-3">
         <div><h2 id="thermal-receipt-title" className="font-bold">معاينة الإيصال الحراري</h2><p className="text-xs text-muted-foreground">لن يتغير التحصيل أو حالة الفاتورة بالطباعة.</p></div>
-        <Button variant="ghost" onClick={onClose}>إغلاق</Button>
+        <Button variant="ghost" onClick={onClose} className="no-print">إغلاق</Button>
       </header>
       <div data-thermal-receipt-scroll className="overflow-y-auto bg-muted/30 p-4">
         <section
@@ -126,7 +130,7 @@ export function ThermalReceiptPreview({ invoice, payment, autoPrint = false, onC
           <footer className="mt-3 border-t border-black pt-2 text-center text-[11px]">شكرًا لزيارتكم</footer>
         </section>
       </div>
-      <footer data-print-controls className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t bg-card px-4 py-3">
+      <footer data-print-controls className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t bg-card px-4 py-3 no-print">
         <label className="flex items-center gap-2 text-sm">عرض الورق
           <select disabled={isPrinting} value={paperWidth} onChange={(event) => setPaperWidth(event.target.value as PaperWidth)} className="rounded border bg-background px-2 py-1 text-sm"><option value="80mm">80 مم</option><option value="58mm">58 مم</option></select>
         </label>
