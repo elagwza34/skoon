@@ -148,8 +148,8 @@
   body.skoon-thermal-printing [data-thermal-receipt] {
     position: absolute !important;
     top: 0 !important;
-    right: 4mm !important;
-    left: auto !important;
+    right: auto !important;
+    left: 50% !important;
     width: var(--thermal-content-width, 71.5mm) !important;
     max-width: var(--thermal-content-width, 71.5mm) !important;
     min-height: 0 !important;
@@ -164,6 +164,7 @@
     line-height: 1.45 !important;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
+    transform: translateX(-50%) !important;
   }
 
   /* The screen preview deliberately scrolls inside a capped dialog. Undo those
