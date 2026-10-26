@@ -147,16 +147,23 @@
 
   body.skoon-thermal-printing [data-thermal-receipt] {
     position: absolute !important;
-    inset: 0 auto auto 0 !important;
-    width: var(--thermal-width, 80mm) !important;
-    max-width: var(--thermal-width, 80mm) !important;
+    top: 0 !important;
+    right: 4mm !important;
+    left: auto !important;
+    width: var(--thermal-content-width, 72mm) !important;
+    max-width: var(--thermal-content-width, 72mm) !important;
     min-height: 0 !important;
     margin: 0 !important;
-    padding: 0 !important;
+    padding: 2mm 0 !important;
     overflow: visible !important;
     box-shadow: none !important;
     background: #fff !important;
     color: #000 !important;
+    direction: rtl !important;
+    font-size: 12px !important;
+    line-height: 1.45 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 
   body.skoon-thermal-printing [data-print-controls],
@@ -166,6 +173,13 @@
   }
 
   body.skoon-thermal-printing .receipt-item {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  body.skoon-thermal-printing [data-thermal-receipt] header,
+  body.skoon-thermal-printing [data-thermal-receipt] footer,
+  body.skoon-thermal-printing [data-thermal-receipt] > div {
     break-inside: avoid;
     page-break-inside: avoid;
   }

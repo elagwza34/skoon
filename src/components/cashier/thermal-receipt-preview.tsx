@@ -28,15 +28,29 @@ export function ThermalReceiptPreview({ invoice, payment, autoPrint = false, onC
 }) {
   const [paperWidth, setPaperWidth] = useState<PaperWidth>('80mm')
   const printedAutomatically = useRef(false)
+  const printing = useRef(false)
+  const [isPrinting, setIsPrinting] = useState(false)
 
   function printReceipt() {
+    // Do not queue another browser print dialog while one is already pending.
+    // This is particularly important on kiosk workstations where repeated clicks
+    // would otherwise produce duplicate physical receipts.
+    if (printing.current) return
+    printing.current = true
+    setIsPrinting(true)
     document.body.classList.add('skoon-thermal-printing')
-    const fontsReady = document.fonts?.ready ?? Promise.resolve()
-    void fontsReady.catch(() => undefined).then(() => requestAnimationFrame(() => window.print()))
+
+    // The receipt is already mounted before this handler is available. One frame
+    // lets Chrome apply the print-only target without initiating a print on load.
+    requestAnimationFrame(() => window.print())
   }
 
   useEffect(() => {
-    const clearPrintTarget = () => document.body.classList.remove('skoon-thermal-printing')
+    const clearPrintTarget = () => {
+      document.body.classList.remove('skoon-thermal-printing')
+      printing.current = false
+      setIsPrinting(false)
+    }
     window.addEventListener('afterprint', clearPrintTarget)
     return () => {
       window.removeEventListener('afterprint', clearPrintTarget)
@@ -55,14 +69,21 @@ export function ThermalReceiptPreview({ invoice, payment, autoPrint = false, onC
   const method = payment?.method ?? invoice.payments.map((item) => item.method).join(' / ')
 
   return <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-2 sm:p-4" dir="rtl" role="dialog" aria-modal="true" aria-labelledby="thermal-receipt-title">
-    <style>{`@media print { @page { size: ${paperWidth} auto; margin: 2mm; } }`}</style>
+    <style>{`@media print { @page { size: ${paperWidth} auto; margin: 0; } }`}</style>
     <Card className="flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden">
       <header className="flex shrink-0 items-center justify-between gap-3 border-b bg-card px-4 py-3">
         <div><h2 id="thermal-receipt-title" className="font-bold">معاينة الإيصال الحراري</h2><p className="text-xs text-muted-foreground">لن يتغير التحصيل أو حالة الفاتورة بالطباعة.</p></div>
         <Button variant="ghost" onClick={onClose}>إغلاق</Button>
       </header>
       <div className="overflow-y-auto bg-muted/30 p-4">
-        <section data-thermal-receipt style={{ '--thermal-width': paperWidth } as CSSProperties} className="thermal-receipt mx-auto w-full bg-white p-3 text-right text-black shadow-sm" dir="rtl">
+        <section
+          data-thermal-receipt
+          style={{
+            '--thermal-content-width': paperWidth === '80mm' ? '72mm' : '50mm',
+          } as CSSProperties}
+          className="thermal-receipt mx-auto w-full bg-white p-3 text-right text-black shadow-sm"
+          dir="rtl"
+        >
           <header className="border-b border-black pb-2 text-center">
             <h1 className="text-base font-bold">سكون</h1>
             <p className="mt-1 text-xs">{invoice.branch}</p>
@@ -94,9 +115,9 @@ export function ThermalReceiptPreview({ invoice, payment, autoPrint = false, onC
       </div>
       <footer data-print-controls className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t bg-card px-4 py-3">
         <label className="flex items-center gap-2 text-sm">عرض الورق
-          <select value={paperWidth} onChange={(event) => setPaperWidth(event.target.value as PaperWidth)} className="rounded border bg-background px-2 py-1 text-sm"><option value="80mm">80 مم</option><option value="58mm">58 مم</option></select>
+          <select disabled={isPrinting} value={paperWidth} onChange={(event) => setPaperWidth(event.target.value as PaperWidth)} className="rounded border bg-background px-2 py-1 text-sm"><option value="80mm">80 مم</option><option value="58mm">58 مم</option></select>
         </label>
-        <Button onClick={printReceipt}>طباعة</Button>
+        <Button onClick={printReceipt} disabled={isPrinting}>{isPrinting ? 'جارٍ الإرسال للطابعة…' : 'طباعة'}</Button>
       </footer>
     </Card>
   </div>
