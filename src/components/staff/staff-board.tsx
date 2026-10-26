@@ -59,9 +59,29 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
 
   async function createEmployee() {
     if (saving) return
-    setSaving(true)
     setError(null)
     setSuccess(null)
+    if (!name.trim() || !username.trim()) {
+      setError('أدخل اسم الموظف واسم المستخدم أولًا.')
+      return
+    }
+    if (permanentPassword.length < 12) {
+      setError('كلمة المرور يجب أن تكون 12 حرفًا على الأقل.')
+      return
+    }
+    if (permanentPassword !== confirmPassword) {
+      setError('تأكيد كلمة المرور غير مطابق.')
+      return
+    }
+    if (Boolean(probationStart) !== Boolean(probationEnd)) {
+      setError('أدخل تاريخ بداية ونهاية فترة التجربة معًا، أو اتركهما فارغين.')
+      return
+    }
+    if (probationStart && probationEnd && probationEnd < probationStart) {
+      setError('نهاية فترة التجربة يجب أن تكون بعد بدايتها.')
+      return
+    }
+    setSaving(true)
     try {
       const res = await fetch('/api/staff/users', {
         method: 'POST',
@@ -221,7 +241,7 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
               </div>
             </details>
             <div className="mt-4 flex items-center gap-3">
-              <Button onClick={createEmployee} disabled={saving || !username.trim() || !name.trim() || permanentPassword.length < 12 || permanentPassword !== confirmPassword || Boolean(probationStart) !== Boolean(probationEnd) || (probationStart !== '' && probationEnd !== '' && probationEnd < probationStart)}>
+              <Button onClick={createEmployee} disabled={saving}>
                 <Icon name="check" size={16} /> {saving ? 'جارٍ الإنشاء…' : 'إنشاء الحساب'}
               </Button>
               <Button variant="ghost" onClick={() => setInvOpen(false)}>إلغاء</Button>
