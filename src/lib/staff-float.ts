@@ -4,9 +4,24 @@ import { prisma } from '@/lib/prisma'
 import { ROLE, hasAtLeast } from '@/lib/authz'
 import { staffCanAccessBranch, type StaffSession } from '@/lib/session'
 import { getOpenShift } from '@/lib/staff-shifts'
+import { FinancialShiftLockError, type FinancialTransaction, lockAndReadShift } from '@/lib/financial-shift-lock'
 
 export class FloatError extends Error {
   constructor(message: string, readonly status = 400) { super(message); this.name = 'FloatError' }
+}
+
+/** Revalidate a pre-transaction shift lookup under the shared cash lock. */
+async function lockCashierShiftForMovement(tx: FinancialTransaction, shiftId: bigint, session: StaffSession, branchId: bigint) {
+  try {
+    const locked = await lockAndReadShift(tx, shiftId)
+    if (!locked || locked.status !== 'open' || locked.cashierId !== session.id || locked.branchId !== branchId) {
+      throw new FloatError('لا توجد وردية مفتوحة لهذا الموظف', 409)
+    }
+    return locked
+  } catch (error) {
+    if (error instanceof FinancialShiftLockError) throw new FloatError(error.message, error.status)
+    throw error
+  }
 }
 
 export const floatMovementSchema = z.object({
@@ -78,6 +93,7 @@ export async function recordSharedFloatAdvance(session: StaffSession, input: unk
   const branchId = BigInt(session.branchId); const shift = await getOpenShift(session.id, branchId); if (!shift) throw new FloatError('An open shift is required', 409)
   const key = parsed.data.idempotencyKey ?? createHash('sha256').update(`${session.id}:${Date.now()}:${Math.random()}`).digest('hex'); const type = 'fixed_float_advance'; const fingerprint = createHash('sha256').update(JSON.stringify({ amount: parsed.data.amount, reason: parsed.data.reason, branchId: branchId.toString() })).digest('hex')
   return prisma.$transaction(async (tx) => {
+    await lockCashierShiftForMovement(tx, shift.id, session, branchId)
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('shared-float:' || ${branchId.toString()}))`
     const prior = await tx.financialOperation.findUnique({ where: { branchId_actorId_operationType_idempotencyKey: { branchId, actorId: session.id, operationType: type, idempotencyKey: key } } }); if (prior) { if (prior.fingerprint !== fingerprint) throw new FloatError('Idempotency key was reused with a different request', 409); return prior.result }
     const rows = await tx.financialMovement.findMany({ where: { branchId }, select: { type: true, amount: true, sourceAccount: true, destinationAccount: true } }); const summary = sharedFloatTotals(rows); if (summary.requiresReconciliation) throw new FloatError('Shared fixed float requires an authorized baseline reconciliation', 409); if (parsed.data.amount > summary.available) throw new FloatError('Insufficient shared fixed-float balance', 409)
@@ -91,7 +107,7 @@ export async function returnSharedFloatAdvance(session: StaffSession, input: unk
   const parsed = advanceSchema.safeParse(input); if (!parsed.success) throw new FloatError('Invalid return')
   if (!parsed.data.advanceId) throw new FloatError('Select the original advance to return', 400)
   const branchId = BigInt(session.branchId); const shift = await getOpenShift(session.id, branchId); if (!shift) throw new FloatError('An open shift is required', 409); const advanceId = BigInt(parsed.data.advanceId); const key = parsed.data.idempotencyKey ?? createHash('sha256').update(`${session.id}:${Date.now()}:${Math.random()}`).digest('hex'); const fingerprint = createHash('sha256').update(JSON.stringify({ advanceId: parsed.data.advanceId, amount: parsed.data.amount, reason: parsed.data.reason })).digest('hex')
-  return prisma.$transaction(async (tx) => { await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('advance-repayment:' || ${parsed.data.advanceId}))`; const prior = await tx.financialOperation.findUnique({ where: { branchId_actorId_operationType_idempotencyKey: { branchId, actorId: session.id, operationType: 'fixed_float_return', idempotencyKey: key } } }); if (prior) { if (prior.fingerprint !== fingerprint) throw new FloatError('Idempotency key was reused with a different request', 409); return prior.result }; const advance = await tx.financialMovement.findFirst({ where: { id: advanceId, branchId, actorId: session.id, type: 'fixed_float_advance' }, select: { amount: true } }); if (!advance) throw new FloatError('Advance not found', 404); const repayments = await tx.financialMovement.aggregate({ where: { advanceId, type: { in: ['fixed_float_return','fixed_float_settlement'] } }, _sum: { amount: true } }); const owed = Number(advance.amount) - Number(repayments._sum.amount ?? 0); if (parsed.data.amount > owed) throw new FloatError('Return exceeds this advance outstanding balance', 409); const movement = await tx.financialMovement.create({ data: { branchId, type: 'fixed_float_return', amount: parsed.data.amount.toFixed(2), sourceAccount: 'CASHIER_ADVANCE', destinationAccount: 'FIXED_FLOAT', sourceShiftId: shift.id, actorId: session.id, advanceId, reason: parsed.data.reason } }); const result = { id: movement.id.toString(), outstanding: (owed - parsed.data.amount).toFixed(2) }; await tx.financialOperation.create({ data: { branchId, actorId: session.id, operationType: 'fixed_float_return', idempotencyKey: key, fingerprint, result } }); await tx.auditLog.create({ data: { userId: session.id, branchId, action: 'fixed_float.return', entityType: 'financial_movement', entityId: movement.id, newValues: { ...result, advanceId: parsed.data.advanceId } } }); return result })
+  return prisma.$transaction(async (tx) => { await lockCashierShiftForMovement(tx, shift.id, session, branchId); await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('advance-repayment:' || ${parsed.data.advanceId}))`; const prior = await tx.financialOperation.findUnique({ where: { branchId_actorId_operationType_idempotencyKey: { branchId, actorId: session.id, operationType: 'fixed_float_return', idempotencyKey: key } } }); if (prior) { if (prior.fingerprint !== fingerprint) throw new FloatError('Idempotency key was reused with a different request', 409); return prior.result }; const advance = await tx.financialMovement.findFirst({ where: { id: advanceId, branchId, actorId: session.id, type: 'fixed_float_advance' }, select: { amount: true } }); if (!advance) throw new FloatError('Advance not found', 404); const repayments = await tx.financialMovement.aggregate({ where: { advanceId, type: { in: ['fixed_float_return','fixed_float_settlement'] } }, _sum: { amount: true } }); const owed = Number(advance.amount) - Number(repayments._sum.amount ?? 0); if (parsed.data.amount > owed) throw new FloatError('Return exceeds this advance outstanding balance', 409); const movement = await tx.financialMovement.create({ data: { branchId, type: 'fixed_float_return', amount: parsed.data.amount.toFixed(2), sourceAccount: 'CASHIER_ADVANCE', destinationAccount: 'FIXED_FLOAT', sourceShiftId: shift.id, actorId: session.id, advanceId, reason: parsed.data.reason } }); const result = { id: movement.id.toString(), outstanding: (owed - parsed.data.amount).toFixed(2) }; await tx.financialOperation.create({ data: { branchId, actorId: session.id, operationType: 'fixed_float_return', idempotencyKey: key, fingerprint, result } }); await tx.auditLog.create({ data: { userId: session.id, branchId, action: 'fixed_float.return', entityType: 'financial_movement', entityId: movement.id, newValues: { ...result, advanceId: parsed.data.advanceId } } }); return result })
 }
 
 /** Manager receipt against one original advance; works after its shift closes. */
@@ -162,6 +178,7 @@ export async function recordFixedFloatMovement(session: StaffSession, input: unk
     return previous.result as { id: string; occurredAt: string }
   }
   try { return await prisma.$transaction(async (tx) => {
+    if (operational) await lockCashierShiftForMovement(tx, shift!.id, session, branchId)
     // Serialise fixed-float debits per branch, then calculate availability in
     // the same transaction. Cashier drawer withdrawals do not consume float.
     if (!operational) await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('shared-float:' || ${branchId.toString()}))`

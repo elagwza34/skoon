@@ -14,6 +14,8 @@ import { unauthenticatedStaffResponse, forbiddenStaffResponse, isStaffApiPath } 
 import { normalizedRequestId } from '../src/lib/request-correlation'
 import { clearLegacyLoginCredentials, LEGACY_LOGIN_CREDENTIAL_KEY } from '../src/lib/auth/login-storage'
 import { safeInternalRedirect } from '../src/lib/auth/safe-redirect'
+import { calculatePayrollPreview, INITIAL_PAYROLL_POLICY } from '../src/lib/payroll-preview-policy'
+import { normalizeStaffUsername, staffLoginEmail, staffUsernameEmail, usernameFromStaffEmail } from '../src/lib/staff-username'
 import { isSameOriginStaffApiRequest } from '../src/components/auth/auth-expiry-guard'
 import {
   ROLE,
@@ -31,7 +33,7 @@ import {
   PIN_MIN_LENGTH,
   PIN_MAX_LENGTH,
 } from '../src/lib/security/pin'
-import { PAYMENT_METHODS, refundSchema } from '../src/lib/staff-payments-write'
+import { PAYMENT_METHODS, PaymentError, refundOrderPayment, refundSchema } from '../src/lib/staff-payments-write'
 import {
   avgPerPaidOrder,
   centsToAmount,
@@ -48,9 +50,12 @@ import {
   expectedCashAfterOperationalWithdrawals,
   crossedLocalMidnight,
   isCashHandlingRole,
+  isOpenShiftUniquenessConflict,
   openShiftSchema,
 } from '../src/lib/staff-shifts'
 import { floatMovementSchema } from '../src/lib/staff-float'
+import { financialShiftLockName } from '../src/lib/financial-shift-lock'
+import { assertRefundAmount, assertRefundReservation, refundAffectsTill, remainingRefundableCents, remainingReservableRefundCents } from '../src/lib/refund-accounting'
 import { recalculateInvoiceTotals, splitInvoices, type InvoiceRow } from '../src/lib/staff-invoices'
 import { posOrderSchema } from '../src/lib/staff-pos'
 import { isKitchenTicketVisible, itemPreparationState, OrderError, transitionOrderStatus } from '../src/lib/staff-orders'
@@ -76,6 +81,13 @@ import {
 import { canManageEmployeeLifecycle, canReadEmployeeDirectory, canReadSensitiveEmployeeData, canResetEmployeePassword, employeeDeactivationBlocker } from '../src/lib/hr-authz'
 import { canManageProducts, CatalogError, targetBranch } from '../src/lib/staff-catalog-write'
 import { selectCatalogBranch } from '../src/lib/catalog-branch'
+import {
+  assertConfigurationCanBeDeleted,
+  canonicalVariantCombination,
+  parseExactQuantity,
+  ProductConfigurationError,
+  validateUnitConversion,
+} from '../src/lib/product-configuration-policy'
 import { effectivePeriodsOverlap, evaluateAttendance, validateWeeklySchedule } from '../src/lib/hr-scheduling-policy'
 import { classifyUnassignedWaiterOrder } from '../src/lib/waiter-readiness-policy'
 import {
@@ -457,9 +469,9 @@ test('authz: isOwner', () => {
   assert.equal(isOwner('manager'), false)
 })
 
-test('authz: operational shift policy exempts Owner and Manager only', () => {
+test('authz: operational shift policy requires Owner-exempt only', () => {
   assert.equal(requiresOperationalShift(ROLE.OWNER), false)
-  assert.equal(requiresOperationalShift(ROLE.MANAGER), false)
+  assert.equal(requiresOperationalShift(ROLE.MANAGER), true)
   assert.equal(requiresOperationalShift(ROLE.CASHIER), true)
   assert.equal(requiresOperationalShift(ROLE.WAITER), true)
   assert.equal(requiresOperationalShift(ROLE.KITCHEN), true)
@@ -653,6 +665,35 @@ test('finance: refunded payment leaves collected (no double count)', () => {
   assert.equal(s.collectedCents, 0)
   assert.equal(s.refundedCents, 15000)
   assert.equal(s.refundedCount, 1)
+})
+
+test('refund ledger: recognized immutable events cap partial refunds exactly', () => {
+  const prior = [{ amount: '25.25', status: 'recorded' }, { amount: '10.00', status: 'failed' }]
+  assert.equal(remainingRefundableCents('100.00', prior), 7475)
+  assert.equal(assertRefundAmount('100.00', prior, '74.75'), 7475)
+  assert.throws(() => assertRefundAmount('100.00', prior, '74.76'))
+})
+
+test('refund ledger: pending requests reserve balance without reducing recognized revenue', () => {
+  const prior = [{ amount: '25.00', status: 'requested' }, { amount: '10.00', status: 'recorded' }]
+  assert.equal(remainingRefundableCents('100.00', prior), 9000)
+  assert.equal(remainingReservableRefundCents('100.00', prior), 6500)
+  assert.equal(assertRefundReservation('100.00', prior, '65.00'), 6500)
+  assert.throws(() => assertRefundReservation('100.00', prior, '65.01'))
+})
+
+test('refund ledger: only recognized current-till refunds affect till cash', () => {
+  assert.equal(refundAffectsTill('cashier_till', 'recorded'), true)
+  assert.equal(refundAffectsTill('cashier_till', 'requested'), false)
+  assert.equal(refundAffectsTill('main_safe', 'recorded'), false)
+  assert.equal(refundAffectsTill('external', 'externally_confirmed'), false)
+})
+
+test('refund writer fails closed until immutable refund events are deployed', async () => {
+  await assert.rejects(
+    refundOrderPayment({ id: 'actor-id', role: ROLE.MANAGER, branchId: 1n } as unknown as StaffSession, '1', { reason: 'test refund' }),
+    (error: unknown) => error instanceof PaymentError && error.status === 503,
+  )
 })
 
 test('finance: cancelled unpaid orders contribute nothing (no payment rows)', () => {
@@ -864,6 +905,12 @@ test('shifts: cash flow counts completed cash in and refunded cash out only', ()
   assert.equal(flow.netCash, 120.5)
 })
 
+test('shift financial writers use one stable, shift-scoped advisory-lock namespace', () => {
+  assert.equal(financialShiftLockName(42n), 'shift-financial:42')
+  assert.equal(financialShiftLockName('42'), 'shift-financial:42')
+  assert.notEqual(financialShiftLockName(42n), financialShiftLockName(43n))
+})
+
 test('shifts: expected cash = opening + net cash movement', () => {
   const payments = [
     { method: 'cash', status: 'completed', amount: 200 },
@@ -967,6 +1014,12 @@ test('shifts: open/close schemas coerce and validate money inputs', () => {
   )
 })
 
+test('shifts: durable open-shift unique-index conflicts are surfaced as 409 candidates', () => {
+  assert.equal(isOpenShiftUniquenessConflict({ code: 'P2002' }), true)
+  assert.equal(isOpenShiftUniquenessConflict({ code: '23505' }), false)
+  assert.equal(isOpenShiftUniquenessConflict(null), false)
+})
+
 test('route-access: /shifts requires orders.view (all operational roles)', () => {
   assert.equal(permissionForPath('/shifts'), 'orders.view')
   const cashier = ['orders.view', 'orders.update', 'orders.cancel', 'orders.refund', 'orders.payment', 'tables.view']
@@ -1015,7 +1068,7 @@ test('shifts: only cash statuses feed the expected-cash formula (card/online exc
 
 test('shifts: isCashHandlingRole identifies cash-handling roles', () => {
   assert.equal(isCashHandlingRole('cashier'), true)
-  assert.equal(isCashHandlingRole('manager'), true)
+  assert.equal(isCashHandlingRole('manager'), false) // Manager: cash handling optional, not role-inferred
   assert.equal(isCashHandlingRole('waiter'), false)
   assert.equal(isCashHandlingRole('kitchen'), false)
   assert.equal(isCashHandlingRole('owner'), false)
@@ -1201,10 +1254,272 @@ test('employee deactivation never removes the current or last active Owner and p
   assert.equal(employeeDeactivationBlocker({ ...base, hasOpenShift: true }), 'OPEN_SHIFT')
 })
 
+test('staff username identities are normalized, non-routable, and preserve legacy email login', () => {
+  assert.equal(normalizeStaffUsername(' Ahmed.Saleh '), 'ahmed.saleh')
+  assert.equal(normalizeStaffUsername('ahmed@cafe'), null)
+  assert.equal(normalizeStaffUsername('a'), null)
+  assert.equal(staffUsernameEmail('ahmed.saleh'), 'ahmed.saleh@accounts.skoon.invalid')
+  assert.equal(staffLoginEmail('AHMED.SALEH'), 'ahmed.saleh@accounts.skoon.invalid')
+  assert.equal(staffLoginEmail('Owner@SkoonCafe.com'), 'owner@skooncafe.com')
+  assert.equal(usernameFromStaffEmail('ahmed.saleh@accounts.skoon.invalid'), 'ahmed.saleh')
+  assert.equal(usernameFromStaffEmail('owner@sokooncafe.com'), null)
+})
+
+test('payroll preview uses scheduled payable days, exact cents, and never enables posting', () => {
+  const preview = calculatePayrollPreview({ compensationType: 'monthly', rateCents: 30_000, scheduledDays: 20, payableDays: 10, payableHours: 80, approvedAdvanceRecoveryCents: 20_000, approvedOvertimeHours: 2, includeOvertimeEstimate: true })
+  assert.equal(preview.baseCents, 15_000)
+  assert.equal(preview.previewOnly, true)
+  assert.equal(INITIAL_PAYROLL_POLICY.financialPostingEnabled, false)
+  assert.ok(preview.advanceRecoveryCents <= preview.grossCents)
+})
+
+test('payroll preview handles zero scheduled monthly days without a divisor or posting', () => {
+  const preview = calculatePayrollPreview({ compensationType: 'monthly', rateCents: 30_000, scheduledDays: 0, payableDays: 0, payableHours: 0 })
+  assert.equal(preview.baseCents, 0)
+  assert.ok(preview.warnings.some((warning) => warning.includes('لا توجد أيام عمل مجدولة')))
+})
+
 test('catalog branch resolver auto-selects exactly one eligible active branch only', () => {
   assert.equal(selectCatalogBranch([7n]), 7n)
   assert.throws(() => selectCatalogBranch([]), (error: unknown) => error instanceof CatalogError && error.status === 503)
   assert.throws(() => selectCatalogBranch([7n, 8n]), (error: unknown) => error instanceof CatalogError && error.status === 409)
   assert.equal(selectCatalogBranch([7n, 8n], '8'), 8n)
   assert.throws(() => selectCatalogBranch([7n], '8'), (error: unknown) => error instanceof CatalogError && error.status === 403)
+})
+
+test('product configuration quantities remain exact for decimal and fractional labels', () => {
+  assert.deepEqual(parseExactQuantity('1/4'), { numerator: 1n, denominator: 4n, canonical: '1/4' })
+  assert.deepEqual(parseExactQuantity('0.250'), { numerator: 1n, denominator: 4n, canonical: '1/4' })
+  assert.throws(() => parseExactQuantity('0'), ProductConfigurationError)
+  assert.throws(() => parseExactQuantity('1/0'), ProductConfigurationError)
+  assert.throws(() => parseExactQuantity('1e-3'), ProductConfigurationError)
+})
+
+test('product configuration variants have order-independent, non-duplicated combinations', () => {
+  assert.equal(canonicalVariantCombination(['12', '7']), '7:12')
+  assert.throws(() => canonicalVariantCombination(['7', '7']), ProductConfigurationError)
+  assert.throws(() => canonicalVariantCombination([]), ProductConfigurationError)
+})
+
+test('product configuration unit conversion permits exact same-dimension factors only', () => {
+  assert.deepEqual(validateUnitConversion({ dimension: 'mass', baseDimension: 'mass', factor: '1/1000' }), { numerator: 1n, denominator: 1000n, canonical: '1/1000' })
+  assert.equal(validateUnitConversion({ dimension: 'piece' }), null)
+  assert.throws(() => validateUnitConversion({ dimension: 'mass', baseDimension: 'volume', factor: '1' }), ProductConfigurationError)
+})
+
+test('product configuration delete protection returns Arabic 409 with bounded authorized names', () => {
+  assert.doesNotThrow(() => assertConfigurationCanBeDeleted('القيمة', []))
+  assert.throws(
+    () => assertConfigurationCanBeDeleted('الوحدة', [
+      { label: 'منتجات', count: 2, names: ['قهوة', 'شاي', 'اسم إضافي'] },
+      { label: 'حركات مخزون', count: 4 },
+    ]),
+    (error: unknown) => error instanceof ProductConfigurationError
+      && error.status === 409
+      && error.message.includes('لا يمكن حذف الوحدة')
+      && error.message.includes('قهوة')
+      && error.message.includes('شاي'),
+  )
+})
+
+// ============================================================================
+// Manager operational-shift lifecycle regression tests
+// ============================================================================
+
+test('manager lifecycle: requiresOperationalShift is true for Manager (post-hardening)', () => {
+  assert.equal(requiresOperationalShift(ROLE.MANAGER), true)
+  assert.equal(requiresOperationalShift(ROLE.OWNER), false)
+  assert.equal(requiresOperationalShift(ROLE.CASHIER), true)
+  assert.equal(requiresOperationalShift(ROLE.WAITER), true)
+  assert.equal(requiresOperationalShift(ROLE.KITCHEN), true)
+})
+
+test('manager lifecycle: Manager is NOT a cash-handling role by default (cash handling optional)', () => {
+  assert.equal(isCashHandlingRole(ROLE.MANAGER), false)
+  assert.equal(isCashHandlingRole(ROLE.CASHIER), true)
+  assert.equal(isCashHandlingRole(ROLE.WAITER), false)
+  assert.equal(isCashHandlingRole(ROLE.KITCHEN), false)
+  assert.equal(isCashHandlingRole(ROLE.OWNER), false)
+})
+
+test('manager lifecycle: Manager is not an operational board role (stays in admin shell)', () => {
+  assert.equal(isOperationalRole(ROLE.MANAGER), false)
+  assert.equal(isOperationalRole(ROLE.CASHIER), true)
+  assert.equal(isOperationalRole(ROLE.WAITER), true)
+  assert.equal(isOperationalRole(ROLE.KITCHEN), true)
+})
+
+test('manager lifecycle: Manager home is /dashboard (not an ops board)', () => {
+  assert.equal(homeForRole(ROLE.MANAGER), '/dashboard')
+  assert.equal(homeForRole(ROLE.CASHIER), '/cashier')
+  assert.equal(homeForRole(ROLE.WAITER), '/waiter')
+  assert.equal(homeForRole(ROLE.KITCHEN), '/kitchen')
+  assert.equal(homeForRole(ROLE.OWNER), '/dashboard')
+})
+
+test('manager lifecycle: Manager can see /dashboard without an open shift', () => {
+  const manager: StaffSession = {
+    id: 'manager-1', email: 'm@example.com', name: 'Manager',
+    role: ROLE.MANAGER, branchId: '1', permissions: ['orders.view'],
+  }
+  assert.equal(canSeeRoute(manager.role, manager.permissions, '/dashboard'), true)
+})
+
+test('manager lifecycle: Manager can see /shifts (requires orders.view, no open-shift precondition at route level)', () => {
+  const manager: StaffSession = {
+    id: 'manager-1', email: 'm@example.com', name: 'Manager',
+    role: ROLE.MANAGER, branchId: '1', permissions: ['orders.view'],
+  }
+  assert.equal(canSeeRoute(manager.role, manager.permissions, '/shifts'), true)
+})
+
+test('manager lifecycle: Manager cannot see /cashier without orders.payment permission', () => {
+  const managerNoPay: StaffSession = {
+    id: 'manager-1', email: 'm@example.com', name: 'Manager',
+    role: ROLE.MANAGER, branchId: '1', permissions: ['orders.view'],
+  }
+  const managerWithPay: StaffSession = {
+    id: 'manager-2', email: 'm2@example.com', name: 'Manager 2',
+    role: ROLE.MANAGER, branchId: '1', permissions: ['orders.view', 'orders.payment'],
+  }
+  assert.equal(canSeeRoute(managerNoPay.role, managerNoPay.permissions, '/cashier'), false)
+  assert.equal(canSeeRoute(managerWithPay.role, managerWithPay.permissions, '/cashier'), true)
+})
+
+test('manager lifecycle: Manager cannot see /finance (explicitly denied)', () => {
+  const manager: StaffSession = {
+    id: 'manager-1', email: 'm@example.com', name: 'Manager',
+    role: ROLE.MANAGER, branchId: '1', permissions: ['orders.view', 'orders.payment', 'reports.view'],
+  }
+  assert.equal(canSeeRoute(manager.role, manager.permissions, '/finance'), false)
+  assert.equal(canSeeRoute(manager.role, manager.permissions, '/finance/reports'), false)
+})
+
+test('manager lifecycle: Owner bypasses all route checks', () => {
+  const owner: StaffSession = {
+    id: 'owner-1', email: 'o@example.com', name: 'Owner',
+    role: ROLE.OWNER, branchId: null, permissions: [],
+  }
+  // Owner bypasses every route guard (isOwner check is first in canSeeRoute).
+  assert.equal(canSeeRoute(owner.role, owner.permissions, '/dashboard'), true)
+  assert.equal(canSeeRoute(owner.role, owner.permissions, '/cashier'), true)
+  assert.equal(canSeeRoute(owner.role, owner.permissions, '/finance'), true)
+  assert.equal(canSeeRoute(owner.role, owner.permissions, '/staff/attendance-corrections'), true)
+  assert.equal(canSeeRoute(owner.role, owner.permissions, '/shifts'), true)
+})
+
+test('manager lifecycle: Cashier/Waiter/Kitchen unchanged (still require open shift)', () => {
+  assert.equal(requiresOperationalShift(ROLE.CASHIER), true)
+  assert.equal(requiresOperationalShift(ROLE.WAITER), true)
+  assert.equal(requiresOperationalShift(ROLE.KITCHEN), true)
+  assert.equal(isCashHandlingRole(ROLE.CASHIER), true)
+  assert.equal(isCashHandlingRole(ROLE.WAITER), false)
+  assert.equal(isCashHandlingRole(ROLE.KITCHEN), false)
+  assert.equal(isOperationalRole(ROLE.CASHIER), true)
+  assert.equal(isOperationalRole(ROLE.WAITER), true)
+  assert.equal(isOperationalRole(ROLE.KITCHEN), true)
+})
+
+// ============================================================================
+// Manager shift policy hardening — cash handling optional for Manager
+// ============================================================================
+
+test('manager cash policy: Manager is NOT a cash-handling role by default', () => {
+  assert.equal(isCashHandlingRole(ROLE.MANAGER), false)
+  assert.equal(isCashHandlingRole(ROLE.CASHIER), true)
+  assert.equal(isCashHandlingRole(ROLE.WAITER), false)
+  assert.equal(isCashHandlingRole(ROLE.KITCHEN), false)
+  assert.equal(isCashHandlingRole(ROLE.OWNER), false)
+})
+
+test('manager cash policy: Manager requires operational shift (not cash custody)', () => {
+  assert.equal(requiresOperationalShift(ROLE.MANAGER), true)
+  assert.equal(requiresOperationalShift(ROLE.OWNER), false)
+})
+
+test('manager cash policy: Manager operational shift can open without mandatory openingCash', () => {
+  // openShiftSchema: openingCash is optional, default 0 — Manager may omit it.
+  const parsed = openShiftSchema.safeParse({})
+  assert.equal(parsed.success, true)
+  assert.equal(parsed.data?.openingCash, 0)
+
+  const parsedWithCash = openShiftSchema.safeParse({ openingCash: 100.00 })
+  assert.equal(parsedWithCash.success, true)
+  assert.equal(parsedWithCash.data?.openingCash, 100)
+})
+
+test('manager cash policy: Manager operational shift can close without mandatory closingCash', () => {
+  // closeShiftSchema: closingCash is optional, default 0 — Manager may omit it.
+  const parsed = closeShiftSchema.safeParse({})
+  assert.equal(parsed.success, true)
+  assert.equal(parsed.data?.closingCash, 0)
+
+  const parsedWithCash = closeShiftSchema.safeParse({ closingCash: 250.00 })
+  assert.equal(parsedWithCash.success, true)
+  assert.equal(parsedWithCash.data?.closingCash, 250)
+})
+
+test('manager cash policy: Manager shift cash difference is zero (no cash custody)', () => {
+  // For a non-cash-handling Manager: opening=0, expected=0 (no cash payments),
+  // closing=0, difference=0.
+  const expected = expectedCashFrom(0, [])
+  assert.equal(expected, 0)
+  const difference = cashDifferenceOf(0, expected)
+  assert.equal(difference, 0)
+})
+
+test('manager cash policy: Cashier mandatory cash handling (unchanged)', () => {
+  assert.equal(isCashHandlingRole(ROLE.CASHIER), true)
+  assert.equal(isCashHandlingRole(ROLE.MANAGER), false)
+
+  // Cashier must declare opening cash; Manager may omit it.
+  const cashierParsed = openShiftSchema.safeParse({})
+  assert.equal(cashierParsed.success, true)
+  assert.equal(cashierParsed.data?.openingCash, 0) // schema default, but role logic enforces > 0 at service layer
+
+  const managerParsed = openShiftSchema.safeParse({})
+  assert.equal(managerParsed.success, true)
+  assert.equal(managerParsed.data?.openingCash, 0)
+})
+
+test('manager cash policy: Waiter/Kitchen non-cash shifts (unchanged)', () => {
+  assert.equal(isCashHandlingRole(ROLE.WAITER), false)
+  assert.equal(isCashHandlingRole(ROLE.KITCHEN), false)
+  assert.equal(isOperationalRole(ROLE.WAITER), true)
+  assert.equal(isOperationalRole(ROLE.KITCHEN), true)
+})
+
+test('manager cash policy: Owner exemption from both operational shift and cash handling', () => {
+  assert.equal(isOwner(ROLE.OWNER), true)
+  assert.equal(requiresOperationalShift(ROLE.OWNER), false)
+  assert.equal(isCashHandlingRole(ROLE.OWNER), false)
+})
+
+test('manager cash policy: Operational shift status alone does not authorize cash operations', () => {
+  // requiresOperationalShift('manager') is true (shift required),
+  // but isCashHandlingRole('manager') is false (no cash custody).
+  // These are independent concerns.
+  assert.equal(requiresOperationalShift(ROLE.MANAGER), true)
+  assert.equal(isCashHandlingRole(ROLE.MANAGER), false)
+
+  // NOTE: hasAtLeast compares privilege rank (manager=80 >= cashier=60),
+  // so hasAtLeast(manager, cashier) returns TRUE in current code.
+  // This means finalizeOrderPayment (which uses hasAtLeast(cashier+))
+  // would technically allow a Manager to finalize cash payments.
+  // This is a pre-existing authorization gap that requires separate review.
+  // It is NOT weakened by this change — it existed before.
+  assert.equal(hasAtLeast(ROLE.MANAGER, ROLE.CASHIER), true)
+})
+
+test('manager cash policy: Fixed-float and cash advance invariants preserved', () => {
+  // Manager (>= manager) may reverse fixed-float movements — unchanged.
+  assert.equal(hasAtLeast(ROLE.MANAGER, ROLE.MANAGER), true)
+  assert.equal(hasAtLeast(ROLE.CASHIER, ROLE.MANAGER), false)
+
+  // NOTE: hasAtLeast compares privilege rank (manager=80 >= cashier=60),
+  // so hasAtLeast(manager, cashier) returns TRUE in current code.
+  // This is a pre-existing authorization gap requiring separate security review.
+  // It is NOT weakened by this change.
+  assert.equal(hasAtLeast(ROLE.MANAGER, ROLE.CASHIER), true)
+  assert.equal(hasAtLeast(ROLE.CASHIER, ROLE.CASHIER), true)
 })

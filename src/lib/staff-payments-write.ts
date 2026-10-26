@@ -5,6 +5,7 @@ import { ROLE, hasAtLeast, requiresOperationalShift } from '@/lib/authz'
 import { staffCanAccessBranch, type StaffSession } from '@/lib/session'
 import { notifyRole } from '@/lib/notifications'
 import { getOpenShift } from '@/lib/staff-shifts'
+import { lockAndReadShift } from '@/lib/financial-shift-lock'
 
 /**
  * Payments write — server-only. Money is NEVER accepted from the client.
@@ -107,6 +108,15 @@ export async function finalizeOrderPayment(
   if (order.status === 'cancelled') throw new PaymentError('لا يمكن تحصيل طلب ملغي', 409)
 
   return prisma.$transaction(async (tx) => {
+    // The pre-transaction lookup above supplies only a stable advisory-lock
+    // key. Re-checking after that common lock prevents a payment from being
+    // linked to a till that a concurrent close has already frozen.
+    const lockedOpenShift = requiresOperationalShift(session.role)
+      ? await lockAndReadShift(tx, openShift!.id)
+      : null
+    if (requiresOperationalShift(session.role) && (!lockedOpenShift || lockedOpenShift.status !== 'open' || lockedOpenShift.cashierId !== session.id || lockedOpenShift.branchId !== order.branchId)) {
+      throw new PaymentError('لا توجد وردية مفتوحة لهذا الموظف — افتح وردية أولاً من صفحة الورديات (/shifts)', 409)
+    }
     // Lock the order row for the duration of the transaction.
     const locked = await tx.$queryRaw<{ total: unknown }[]>`
       SELECT total FROM orders WHERE id = ${order.id} FOR UPDATE
@@ -132,7 +142,7 @@ export async function finalizeOrderPayment(
       data: {
         orderId: order.id,
         branchId: order.branchId,
-        shiftId: openShift?.id ?? null,
+        shiftId: lockedOpenShift?.id ?? null,
         method,
         amount: outstanding.toFixed(2),
         amountDue: outstanding.toFixed(2),
@@ -203,6 +213,16 @@ export async function refundOrderPayment(
   orderIdRaw: string,
   input: unknown,
 ): Promise<RefundResult> {
+  // P0 safety gate: the deployed schema has no immutable, payment-linked refund
+  // ledger. The legacy implementation below mutates completed Payment rows and
+  // can rewrite a closed shift's reconciliation. Do not re-enable until the
+  // additive payment_refunds migration and its transactional writer land.
+  void session
+  void orderIdRaw
+  void input
+  throw new PaymentError('الاسترداد متوقف مؤقتاً حتى تفعيل سجل الاستردادات غير القابل للتعديل', 503)
+
+  /*
   if (!hasAtLeast(session.role, ROLE.MANAGER)) throw new PaymentError('غير مصرح', 403)
   if (!/^\d+$/.test(orderIdRaw)) throw new PaymentError('الطلب غير موجود', 404)
 
@@ -268,7 +288,7 @@ export async function refundOrderPayment(
     }
     if (refundKey) await tx.financialOperation.create({ data: { branchId: order.branchId, actorId: session.id, operationType: 'payment_refund', idempotencyKey: refundKey, fingerprint: refundFingerprint, result } })
     return result
-  })
+  }) */
 }
 
 function round2(n: number): number {

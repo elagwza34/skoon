@@ -8,9 +8,10 @@ import { homeForRole } from '@/lib/route-access'
 import { requiresOperationalShift } from '@/lib/authz'
 import { getOpenShift } from '@/lib/staff-shifts'
 import { safeInternalRedirect } from '@/lib/auth/safe-redirect'
+import { staffLoginEmail } from '@/lib/staff-username'
 
 /**
- * Staff sign-in — Supabase Auth (email + password). Identity only.
+ * Staff sign-in — Supabase Auth (legacy email or staff username + password).
  *
  * Authorization (role, branch, permissions) is resolved server-side from the
  * trusted `public.users` row on each request (see src/lib/session.ts); we never
@@ -19,7 +20,7 @@ import { safeInternalRedirect } from '@/lib/auth/safe-redirect'
  * message so the form can render them without leaking whether the email exists.
  */
 const loginSchema = z.object({
-  email: z.string().email('بريد إلكتروني غير صالح'),
+  identifier: z.string().trim().min(3, 'أدخل اسم المستخدم أو البريد الإلكتروني').max(150),
   password: z.string().min(1, 'كلمة المرور مطلوبة'),
 })
 
@@ -32,18 +33,20 @@ export async function loginAction(
   formData: FormData,
 ): Promise<LoginState> {
   const parsed = loginSchema.safeParse({
-    email: formData.get('email'),
+    identifier: formData.get('identifier'),
     password: formData.get('password'),
   })
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? 'بيانات غير صالحة' }
   }
 
+  const email = staffLoginEmail(parsed.data.identifier)
+  if (!email) return { error: 'اسم المستخدم أو البريد الإلكتروني أو كلمة المرور غير صحيحة' }
   const supabase = await createClient()
-  const { error } = await supabase.auth.signInWithPassword(parsed.data)
+  const { error } = await supabase.auth.signInWithPassword({ email, password: parsed.data.password })
   if (error) {
     // Do not distinguish "user not found" vs "wrong password" (anti-enumeration).
-    return { error: 'البريد الإلكتروني أو كلمة المرور غير صحيحة' }
+    return { error: 'اسم المستخدم أو البريد الإلكتروني أو كلمة المرور غير صحيحة' }
   }
 
   const requested = safeInternalRedirect(formData.get('next'))
@@ -56,7 +59,12 @@ export async function loginAction(
   const session = await getStaffSession()
   // Authenticated identities without an active trusted staff row fail closed.
   // Keep /login reachable so middleware does not bounce this state in a loop.
-  if (!session) redirect('/login?reason=unprovisioned')
+  if (!session) {
+    // An archived/suspended public.users record is authoritative. Remove the
+    // just-created cookie so it cannot leave stale client identity state.
+    await supabase.auth.signOut()
+    return { error: 'اسم المستخدم أو البريد الإلكتروني أو كلمة المرور غير صحيحة' }
+  }
   // Login is identity-only. Only operational roles are routed through the
   // existing shift-opening workflow; it never writes attendance itself.
   if (requiresOperationalShift(session.role) && session.branchId) {

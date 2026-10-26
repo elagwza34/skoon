@@ -16,6 +16,8 @@ import { ManagerOperationsCenter } from '@/components/dashboard/manager-operatio
 import { ManagerServiceRequestPanel } from '@/components/dashboard/manager-service-request-panel'
 import { getWaiterOperationalReadiness } from '@/lib/staff-waiter-readiness'
 import { WaiterOperationalReadinessPanel } from '@/components/dashboard/waiter-operational-readiness-panel'
+import { isOwner } from '@/lib/authz'
+import { OwnerCommandCenter } from '@/components/owner/owner-command-center'
 
 /** Signed percent change between two numbers. */
 function pctDelta(now: number, before: number): { delta: string; dir: "up" | "down" } {
@@ -32,6 +34,31 @@ export default async function DashboardPage() {
 
   const salesDelta = pctDelta(stats.totalSalesToday, stats.totalSalesYesterday);
   const ordersDelta = pctDelta(stats.ordersToday, stats.ordersYesterday);
+
+  // Owner sees the compact Owner Command Center V2; all other roles keep the existing layout.
+  if (isOwner(session.role)) {
+    return (
+      <OwnerCommandCenter
+        stats={{
+          totalSalesToday: stats.totalSalesToday,
+          orderValueToday: stats.orderValueToday,
+          ordersToday: stats.ordersToday,
+          avgOrderValue: stats.avgOrderValue,
+          ordersInPreparation: stats.ordersInPreparation,
+          paidOrdersToday: stats.paidOrdersToday,
+          statusDistribution: stats.statusDistribution,
+          salesSeriesByRange: stats.salesSeriesByRange,
+          recentOrders: stats.recentOrders,
+          topProducts: stats.topProducts,
+          tables: stats.tables,
+          tableCounts: stats.tableCounts,
+        }}
+        managerOperations={managerOperations}
+        waiterReadiness={waiterReadiness}
+        session={{ role: session.role, name: session.name, permissions: session.permissions }}
+      />
+    );
+  }
 
   return (
     <div className="flex flex-col gap-5">

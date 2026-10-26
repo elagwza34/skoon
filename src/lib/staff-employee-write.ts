@@ -4,6 +4,7 @@ import { ROLE } from '@/lib/authz'
 import type { StaffSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { canManageEmployeeLifecycle, canReadEmployeeDirectory, employeeDeactivationBlocker } from '@/lib/hr-authz'
+import { usernameFromStaffEmail } from '@/lib/staff-username'
 
 export class EmployeeHrError extends Error {
   constructor(message: string, readonly status = 400) {
@@ -111,7 +112,11 @@ export async function listEmployees(session: StaffSession, filter: EmployeeFilte
     return rows
       .filter((row) => filter.status === 'all' || !filter.status || row.employeeProfile?.employmentStatus === filter.status || (!row.employeeProfile && filter.status === 'active'))
       .map((row) => ({
-        id: row.id, name: row.name, email: row.email, phone: owner ? row.phone : null,
+        id: row.id, name: row.name,
+        // Direct staff usernames are represented by non-routable Auth emails;
+        // never expose that implementation detail as an employee contact.
+        email: usernameFromStaffEmail(row.email) ? null : row.email,
+        username: usernameFromStaffEmail(row.email), phone: owner ? row.phone : null,
         role: row.role.slug, roleName: row.role.name, branchId: row.branchId?.toString() ?? null,
         active: row.isActive, status: row.employeeProfile?.employmentStatus ?? (row.isActive ? 'active' : 'inactive'),
         hireDate: owner ? row.employeeProfile?.hireDate?.toISOString().slice(0, 10) ?? null : null,
@@ -147,7 +152,11 @@ export async function getEmployee(session: StaffSession, id: string) {
     if (!owner) {
       return { id: employee.id, name: employee.name, role: employee.role.slug, roleName: employee.role.name, active: employee.isActive, status: employee.employeeProfile?.employmentStatus ?? 'active' }
     }
-    return employee
+    return {
+      ...employee,
+      email: usernameFromStaffEmail(employee.email) ? null : employee.email,
+      username: usernameFromStaffEmail(employee.email),
+    }
   } catch (error) {
     return hrSchemaError(error)
   }
@@ -226,12 +235,52 @@ export async function archiveEmployee(session: StaffSession, id: string, reason:
   } catch (error) { return hrSchemaError(error) }
 }
 
+/**
+ * Termination revokes effective application access while retaining the durable
+ * user identity and every financial/operational reference. It is deliberately
+ * distinct from archival: HR history remains searchable as `terminated`.
+ */
+export async function terminateEmployee(session: StaffSession, id: string, reason: string) {
+  ownerOnly(session)
+  if (!reason.trim() || reason.length > 255) throw new EmployeeHrError('Termination reason is required', 400)
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const employee = await tx.user.findFirst({
+        where: { id, deletedAt: null },
+        select: { id: true, branchId: true, role: { select: { slug: true } } },
+      })
+      if (!employee) throw new EmployeeHrError('Employee not found', 404)
+      const [activeOwnerCount, openShift] = await Promise.all([
+        employee.role.slug === ROLE.OWNER
+          ? tx.user.count({ where: { isActive: true, deletedAt: null, role: { is: { slug: ROLE.OWNER } } } })
+          : Promise.resolve(0),
+        tx.shift.findFirst({ where: { cashierId: employee.id, status: 'open' }, select: { id: true } }),
+      ])
+      const blocker = employeeDeactivationBlocker({
+        actorId: session.id, targetId: employee.id, targetRole: employee.role.slug,
+        activeOwnerCount, hasOpenShift: Boolean(openShift),
+      })
+      if (blocker === 'SELF') throw new EmployeeHrError('Owner cannot terminate the current account', 409)
+      if (blocker === 'LAST_OWNER') throw new EmployeeHrError('The last active Owner cannot be terminated', 409)
+      if (blocker === 'OPEN_SHIFT') throw new EmployeeHrError('Settle or hand over the open shift before termination', 409)
+      const profile = await tx.employeeProfile.upsert({
+        where: { userId: id },
+        create: { userId: id, branchId: employee.branchId, employmentStatus: 'terminated', archiveReason: reason.trim() },
+        update: { employmentStatus: 'terminated', archiveReason: reason.trim() },
+      })
+      await tx.user.update({ where: { id }, data: { isActive: false } })
+      await tx.auditLog.create({ data: { userId: session.id, branchId: employee.branchId, action: 'hr.employee.terminate', entityType: 'employee_profile', entityId: profile.id, newValues: { employeeId: id, reason: reason.trim() } } })
+      return profile
+    })
+  } catch (error) { return hrSchemaError(error) }
+}
+
 export async function reactivateEmployee(session: StaffSession, id: string) {
   ownerOnly(session)
   try {
     return await prisma.$transaction(async (tx) => {
-      const profile = await tx.employeeProfile.findFirst({ where: { userId: id, employmentStatus: 'archived' }, select: { id: true, branchId: true } })
-      if (!profile) throw new EmployeeHrError('Archived employee not found', 404)
+      const profile = await tx.employeeProfile.findFirst({ where: { userId: id, employmentStatus: { in: ['archived', 'terminated'] } }, select: { id: true, branchId: true } })
+      if (!profile) throw new EmployeeHrError('Archived or terminated employee not found', 404)
       await tx.user.update({ where: { id }, data: { isActive: true } })
       const updated = await tx.employeeProfile.update({ where: { id: profile.id }, data: { employmentStatus: 'active', archivedAt: null, archivedById: null, archiveReason: null } })
       await tx.auditLog.create({ data: { userId: session.id, branchId: profile.branchId, action: 'hr.employee.reactivate', entityType: 'employee_profile', entityId: profile.id, newValues: { employeeId: id } } })

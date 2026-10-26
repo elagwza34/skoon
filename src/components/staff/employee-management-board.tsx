@@ -5,9 +5,9 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 
-type EmployeeRow = { id: string; name: string; email: string | null; roleName: string; role: string; active: boolean; status: string; hireDate: string | null; probationStatus: string | null }
+type EmployeeRow = { id: string; name: string; email: string | null; username?: string | null; roleName: string; role: string; active: boolean; status: string; hireDate: string | null; probationStatus: string | null }
 type EmployeeDetail = {
-  id: string; name: string; email?: string | null; phone?: string | null; active: boolean; status?: string
+  id: string; name: string; email?: string | null; username?: string | null; phone?: string | null; active: boolean; status?: string
   role?: { slug: string; name: string }; roleName?: string
   employeeProfile?: {
     employmentStatus: string; employmentType: string | null; hireDate: string | null; personalEmail: string | null; personalPhone: string | null; address: string | null
@@ -72,13 +72,21 @@ export function EmployeeManagementBoard({ canManage }: { canManage: boolean }) {
     catch (cause) { setError(cause instanceof Error ? cause.message : 'تعذر إعادة التفعيل') }
   }
 
+  async function terminate() {
+    if (!selected) return
+    const reason = window.prompt('سبب إنهاء الخدمة (إلزامي):')
+    if (!reason?.trim()) return
+    try { await post(`/api/staff/employees/${selected.id}/terminate`, { reason }); setSelected(null); transition(() => void load()) }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'تعذر إنهاء خدمة الموظف') }
+  }
+
   return (
     <Card dir="rtl">
       <CardHeader><CardTitle>إدارة ملفات الموظفين</CardTitle></CardHeader>
       <CardContent className="space-y-4">
         {error ? <p className="rounded border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">{error}</p> : null}
         <div className="flex flex-wrap gap-2">
-          <Input className="max-w-xs" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ابحث بالاسم أو البريد" />
+          <Input className="max-w-xs" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ابحث بالاسم أو اسم المستخدم أو البريد" />
           <select value={status} onChange={(event) => setStatus(event.target.value)} className="h-10 rounded-lg border border-border bg-background px-3 text-sm">
             <option value="active">النشطون</option><option value="inactive">غير النشطين</option><option value="archived">المؤرشفون</option><option value="terminated">المنتهية خدمتهم</option><option value="all">الكل</option>
           </select>
@@ -88,16 +96,16 @@ export function EmployeeManagementBoard({ canManage }: { canManage: boolean }) {
         {!loading && rows.length === 0 ? <p className="text-sm text-muted-foreground">لا توجد سجلات مطابقة.</p> : null}
         <div className="grid gap-2 md:grid-cols-2">
           {rows.map((employee) => <button key={employee.id} onClick={() => void open(employee.id)} className="rounded-lg border border-border p-3 text-start transition hover:bg-accent/40">
-            <b>{employee.name}</b><div className="mt-1 text-xs text-muted-foreground">{employee.roleName} · {employee.status} · {employee.email ?? '—'}</div>
+            <b>{employee.name}</b><div className="mt-1 text-xs text-muted-foreground">{employee.roleName} · {employee.status} · {employee.username ?? employee.email ?? '—'}</div>
           </button>)}
         </div>
-        {selected ? <EmployeeDetailPanel employee={selected} canManage={canManage} onClose={() => setSelected(null)} onChanged={() => { void open(selected.id); transition(() => void load()) }} onArchive={archive} onReactivate={reactivate} post={post} setError={setError} /> : null}
+        {selected ? <EmployeeDetailPanel employee={selected} canManage={canManage} onClose={() => setSelected(null)} onChanged={() => { void open(selected.id); transition(() => void load()) }} onArchive={archive} onReactivate={reactivate} onTerminate={terminate} post={post} setError={setError} /> : null}
       </CardContent>
     </Card>
   )
 }
 
-function EmployeeDetailPanel({ employee, canManage, onClose, onChanged, onArchive, onReactivate, post, setError }: { employee: EmployeeDetail; canManage: boolean; onClose: () => void; onChanged: () => void; onArchive: () => void; onReactivate: () => void; post: (path: string, body?: unknown) => Promise<unknown>; setError: (value: string | null) => void }) {
+function EmployeeDetailPanel({ employee, canManage, onClose, onChanged, onArchive, onReactivate, onTerminate, post, setError }: { employee: EmployeeDetail; canManage: boolean; onClose: () => void; onChanged: () => void; onArchive: () => void; onReactivate: () => void; onTerminate: () => void; post: (path: string, body?: unknown) => Promise<unknown>; setError: (value: string | null) => void }) {
   const p = employee.employeeProfile
   const [name, setName] = useState(employee.name)
   const [phone, setPhone] = useState(employee.phone ?? '')
@@ -128,7 +136,7 @@ function EmployeeDetailPanel({ employee, canManage, onClose, onChanged, onArchiv
         <label className="text-sm">اسم جهة الطوارئ<Input value={emergencyName} onChange={(event) => setEmergencyName(event.target.value)} /></label>
         <label className="text-sm">هاتف جهة الطوارئ<Input value={emergencyPhone} onChange={(event) => setEmergencyPhone(event.target.value)} /></label>
       </div>
-      <div className="flex flex-wrap gap-2"><Button onClick={() => void save()} disabled={busy}>حفظ الملف</Button>{p?.employmentStatus === 'archived' ? <Button variant="outline" onClick={() => void onReactivate()}>إعادة التفعيل</Button> : <Button variant="destructive" onClick={() => void onArchive()}>أرشفة</Button>}</div>
+      <div className="flex flex-wrap gap-2"><Button onClick={() => void save()} disabled={busy}>حفظ الملف</Button>{p?.employmentStatus === 'archived' || p?.employmentStatus === 'terminated' ? <Button variant="outline" onClick={() => void onReactivate()}>إعادة التفعيل</Button> : <><Button variant="outline" onClick={() => void onTerminate()}>إنهاء الخدمة</Button><Button variant="destructive" onClick={() => void onArchive()}>أرشفة</Button></>}</div>
       <HistoryPanels employee={employee} post={post} onChanged={onChanged} setError={setError} />
     </>}
   </section>

@@ -28,6 +28,10 @@ export interface CatalogProduct {
   taxRate: string
   inventoryItemId: string | null
   sortOrder: number | null
+  // ---- Product Variants extension ----
+  isVariable: boolean
+  variantCount: number
+  variantIds: string[]
 }
 
 export interface StaffCatalog {
@@ -66,19 +70,43 @@ export async function getStaffCatalog(session: StaffSession): Promise<StaffCatal
     }),
   ])
 
+  // Variant aggregation: product_id -> { count, ids[] }
+  const productIds = products.map((p) => p.id)
+  const variantAgg = new Map<string, { count: number; ids: string[] }>()
+  const variantRows = await prisma.productVariant.findMany({
+    where: { productId: { in: productIds } },
+    select: { productId: true, id: true },
+  })
+  for (const p of products) {
+    variantAgg.set(p.id.toString(), { count: 0, ids: [] })
+  }
+  for (const v of variantRows) {
+    const entry = variantAgg.get(v.productId.toString())
+    if (entry) {
+      entry.count += 1
+      entry.ids.push(v.id.toString())
+    }
+  }
+
   return {
     categories: categories.map((c) => ({
       id: c.id.toString(), name: c.name, sortOrder: c.sortOrder,
       branchId: c.branchId.toString(),
       productsCount: c._count.products,
     })),
-    products: products.map((p) => ({
-      id: p.id.toString(), name: p.name, description: p.description,
-      price: p.price.toString(), imagePath: p.imagePath,
-      categoryId: p.categoryId.toString(), categoryName: p.category.name,
-      isActive: p.isActive, isAvailable: p.isAvailable, taxRate: p.taxRate.toString(),
-      inventoryItemId: p.inventoryItemId?.toString() ?? null, sortOrder: p.sortOrder,
-    })),
+    products: products.map((p) => {
+      const agg = variantAgg.get(p.id.toString()) ?? { count: 0, ids: [] }
+      return {
+        id: p.id.toString(), name: p.name, description: p.description,
+        price: p.price.toString(), imagePath: p.imagePath,
+        categoryId: p.categoryId.toString(), categoryName: p.category.name,
+        isActive: p.isActive, isAvailable: p.isAvailable, taxRate: p.taxRate.toString(),
+        inventoryItemId: p.inventoryItemId?.toString() ?? null, sortOrder: p.sortOrder,
+        isVariable: agg.count > 0,
+        variantCount: agg.count,
+        variantIds: agg.ids,
+      }
+    }),
     inventoryItems: inventoryItems.map((item) => ({ id: item.id.toString(), branchId: item.branchId.toString(), name: item.name })),
   }
 }

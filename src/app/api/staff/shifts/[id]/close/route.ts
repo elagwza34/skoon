@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getStaffSession } from '@/lib/session'
 import { closeShift, ShiftError } from '@/lib/staff-shifts'
+import { FinancialShiftLockError } from '@/lib/financial-shift-lock'
 
 /**
  * Close a shift — POST /api/staff/shifts/[id]/close.
@@ -39,6 +40,7 @@ try {
     }))
   } catch (e) {
     if (e instanceof ShiftError) return NextResponse.json({ error: e.message }, { status: e.status })
+    if (e instanceof FinancialShiftLockError) return NextResponse.json({ error: e.message }, { status: e.status })
     return NextResponse.json({ error: 'تعذر إغلاق الوردية' }, { status: 500 })
   }
 }

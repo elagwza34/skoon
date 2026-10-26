@@ -5,6 +5,7 @@ import { ROLE, isKnownRole, type RoleSlug } from '@/lib/authz'
 import { staffCanAccessBranch, type StaffSession } from '@/lib/session'
 import { canManageEmployeeLifecycle, canResetEmployeePassword } from '@/lib/hr-authz'
 import { employeeDeactivationBlocker } from '@/lib/hr-authz'
+import { normalizeStaffUsername, staffUsernameEmail, usernameFromStaffEmail } from '@/lib/staff-username'
 
 /**
  * Staff provisioning — server-only, trusted path (docs/OWNER-PROVISIONING.md).
@@ -35,14 +36,24 @@ export class StaffProvisionError extends Error {
 }
 
 const inviteSchema = z.object({
-  email: z.string().trim().email('بريد إلكتروني غير صالح').max(150),
+  // Legacy email invites remain supported for existing Owner workflows. New
+  // employee accounts use `username` and never send an invitation email.
+  email: z.string().trim().email('بريد إلكتروني غير صالح').max(150).optional(),
+  username: z.string().trim().min(3, 'اسم المستخدم قصير جداً').max(32).optional(),
   name: z.string().trim().min(2, 'الاسم قصير جداً').max(100),
   role: z.string().trim().refine(isKnownRole, 'دور غير معروف'),
   branchId: z.string().regex(/^\d+$/, 'فرع غير صالح').optional(),
   accountMode: z.enum(['invite', 'password']).default('invite'),
   permanentPassword: z.string().min(12, 'كلمة المرور يجب أن تكون 12 حرفاً على الأقل').max(72).optional(),
 }).superRefine((value, ctx) => {
-  if (value.accountMode === 'password' && !value.permanentPassword) {
+  const username = value.username ? normalizeStaffUsername(value.username) : null
+  if (value.username && !username) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['username'], message: 'اسم المستخدم يجب أن يحتوي أحرفاً إنجليزية صغيرة أو أرقاماً أو . _ - فقط' })
+  }
+  if (!value.email && !username) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['username'], message: 'أدخل اسم مستخدم أو بريداً إلكترونياً' })
+  }
+  if ((value.accountMode === 'password' || username) && !value.permanentPassword) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['permanentPassword'], message: 'أدخل كلمة المرور الدائمة' })
   }
 })
@@ -60,7 +71,8 @@ const resetPasswordSchema = z.object({
 export interface ProvisionedStaff {
   id: string
   name: string
-  email: string
+  email: string | null
+  username: string | null
   role: RoleSlug
   branchId: string | null
 }
@@ -121,7 +133,9 @@ export async function inviteStaff(session: StaffSession, input: unknown): Promis
 
   const parsed = inviteSchema.safeParse(input)
   if (!parsed.success) throw new StaffProvisionError(parsed.error.issues[0]?.message ?? 'بيانات غير صالحة', 400)
-  const { email, name, accountMode, permanentPassword } = parsed.data
+  const { name, accountMode, permanentPassword } = parsed.data
+  const username = parsed.data.username ? normalizeStaffUsername(parsed.data.username) : null
+  const email = username ? staffUsernameEmail(username) : parsed.data.email!
   const roleSlug = parsed.data.role as RoleSlug
 
   const assignment = await resolveAssignment(session, roleSlug, parsed.data.branchId)
@@ -133,7 +147,8 @@ export async function inviteStaff(session: StaffSession, input: unknown): Promis
   if (existing) throw new StaffProvisionError('يوجد حساب مسجل بهذا البريد بالفعل', 409)
 
   const supabase = adminClient()
-  const { data, error } = accountMode === 'invite'
+  const directPasswordAccount = Boolean(username) || accountMode === 'password'
+  const { data, error } = !directPasswordAccount
     ? await supabase.auth.admin.inviteUserByEmail(email, { data: { full_name: name } })
     : await supabase.auth.admin.createUser({
       email,
@@ -142,7 +157,9 @@ export async function inviteStaff(session: StaffSession, input: unknown): Promis
       user_metadata: { full_name: name },
     })
   if (error || !data.user) {
-    throw new StaffProvisionError(`تعذر إرسال الدعوة: ${error?.message ?? 'غير معروف'}`, 502)
+    // Never return an Auth provider error: it may expose account state or
+    // provider internals. The authenticated Owner gets a deterministic result.
+    throw new StaffProvisionError(username ? 'اسم المستخدم مستخدم بالفعل أو تعذر إنشاء الحساب' : 'تعذر إنشاء الحساب', 409)
   }
 
   try {
@@ -162,16 +179,17 @@ export async function inviteStaff(session: StaffSession, input: unknown): Promis
       data: {
         userId: session.id,
         branchId: assignment.branchId,
-        action: accountMode === 'invite' ? 'staff.invite' : 'staff.create_with_password',
+        action: directPasswordAccount ? 'staff.create_with_password' : 'staff.invite',
         entityType: 'user',
-        newValues: { userId: created.id, email, role: roleSlug, accountMode },
+        newValues: { userId: created.id, ...(username ? { username } : { email }), role: roleSlug, accountMode: directPasswordAccount ? 'password' : 'invite' },
       },
     })
 
     return {
       id: created.id,
       name: created.name,
-      email: created.email as string,
+      email: username ? null : created.email,
+      username,
       role: roleSlug,
       branchId: created.branchId?.toString() ?? null,
     }

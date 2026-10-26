@@ -22,13 +22,16 @@ export type RoleSlug = (typeof ROLE)[keyof typeof ROLE]
 
 /**
  * Roles that must be inside an active operational shift before branch work.
- * This is intentionally separate from authorization permissions: Owner and
- * Manager may supervise authorized work without opening a workstation shift.
+ * This is intentionally separate from authorization permissions: Owner is
+ * exempt; Manager must open a shift for operational transactions (POS,
+ * orders, tables, kitchen, waiter) but may still access supervisory
+ * functions without one.
  */
 export const OPERATIONAL_SHIFT_REQUIRED_ROLES = [
   ROLE.CASHIER,
   ROLE.WAITER,
   ROLE.KITCHEN,
+  ROLE.MANAGER,
 ] as const satisfies readonly RoleSlug[]
 
 /** Authoritative, type-safe operational-shift policy for server guards. */

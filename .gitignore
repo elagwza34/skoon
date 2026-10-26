@@ -48,3 +48,9 @@ Thumbs.db
 # Deployment (Hostinger overwrites these)
 /hbuilds/
 /public_html/
+
+# Local data & backups (may contain sensitive production data — never commit)
+/backups/
+/.local-pg17-payroll-data/
+/.tmp-prisma-generate/
+/supabase/.temp/

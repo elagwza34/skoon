@@ -15,7 +15,7 @@ import { clearLegacyLoginCredentials } from '@/lib/auth/login-storage'
  */
 export function LoginForm({ next, reason }: { next?: string; reason?: string }) {
   const [state, formAction, pending] = useActionState<LoginState, FormData>(loginAction, {})
-  const [email, setEmail] = useState('')
+  const [identifier, setIdentifier] = useState('')
   const [password, setPassword] = useState('')
 
   useEffect(() => {
@@ -39,16 +39,16 @@ export function LoginForm({ next, reason }: { next?: string; reason?: string }) 
             {next ? <input type="hidden" name="next" value={next} /> : null}
 
             <label className="flex flex-col gap-1.5 text-sm">
-              <span className="font-medium">البريد الإلكتروني</span>
+              <span className="font-medium">اسم المستخدم أو البريد الإلكتروني</span>
               <Input
-                type="email"
-                name="email"
-                placeholder="you@skoon.app"
+                type="text"
+                name="identifier"
+                placeholder="اسم المستخدم أو you@skoon.app"
                 required
                 dir="ltr"
                 autoComplete="username"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
+                value={identifier}
+                onChange={(event) => setIdentifier(event.target.value)}
               />
             </label>
 

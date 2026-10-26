@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma'
 import { ROLE } from '@/lib/authz'
 import { canManageEmployeeLifecycle, canManageWorkSchedules } from '@/lib/hr-authz'
 import type { StaffSession } from '@/lib/session'
+import { usernameFromStaffEmail } from '@/lib/staff-username'
 
 /**
  * Staff directory — real users + roles + branches from the DB.
@@ -11,6 +12,7 @@ export interface StaffRow {
   id: string
   name: string
   email: string | null
+  username: string | null
   role: string
   roleName: string
   branchId: string | null
@@ -54,7 +56,7 @@ export async function getStaffDirectory(session: StaffSession): Promise<StaffDir
 
   return {
     rows: users.map((u) => ({
-      id: u.id, name: u.name, email: u.email,
+      id: u.id, name: u.name, email: usernameFromStaffEmail(u.email) ? null : u.email, username: usernameFromStaffEmail(u.email),
       role: u.role.slug, roleName: u.role.name,
       branchId: u.branchId?.toString() ?? null,
       branchName: u.branch?.name ?? null,

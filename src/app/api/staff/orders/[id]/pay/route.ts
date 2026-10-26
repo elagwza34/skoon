@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getStaffSession } from '@/lib/session'
 import { finalizeOrderPayment, refundOrderPayment, PaymentError } from '@/lib/staff-payments-write'
+import { FinancialShiftLockError } from '@/lib/financial-shift-lock'
 
 /**
  * Staff payments — POST /api/staff/orders/[id]/pay
@@ -35,6 +36,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     return NextResponse.json({ error: 'إجراء غير معروف' }, { status: 400 })
   } catch (e) {
     if (e instanceof PaymentError) return NextResponse.json({ error: e.message }, { status: e.status })
+    if (e instanceof FinancialShiftLockError) return NextResponse.json({ error: e.message }, { status: e.status })
     return NextResponse.json({ error: 'فشلت العملية' }, { status: 500 })
   }
 }

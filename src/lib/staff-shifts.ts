@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { ROLE, hasAtLeast, isOwner, requiresOperationalShift } from '@/lib/authz'
 import { staffCanAccessBranch, type StaffSession } from '@/lib/session'
+import { lockAndReadShift } from '@/lib/financial-shift-lock'
 
 /**
  * Shifts write/read service — server-only. One OPEN shift per employee per branch.
@@ -28,10 +29,22 @@ export class ShiftError extends Error {
   }
 }
 
+/** Map the durable partial-index race outcome to the public shift contract. */
+export function isOpenShiftUniquenessConflict(error: unknown): boolean {
+  return typeof error === 'object' && error !== null &&
+    'code' in error && (error as { code?: unknown }).code === 'P2002'
+}
+
 export type ShiftStatus = 'open' | 'closed'
 
-/** Roles whose shift involves cash handling (opening/closing cash balance). */
-export const CASH_HANDLING_ROLES: readonly string[] = [ROLE.CASHIER, ROLE.MANAGER]
+/** Roles whose shift involves mandatory cash handling (opening/closing cash balance).
+ *
+ * Manager is intentionally EXCLUDED: a Manager may open/close an operational
+ * shift without mandatory cash custody. Cash drawer custody for a Manager is
+ * an explicit, out-of-band assignment (not inferred from the role). Until such
+ * an assignment exists and is approved, a Manager's shift is non-cash.
+ */
+export const CASH_HANDLING_ROLES: readonly string[] = [ROLE.CASHIER]
 
 /** True when the role is expected to open/close a physical cash drawer. */
 export function isCashHandlingRole(role: string): boolean {
@@ -177,8 +190,8 @@ export async function getOpenShift(cashierId: string, branchId: bigint) {
 
 type ShiftRow = NonNullable<Awaited<ReturnType<typeof getOpenShift>>>
 
-async function fetchShiftPayments(shiftId: bigint): Promise<CashPaymentRow[]> {
-  const rows = await prisma.payment.findMany({
+async function fetchShiftPayments(client: Pick<typeof prisma, 'payment'>, shiftId: bigint): Promise<CashPaymentRow[]> {
+  const rows = await client.payment.findMany({
     where: { shiftId },
     select: { method: true, status: true, amount: true },
   })
@@ -245,7 +258,9 @@ export async function openShift(session: StaffSession, input: unknown): Promise<
   // so two concurrent "open" transactions for the same employee+branch cannot
   // both pass the check below. Different employees in the same branch may
   // overlap.
-  const shift = await prisma.$transaction(async (tx) => {
+  let shift: ShiftRow
+  try {
+    shift = await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('shift-open:' || ${session.id} || ':' || ${branchId.toString()}))`
     const existing = await tx.shift.findFirst({
       where: { cashierId: session.id, branchId, status: 'open' },
@@ -286,8 +301,14 @@ export async function openShift(session: StaffSession, input: unknown): Promise<
         newValues: { openingCash: opening.toFixed(2), openBy: session.name, role: session.role, handoverMovementId: incoming?.id.toString() ?? null },
       },
     })
-    return created
-  })
+      return created
+    })
+  } catch (error) {
+    if (isOpenShiftUniquenessConflict(error)) {
+      throw new ShiftError('لديك بالفعل وردية مفتوحة لهذا الفرع', 409)
+    }
+    throw error
+  }
 
   return toShiftView(shift, [], 0)
 }
@@ -328,43 +349,51 @@ export async function closeShift(
     if (!recipient) throw new ShiftError('المستلم يجب أن يكون كاشيراً نشطاً في نفس الفرع', 422)
   }
 
-  const payments = await fetchShiftPayments(shiftId)
-  const withdrawals = await prisma.financialMovement.aggregate({
-    where: { sourceShiftId: shiftId, type: 'operational_withdrawal', status: 'posted' }, _sum: { amount: true },
-  })
-  const expected = expectedCashAfterOperationalWithdrawals(
-    expectedCashFrom(Number(shift.openingCash), payments), Number(withdrawals._sum.amount ?? 0),
-  )
-  // Non-cash-handling roles (waiter, kitchen) close operationally — no
-  // physical cash count, no cash reconciliation. Only cash-handling roles
-  // (cashier, manager) enter an actual counted amount and produce a variance.
-  const cashHandling = isCashHandlingRole(session.role)
-  const closing = cashHandling ? parsed.data.closingCash : 0
-  const difference = cashHandling ? cashDifferenceOf(closing, expected) : 0
+  // Financial totals are calculated after the common shift lock below.
+  // Non-cash-handling roles (waiter, kitchen, manager-without-custody) close
+  // operationally — no physical cash count, no cash reconciliation. Only
+  // cash-handling roles (cashier; manager-with-explicit-custody) enter an
+  // actual counted amount and produce a variance.
 
   // Outstanding work on this shift (non-terminal orders) — recorded in the
   // handover so the receiving employee knows what remains unresolved.
-  const outstandingOrders = await prisma.order.findMany({
-    where: { shiftId, status: { in: ['new', 'preparing', 'ready'] } },
-    select: { orderNumber: true, status: true, total: true },
-    orderBy: { createdAt: 'asc' },
-  })
 
   const closed = await prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('shift-close:' || ${shiftId.toString()}))`
-    // Lock the shift row before checking waiter ownership so an accepted
-    // responsibility handover and a close cannot race past each other.
-    await tx.$queryRaw`SELECT id FROM shifts WHERE id = ${shiftId} FOR UPDATE`
+    // All cash-affecting writers acquire this advisory lock before locking a
+    // row. The reconciliation reads below therefore cannot miss a committed
+    // payment or operational withdrawal for this shift.
+    const locked = await lockAndReadShift(tx, shiftId)
+    if (!locked || locked.cashierId !== session.id || locked.status !== 'open') {
+      throw new ShiftError('الوردية مغلقة بالفعل', 409)
+    }
+    const lockedShift = await tx.shift.findUnique({ where: { id: shiftId } })
+    if (!lockedShift) throw new ShiftError('الوردية غير موجودة', 404)
+    const [payments, withdrawals, outstandingOrders] = await Promise.all([
+      fetchShiftPayments(tx, shiftId),
+      tx.financialMovement.aggregate({
+        where: { sourceShiftId: shiftId, type: 'operational_withdrawal', status: 'posted' }, _sum: { amount: true },
+      }),
+      tx.order.findMany({
+        where: { shiftId, status: { in: ['new', 'preparing', 'ready'] } },
+        select: { orderNumber: true, status: true, total: true }, orderBy: { createdAt: 'asc' },
+      }),
+    ])
+    const expected = expectedCashAfterOperationalWithdrawals(
+      expectedCashFrom(Number(lockedShift.openingCash), payments), Number(withdrawals._sum.amount ?? 0),
+    )
+    const cashHandling = isCashHandlingRole(session.role)
+    const closing = cashHandling ? parsed.data.closingCash : 0
+    const difference = cashHandling ? cashDifferenceOf(closing, expected) : 0
     if (session.role === ROLE.WAITER) {
       const outstandingResponsibilities = await tx.order.count({
-        where: { branchId: shift.branchId, responsibleWaiterId: session.id, status: { in: ['new', 'preparing', 'ready'] } },
+        where: { branchId: lockedShift.branchId, responsibleWaiterId: session.id, status: { in: ['new', 'preparing', 'ready'] } },
       })
       if (outstandingResponsibilities > 0) {
         throw new ShiftError('Transfer or resolve outstanding waiter responsibilities before closing the shift', 409)
       }
     }
     const closedAt = new Date()
-    const routeToSafe = crossedLocalMidnight(shift.openedAt, closedAt, branch.timezone)
+    const routeToSafe = crossedLocalMidnight(lockedShift.openedAt, closedAt, branch.timezone)
     if (!routeToSafe && !recipient && cashHandling) throw new ShiftError('اختر كاشيراً مستلماً قبل منتصف الليل', 422)
     // Guard inside the transaction: a concurrent close loses the race cleanly.
     // Shift.closedAt is the paired HR clock-out. It is written atomically with
@@ -389,7 +418,7 @@ export async function closeShift(
     if (cashHandling) {
       await tx.financialMovement.create({
         data: {
-          branchId: shift.branchId, type: routeToSafe ? 'main_safe_deposit' : 'cashier_handover', status: 'posted',
+          branchId: lockedShift.branchId, type: routeToSafe ? 'main_safe_deposit' : 'cashier_handover', status: 'posted',
           amount: closing.toFixed(2), sourceAccount: 'CASHIER_TILL', destinationAccount: routeToSafe ? 'MAIN_SAFE' : 'CASHIER_TILL',
           sourceShiftId: shiftId, destinationUserId: routeToSafe ? null : recipient!.id, actorId: session.id,
           reason: parsed.data.handoverNotes || 'Shift close handover', occurredAt: closedAt,
@@ -401,7 +430,7 @@ export async function closeShift(
     await tx.auditLog.create({
       data: {
         userId: session.id,
-        branchId: shift.branchId,
+        branchId: lockedShift.branchId,
         action: 'shift.close',
         entityType: 'shift',
         entityId: shiftId,
@@ -430,12 +459,13 @@ export async function closeShift(
     return row
   })
 
-  return toShiftView(closed, payments, 0)
+  return toShiftView(closed, await fetchShiftPayments(prisma, shiftId), 0)
 }
 
 /**
  * Require an open shift for the acting employee on their branch. Returns the
- * shift or throws a 409 ShiftError. Owner and Manager are exempt (return null).
+ * shift or throws a 409 ShiftError. Owner is exempt; Manager requires an open
+ * shift for operational work (operational shift, not cash custody).
  */
 export async function requireOpenShift(session: StaffSession): Promise<ShiftRow | null> {
   if (!requiresOperationalShift(session.role)) return null

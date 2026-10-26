@@ -16,7 +16,7 @@ import { ScheduleManagementBoard } from '@/components/staff/schedule-management-
 /**
  * Staff board — real directory + trusted provisioning UI (owner/manager).
  *
- * Adding a member sends a Supabase Auth invitation; the server assigns the
+ * Adding an employee creates a direct Supabase Auth password identity; the server assigns the
  * role/branch under the caller's authority. Row actions (role, branch,
  * activation) hit the same server-side rules — the UI never grants anything
  * the server would reject.
@@ -26,14 +26,15 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
   const [, startTransition] = useTransition()
   const [query, setQuery] = useState('')
 
-  // Invite form
+  // Direct employee-account form. Password is held only in component state for
+  // the request and is never persisted in browser storage.
   const [invOpen, setInvOpen] = useState(false)
-  const [email, setEmail] = useState('')
+  const [username, setUsername] = useState('')
   const [name, setName] = useState('')
   const [role, setRole] = useState('waiter')
   const [branchId, setBranchId] = useState(directory.branches[0]?.id ?? '')
-  const [accountMode, setAccountMode] = useState<'invite' | 'password'>('invite')
   const [permanentPassword, setPermanentPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
@@ -42,11 +43,11 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
     const q = query.trim()
     if (!q) return directory.rows
     return directory.rows.filter(
-      (r) => r.name.includes(q) || (r.email ?? '').toLowerCase().includes(q.toLowerCase()),
+      (r) => r.name.includes(q) || (r.username ?? '').includes(q.toLowerCase()) || (r.email ?? '').toLowerCase().includes(q.toLowerCase()),
     )
   }, [directory.rows, query])
 
-  async function invite() {
+  async function createEmployee() {
     if (saving) return
     setSaving(true)
     setError(null)
@@ -56,24 +57,25 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          email: email.trim(),
+          username: username.trim(),
           name: name.trim(),
           role,
           branchId: role === 'owner' ? undefined : branchId || undefined,
-          accountMode,
-          permanentPassword: accountMode === 'password' ? permanentPassword : undefined,
+          accountMode: 'password',
+          permanentPassword,
         }),
       })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data?.error ?? 'تعذر إرسال الدعوة')
-      setSuccess(accountMode === 'invite' ? `تم إرسال الدعوة إلى ${data.email}` : `تم إنشاء الحساب لـ ${data.email}`)
-      setEmail('')
+      if (!res.ok) throw new Error(data?.error ?? 'تعذر إنشاء الحساب')
+      setSuccess(`تم إنشاء حساب الموظف ${data.username ?? username.trim()}`)
+      setUsername('')
       setName('')
       setPermanentPassword('')
+      setConfirmPassword('')
       setInvOpen(false)
       startTransition(() => router.refresh())
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'تعذر إرسال الدعوة')
+      setError(e instanceof Error ? e.message : 'تعذر إنشاء الحساب')
     } finally {
       setSaving(false)
     }
@@ -118,7 +120,7 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
         />
         {directory.canManage ? (
           <Button variant="outline" onClick={() => setInvOpen((v) => !v)}>
-            <Icon name="plus" size={16} /> دعوة موظف
+            <Icon name="plus" size={16} /> إضافة موظف
           </Button>
         ) : null}
       </div>
@@ -126,8 +128,8 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
       {directory.canManage && invOpen ? (
         <Card>
           <CardHeader>
-            <CardTitle>دعوة موظف جديد</CardTitle>
-            <CardDescription>يصله بريد دعوة من Supabase يضع فيه كلمة مروره بنفسه — لا كلمة مرور هنا</CardDescription>
+            <CardTitle>إضافة موظف جديد</CardTitle>
+            <CardDescription>أنشئ اسم مستخدم وكلمة مرور مباشرة؛ لا تُرسل رسالة دعوة أو كلمة مرور بالبريد.</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -136,24 +138,16 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
                 <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="اسم الموظف" />
               </label>
               <label className="flex flex-col gap-1.5 text-sm">
-                <span className="text-muted-foreground">طريقة إنشاء الحساب</span>
-                <select
-                  value={accountMode} onChange={(e) => setAccountMode(e.target.value as 'invite' | 'password')}
-                  className="h-10 rounded-lg border border-border bg-background px-3 text-foreground"
-                >
-                  <option value="invite">إرسال دعوة بالبريد</option>
-                  <option value="password">تعيين كلمة مرور دائمة</option>
-                </select>
+                <span className="text-muted-foreground">اسم المستخدم</span>
+                <Input value={username} onChange={(e) => setUsername(e.target.value)} dir="ltr" autoComplete="username" placeholder="ahmed.saleh" />
               </label>
-              {accountMode === 'password' ? (
-                <label className="flex flex-col gap-1.5 text-sm">
-                  <span className="text-muted-foreground">كلمة المرور الدائمة</span>
-                  <Input value={permanentPassword} type="password" autoComplete="new-password" onChange={(e) => setPermanentPassword(e.target.value)} />
-                </label>
-              ) : null}
               <label className="flex flex-col gap-1.5 text-sm">
-                <span className="text-muted-foreground">البريد الإلكتروني</span>
-                <Input value={email} onChange={(e) => setEmail(e.target.value)} dir="ltr" placeholder="name@example.com" />
+                <span className="text-muted-foreground">كلمة المرور</span>
+                <Input value={permanentPassword} type="password" autoComplete="new-password" onChange={(e) => setPermanentPassword(e.target.value)} />
+              </label>
+              <label className="flex flex-col gap-1.5 text-sm">
+                <span className="text-muted-foreground">تأكيد كلمة المرور</span>
+                <Input value={confirmPassword} type="password" autoComplete="new-password" onChange={(e) => setConfirmPassword(e.target.value)} />
               </label>
               <label className="flex flex-col gap-1.5 text-sm">
                 <span className="text-muted-foreground">الدور</span>
@@ -181,8 +175,8 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
               ) : null}
             </div>
             <div className="mt-4 flex items-center gap-3">
-              <Button onClick={invite} disabled={saving || !email.trim() || !name.trim() || (accountMode === 'password' && permanentPassword.length < 12)}>
-                <Icon name="check" size={16} /> {saving ? 'جارٍ الإرسال…' : 'إرسال الدعوة'}
+              <Button onClick={createEmployee} disabled={saving || !username.trim() || !name.trim() || permanentPassword.length < 12 || permanentPassword !== confirmPassword}>
+                <Icon name="check" size={16} /> {saving ? 'جارٍ الإنشاء…' : 'إنشاء الحساب'}
               </Button>
               <Button variant="ghost" onClick={() => setInvOpen(false)}>إلغاء</Button>
             </div>
@@ -203,7 +197,7 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
                 <thead>
                   <tr className="border-b border-border text-xs text-muted-foreground">
                     <th className="px-2 py-2 text-start font-medium">الاسم</th>
-                    <th className="px-2 py-2 text-start font-medium">البريد</th>
+                    <th className="px-2 py-2 text-start font-medium">الدخول</th>
                     <th className="px-2 py-2 text-start font-medium">الدور</th>
                     <th className="px-2 py-2 text-start font-medium">الفرع</th>
                     <th className="px-2 py-2 text-start font-medium">الحالة</th>
@@ -215,7 +209,7 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
                   {rows.map((r) => (
                     <tr key={r.id} className="border-b border-border/50 last:border-0 hover:bg-accent/40">
                       <td className="px-2 py-2.5 font-medium text-foreground">{r.name}</td>
-                      <td className="px-2 py-2.5 text-muted-foreground" dir="ltr">{r.email ?? '—'}</td>
+                      <td className="px-2 py-2.5 text-muted-foreground" dir="ltr">{r.username ?? r.email ?? '—'}</td>
                       <td className="px-2 py-2.5 text-muted-foreground">{r.roleName}</td>
                       <td className="px-2 py-2.5 text-muted-foreground">{r.branchName ?? 'كل الفروع'}</td>
                       <td className="px-2 py-2.5">

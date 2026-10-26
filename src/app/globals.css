@@ -125,3 +125,48 @@
     scrollbar-width: none;
   }
 }
+
+/* Thermal receipts deliberately opt in by adding this class immediately before
+ * opening the browser print dialog. This keeps normal page and QR printing
+ * independent while preventing the cashier workspace, modal chrome, and
+ * navigation from appearing on a receipt. */
+@media print {
+  body.skoon-thermal-printing {
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  body.skoon-thermal-printing * {
+    visibility: hidden !important;
+  }
+
+  body.skoon-thermal-printing [data-thermal-receipt],
+  body.skoon-thermal-printing [data-thermal-receipt] * {
+    visibility: visible !important;
+  }
+
+  body.skoon-thermal-printing [data-thermal-receipt] {
+    position: absolute !important;
+    inset: 0 auto auto 0 !important;
+    width: var(--thermal-width, 80mm) !important;
+    max-width: var(--thermal-width, 80mm) !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    box-shadow: none !important;
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  body.skoon-thermal-printing [data-print-controls],
+  body.skoon-thermal-printing button,
+  body.skoon-thermal-printing select {
+    display: none !important;
+  }
+
+  body.skoon-thermal-printing .receipt-item {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+}

@@ -37,6 +37,8 @@ model CafeBranch {
   cafeTables                  CafeTable[]
   categories                  Category[]
   products                    Product[]
+  productAttributes           ProductAttribute[]
+  measurementUnits            MeasurementUnit[]
   orders                      Order[]
   payments                    Payment[]
   discounts                   Discount[]
@@ -486,6 +488,7 @@ model Product {
   // Optional direct stock mapping for packaged products. Recipe products use
   // RecipeItem rows instead; a product must never use both mechanisms.
   inventoryItemId BigInt?   @map("inventory_item_id")
+  measurementUnitId BigInt? @map("measurement_unit_id")
   isActive        Boolean   @default(true) @map("is_active")
   isAvailable     Boolean   @default(true) @map("is_available")
   isFeatured      Boolean   @default(false) @map("is_featured")
@@ -498,15 +501,19 @@ model Product {
   branch        CafeBranch      @relation(fields: [branchId], references: [id], onDelete: Cascade)
   category      Category        @relation("categoryProducts", fields: [categoryId], references: [id])
   options       ProductOption[]
+  attributeAssignments ProductAttributeAssignment[]
+  variants      ProductVariant[]
   addonsAsMain  ProductAddon[]  @relation("addonProduct")
   recipes       Recipe[]
   orderItems    OrderItem[]
   inventoryItem InventoryItem?  @relation("packagedProductInventory", fields: [inventoryItemId], references: [id], onDelete: SetNull)
+  measurementUnit MeasurementUnit? @relation("productMeasurementUnit", fields: [measurementUnitId], references: [id], onDelete: Restrict)
 
   @@index([categoryId, isActive, sortOrder])
   @@index([branchId, isActive])
   @@index([isAvailable])
   @@index([inventoryItemId])
+  @@index([measurementUnitId])
   @@map("products")
 }
 
@@ -547,6 +554,159 @@ model ProductOptionValue {
 
   @@index([productOptionId, sortOrder])
   @@map("product_option_values")
+}
+
+model ProductAttribute {
+  id          BigInt    @id @default(autoincrement())
+  branchId    BigInt    @map("branch_id")
+  name        String    @db.VarChar(100)
+  description String?   @db.VarChar(500)
+  sortOrder   Int       @default(0) @map("sort_order")
+  isActive    Boolean   @default(true) @map("is_active")
+  archivedAt  DateTime? @map("archived_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  branch      CafeBranch                   @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  values      ProductAttributeValue[]
+  assignments ProductAttributeAssignment[]
+
+  @@unique([branchId, name])
+  @@index([branchId, isActive, sortOrder])
+  @@map("product_attributes")
+}
+
+model ProductAttributeValue {
+  id          BigInt    @id @default(autoincrement())
+  attributeId BigInt    @map("attribute_id")
+  label       String    @db.VarChar(100)
+  numerator   Decimal?  @db.Decimal(30, 0)
+  denominator Decimal?  @db.Decimal(30, 0)
+  sortOrder   Int       @default(0) @map("sort_order")
+  isActive    Boolean   @default(true) @map("is_active")
+  archivedAt  DateTime? @map("archived_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  attribute          ProductAttribute                   @relation(fields: [attributeId], references: [id], onDelete: Restrict)
+  allowedAssignments ProductAttributeAssignmentValue[]
+  variantValues      ProductVariantValue[]
+
+  @@unique([attributeId, label])
+  @@index([attributeId, isActive, sortOrder])
+  @@map("product_attribute_values")
+}
+
+model MeasurementUnit {
+  id                    BigInt    @id @default(autoincrement())
+  branchId              BigInt    @map("branch_id")
+  name                  String    @db.VarChar(100)
+  symbol                String    @db.VarChar(20)
+  dimension             String    @db.VarChar(30)
+  baseUnitId            BigInt?   @map("base_unit_id")
+  conversionNumerator   Decimal?  @map("conversion_numerator") @db.Decimal(30, 0)
+  conversionDenominator Decimal?  @map("conversion_denominator") @db.Decimal(30, 0)
+  isActive              Boolean   @default(true) @map("is_active")
+  archivedAt            DateTime? @map("archived_at")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  branch         CafeBranch        @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  baseUnit       MeasurementUnit?  @relation("measurementUnitBase", fields: [baseUnitId], references: [id], onDelete: Restrict)
+  derivedUnits   MeasurementUnit[] @relation("measurementUnitBase")
+  products       Product[]         @relation("productMeasurementUnit")
+  inventoryItems InventoryItem[]   @relation("inventoryMeasurementUnit")
+  variants       ProductVariant[]
+
+  @@unique([branchId, name])
+  @@unique([branchId, symbol])
+  @@index([branchId, dimension, isActive])
+  @@map("measurement_units")
+}
+
+model ProductAttributeAssignment {
+  id            BigInt   @id @default(autoincrement())
+  productId     BigInt   @map("product_id")
+  attributeId   BigInt   @map("attribute_id")
+  isRequired    Boolean  @default(false) @map("is_required")
+  minSelections Int      @default(0) @map("min_selections") @db.SmallInt
+  maxSelections Int      @default(1) @map("max_selections") @db.SmallInt
+  sortOrder     Int      @default(0) @map("sort_order")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  product       Product                           @relation(fields: [productId], references: [id], onDelete: Restrict)
+  attribute     ProductAttribute                  @relation(fields: [attributeId], references: [id], onDelete: Restrict)
+  allowedValues ProductAttributeAssignmentValue[]
+
+  @@unique([productId, attributeId])
+  @@index([attributeId])
+  @@map("product_attribute_assignments")
+}
+
+model ProductAttributeAssignmentValue {
+  assignmentId BigInt @map("assignment_id")
+  valueId      BigInt @map("value_id")
+
+  assignment ProductAttributeAssignment @relation(fields: [assignmentId], references: [id], onDelete: Restrict)
+  value      ProductAttributeValue      @relation(fields: [valueId], references: [id], onDelete: Restrict)
+
+  @@id([assignmentId, valueId])
+  @@index([valueId])
+  @@map("product_attribute_assignment_values")
+}
+
+model ProductVariant {
+  id                BigInt    @id @default(autoincrement())
+  productId         BigInt    @map("product_id")
+  measurementUnitId BigInt?   @map("measurement_unit_id")
+  combinationKey    String    @map("combination_key") @db.VarChar(500)
+  sku               String?   @db.VarChar(100)
+  price             Decimal   @db.Decimal(10, 2)
+  isActive          Boolean   @default(true) @map("is_active")
+  isAvailable       Boolean   @default(true) @map("is_available")
+  sortOrder         Int       @default(0) @map("sort_order")
+  archivedAt        DateTime? @map("archived_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  product           Product                   @relation(fields: [productId], references: [id], onDelete: Restrict)
+  measurementUnit   MeasurementUnit?          @relation(fields: [measurementUnitId], references: [id], onDelete: Restrict)
+  values            ProductVariantValue[]
+  inventoryMappings VariantInventoryMapping[]
+  orderItems        OrderItem[]
+
+  @@unique([productId, combinationKey])
+  @@unique([productId, sku])
+  @@index([productId, isActive, isAvailable])
+  @@index([measurementUnitId])
+  @@map("product_variants")
+}
+
+model ProductVariantValue {
+  variantId BigInt @map("variant_id")
+  valueId   BigInt @map("value_id")
+
+  variant ProductVariant        @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  value   ProductAttributeValue @relation(fields: [valueId], references: [id], onDelete: Restrict)
+
+  @@id([variantId, valueId])
+  @@index([valueId])
+  @@map("product_variant_values")
+}
+
+model VariantInventoryMapping {
+  id              BigInt  @id @default(autoincrement())
+  variantId       BigInt  @map("variant_id")
+  inventoryItemId BigInt  @map("inventory_item_id")
+  quantity        Decimal @db.Decimal(12, 3)
+
+  variant       ProductVariant @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  inventoryItem InventoryItem  @relation(fields: [inventoryItemId], references: [id], onDelete: Restrict)
+
+  @@unique([variantId, inventoryItemId])
+  @@index([inventoryItemId])
+  @@map("variant_inventory_mappings")
 }
 
 model Addon {
@@ -777,11 +937,13 @@ model OrderItem {
   id                     BigInt    @id @default(autoincrement())
   orderId                BigInt    @map("order_id")
   productId              BigInt    @map("product_id")
+  productVariantId       BigInt?   @map("product_variant_id")
   productName            String    @map("product_name") @db.VarChar(150)
   unitPrice              Decimal   @map("unit_price") @db.Decimal(10, 2)
   quantity               Int       @db.SmallInt
   lineTotal              Decimal   @map("line_total") @db.Decimal(10, 2)
   optionsSnapshot        Json?     @map("options_snapshot")
+  productVariantSnapshot Json?     @map("product_variant_snapshot")
   notes                  String?   @db.VarChar(255)
   prepTimeMinutes        Int       @default(0) @map("prep_time_minutes") @db.SmallInt
   isVoided               Boolean   @default(false) @map("is_voided")
@@ -795,6 +957,7 @@ model OrderItem {
 
   order                 Order                  @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product               Product                @relation(fields: [productId], references: [id], onDelete: Restrict)
+  productVariant        ProductVariant?        @relation(fields: [productVariantId], references: [id], onDelete: Restrict)
   addons                OrderItemAddon[]
   options               OrderItemOption[]
   preparationStartedBy  User?                  @relation("itemPreparationStartedBy", fields: [preparationStartedById], references: [id], onDelete: SetNull)
@@ -804,6 +967,7 @@ model OrderItem {
 
   @@index([orderId])
   @@index([productId])
+  @@index([productVariantId])
   @@index([orderId, isVoided])
   @@map("order_items")
 }
@@ -1013,6 +1177,7 @@ model InventoryItem {
   name         String    @db.VarChar(100)
   sku          String?   @db.VarChar(50)
   unit         String    @db.VarChar(20)
+  measurementUnitId BigInt? @map("measurement_unit_id")
   currentStock Decimal   @default(0) @map("current_stock") @db.Decimal(10, 2)
   minStock     Decimal   @default(0) @map("min_stock") @db.Decimal(10, 2)
   unitCost     Decimal   @default(0) @map("unit_cost") @db.Decimal(10, 2)
@@ -1028,10 +1193,13 @@ model InventoryItem {
   batches          InventoryBatch[]
   reservations     InventoryReservation[]
   packagedProducts Product[]              @relation("packagedProductInventory")
+  variantInventoryMappings VariantInventoryMapping[]
+  measurementUnit MeasurementUnit? @relation("inventoryMeasurementUnit", fields: [measurementUnitId], references: [id], onDelete: Restrict)
   stockCountLines  StockCountLine[]
 
   @@unique([branchId, sku])
   @@index([branchId, isActive])
+  @@index([measurementUnitId])
   @@map("inventory_items")
 }
 
