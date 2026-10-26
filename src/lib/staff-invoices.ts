@@ -8,9 +8,9 @@ export class InvoiceError extends Error { constructor(message: string, readonly 
 
 export type InvoiceRow = {
   id: string; number: string; createdAt: string; branch: string; table: string; creator: string | null
-  status: string; paymentStatus: string; subtotal: string; discount: string; tax: string; total: string; paid: string; remaining: string
+  status: string; paymentStatus: string; orderType?: string; notes?: string | null; subtotal: string; discount: string; tax: string; total: string; paid: string; remaining: string
   cancelledAt: string | null; cancelReason: string | null
-  items: { id: string; productId: string; name: string; quantity: number; unitPrice: string; lineTotal: string }[]
+  items: { id: string; productId: string; name: string; quantity: number; unitPrice: string; lineTotal: string; notes?: string | null; details?: string[] }[]
   payments: { id: string; method: string; amount: string; createdAt: string; collector: string | null }[]
 }
 
@@ -28,20 +28,34 @@ export async function getCashierInvoices(session: StaffSession, range: { from?: 
   const scope = session.role === ROLE.OWNER ? (range.branchId ? { branchId: range.branchId } : {}) : { branchId: BigInt(session.branchId as string) }
   const createdAt = range.from || range.to ? { ...(range.from ? { gte: range.from } : {}), ...(range.to ? { lte: range.to } : {}) } : undefined
   const orders = await prisma.order.findMany({ where: { ...scope, ...(createdAt ? { createdAt } : {}) }, orderBy: { createdAt: 'desc' }, take: 150,
-    select: { id: true, orderNumber: true, createdAt: true, cancelledAt: true, cancelReason: true, status: true, paymentStatus: true, itemsSubtotal: true, discountAmount: true, taxAmount: true, total: true,
+    select: { id: true, orderNumber: true, createdAt: true, cancelledAt: true, cancelReason: true, status: true, paymentStatus: true, orderType: true, notes: true, itemsSubtotal: true, discountAmount: true, taxAmount: true, total: true,
       branch: { select: { name: true } }, cafeTable: { select: { number: true } }, createdBy: { select: { name: true } },
-      items: { where: { isVoided: false }, select: { id: true, productId: true, productName: true, quantity: true, unitPrice: true, lineTotal: true } },
+      items: { where: { isVoided: false }, select: { id: true, productId: true, productName: true, quantity: true, unitPrice: true, lineTotal: true, notes: true, optionsSnapshot: true, productVariantSnapshot: true } },
       payments: { where: { status: 'completed' }, select: { id: true, method: true, amount: true, createdAt: true, paidBy: { select: { name: true } } } },
     },
   })
   return orders.map((o) => {
     const paid = o.payments.reduce((sum, p) => sum + Number(p.amount), 0)
-    return { id: o.id.toString(), number: o.orderNumber, createdAt: o.createdAt.toISOString(), branch: o.branch.name, table: o.cafeTable.number, creator: o.createdBy?.name ?? null,
+    return { id: o.id.toString(), number: o.orderNumber, createdAt: o.createdAt.toISOString(), branch: o.branch.name, table: o.cafeTable.number, creator: o.createdBy?.name ?? null, orderType: o.orderType, notes: o.notes,
       status: o.status, paymentStatus: settled(Number(o.total), paid) ? 'paid' : o.paymentStatus, subtotal: Number(o.itemsSubtotal).toFixed(2), discount: Number(o.discountAmount).toFixed(2), tax: Number(o.taxAmount).toFixed(2), total: Number(o.total).toFixed(2), paid: paid.toFixed(2), remaining: Math.max(0, Number(o.total) - paid).toFixed(2), cancelledAt: o.cancelledAt?.toISOString() ?? null, cancelReason: o.cancelReason ?? null,
-      items: o.items.map((i) => ({ id: i.id.toString(), productId: i.productId.toString(), name: i.productName, quantity: i.quantity, unitPrice: Number(i.unitPrice).toFixed(2), lineTotal: Number(i.lineTotal).toFixed(2) })),
+      items: o.items.map((i) => ({ id: i.id.toString(), productId: i.productId.toString(), name: i.productName, quantity: i.quantity, unitPrice: Number(i.unitPrice).toFixed(2), lineTotal: Number(i.lineTotal).toFixed(2), notes: i.notes, details: snapshotLabels(i.productVariantSnapshot, i.optionsSnapshot) })),
       payments: o.payments.map((p) => ({ id: p.id.toString(), method: p.method, amount: Number(p.amount).toFixed(2), createdAt: p.createdAt.toISOString(), collector: p.paidBy?.name ?? null })),
     }
   })
+}
+
+function snapshotLabels(...snapshots: unknown[]): string[] {
+  const labels = new Set<string>()
+  const visit = (value: unknown) => {
+    if (typeof value === 'string') { const text = value.trim(); if (text) labels.add(text); return }
+    if (Array.isArray(value)) { value.forEach(visit); return }
+    if (!value || typeof value !== 'object') return
+    const record = value as Record<string, unknown>
+    for (const key of ['label', 'name', 'value', 'title']) if (typeof record[key] === 'string') labels.add(record[key].trim())
+    for (const value of Object.values(record)) if (typeof value !== 'string') visit(value)
+  }
+  snapshots.forEach(visit)
+  return [...labels]
 }
 
 /** Add a catalog item or change an existing line while the invoice is unsettled. */
