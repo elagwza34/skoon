@@ -96,7 +96,7 @@ export function ThermalReceiptPreview({ invoice, payment, autoPrint = false, onC
         <section
           data-thermal-receipt
           style={{
-            '--thermal-content-width': paperWidth === '80mm' ? '72mm' : '50mm',
+            '--thermal-content-width': paperWidth === '80mm' ? '71.5mm' : '50mm',
           } as CSSProperties}
           className="thermal-receipt mx-auto w-full bg-white p-3 text-right text-black shadow-sm"
           dir="rtl"

@@ -150,8 +150,8 @@
     top: 0 !important;
     right: 4mm !important;
     left: auto !important;
-    width: var(--thermal-content-width, 72mm) !important;
-    max-width: var(--thermal-content-width, 72mm) !important;
+    width: var(--thermal-content-width, 71.5mm) !important;
+    max-width: var(--thermal-content-width, 71.5mm) !important;
     min-height: 0 !important;
     margin: 0 !important;
     padding: 1mm 0 0 !important;
