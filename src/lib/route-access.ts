@@ -67,6 +67,15 @@ export function canRenderInOpsShell(role: string, pathname: string): boolean {
   return false
 }
 
+/**
+ * The pathname is supplied by middleware. Do not manufacture a redirect from an
+ * absent value: redirecting an operational user to their role home with no
+ * source-path knowledge can create a same-URL redirect loop.
+ */
+export function shouldRedirectOperationalUserToHome(role: string, pathname: string): boolean {
+  return Boolean(pathname) && isOperationalRole(role) && !isOpsPath(pathname) && !canRenderInOpsShell(role, pathname) && pathname !== homeForRole(role)
+}
+
 /** Home screen per role — operational roles land on their dedicated board. */
 export function homeForRole(role: string): string {
   if (role === ROLE.WAITER) return '/waiter'
@@ -86,6 +95,14 @@ export function permissionForPath(pathname: string): string | null {
 /** Pure check: may this role (with these granted permissions) open `pathname`? */
 export function canSeeRoute(role: string, permissions: readonly string[], pathname: string): boolean {
   if (isOwner(role)) return true
+  // The cashier station is the Cashier role's home and is also where that role
+  // opens a required operational shift. Requiring the mutable orders.payment
+  // permission here can redirect a mis-provisioned cashier from /cashier to
+  // their own /cashier home forever. Financial mutations remain separately
+  // authorized by their server-side services and still require an open shift.
+  if (pathname === '/cashier' || pathname.startsWith('/cashier/')) {
+    return role === ROLE.CASHIER || hasPermission(permissions, 'orders.payment')
+  }
   if (pathname === '/products' || pathname.startsWith('/products/')) {
     return role === ROLE.MANAGER || role === ROLE.CASHIER
   }

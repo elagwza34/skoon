@@ -69,6 +69,7 @@ import {
   isOperationalRole,
   isOpsPath,
   canRenderInOpsShell,
+  shouldRedirectOperationalUserToHome,
   permissionForPath,
   canSeeRoute,
 } from '../src/lib/route-access'
@@ -354,11 +355,15 @@ test('route-access: ops boards include /cashier', () => {
   assert.equal(isOpsPath('/orders'), false)
 })
 
-test('route-access: /cashier requires orders.payment (cashier+ only)', () => {
+test('route-access: cashier station is reachable by the Cashier role without a mutable permission', () => {
   assert.equal(permissionForPath('/cashier'), 'orders.payment')
   const cashier = ['orders.view', 'orders.update', 'orders.cancel', 'orders.refund', 'orders.payment', 'tables.view']
   assert.equal(canSeeRoute('cashier', cashier, '/cashier'), true)
+  // A cashier must be able to load this station to open a shift; otherwise
+  // redirecting denied access to their own home creates /cashier -> /cashier.
+  assert.equal(canSeeRoute('cashier', [], '/cashier'), true)
   assert.equal(canSeeRoute('manager', ['orders.payment', 'settings.manage'], '/cashier'), true)
+  assert.equal(canSeeRoute('manager', [], '/cashier'), false)
   assert.equal(canSeeRoute('waiter', ['orders.view', 'tables.view'], '/cashier'), false)
   assert.equal(canSeeRoute('kitchen', ['orders.kitchen_status'], '/cashier'), false)
 })
@@ -369,6 +374,13 @@ test('route-access: ops-shell exception lets only the cashier render /cashier', 
   assert.equal(canRenderInOpsShell('waiter', '/cashier'), false)
   assert.equal(canRenderInOpsShell('kitchen', '/cashier'), false)
   assert.equal(canRenderInOpsShell('manager', '/cashier'), false)
+})
+
+test('route-access: an absent middleware pathname never creates an operational home loop', () => {
+  assert.equal(shouldRedirectOperationalUserToHome(ROLE.CASHIER, ''), false)
+  assert.equal(shouldRedirectOperationalUserToHome(ROLE.CASHIER, '/cashier'), false)
+  assert.equal(shouldRedirectOperationalUserToHome(ROLE.CASHIER, '/dashboard'), true)
+  assert.equal(shouldRedirectOperationalUserToHome(ROLE.MANAGER, '/dashboard'), false)
 })
 import { StaffProvisionError } from '../src/lib/staff-provision-write'
 
