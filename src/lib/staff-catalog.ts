@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import { ROLE } from '@/lib/authz'
 import type { StaffSession } from '@/lib/session'
+import { Prisma } from '@prisma/client'
 
 /**
  * Staff catalog — real products + categories from the database.
@@ -73,10 +74,22 @@ export async function getStaffCatalog(session: StaffSession): Promise<StaffCatal
   // Variant aggregation: product_id -> { count, ids[] }
   const productIds = products.map((p) => p.id)
   const variantAgg = new Map<string, { count: number; ids: string[] }>()
-  const variantRows = await prisma.productVariant.findMany({
-    where: { productId: { in: productIds } },
-    select: { productId: true, id: true },
-  })
+  // Product Variants is an additive deployment. A legacy database that has not
+  // received that migration must continue to serve its simple-product catalog;
+  // only the known missing-table condition is tolerated here.
+  let variantRows: Array<{ productId: bigint; id: bigint }> = []
+  if (productIds.length > 0) {
+    try {
+      variantRows = await prisma.productVariant.findMany({
+        where: { productId: { in: productIds } },
+        select: { productId: true, id: true },
+      })
+    } catch (error) {
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2021') {
+        throw error
+      }
+    }
+  }
   for (const p of products) {
     variantAgg.set(p.id.toString(), { count: 0, ids: [] })
   }

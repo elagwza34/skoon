@@ -3,6 +3,7 @@ import { getStaffCatalog } from '@/lib/staff-catalog'
 import { ROLE } from '@/lib/authz'
 import { canManageProducts } from '@/lib/staff-catalog-write'
 import { ProductsBoard } from '@/components/products/products-board'
+import { ProductConfigurationBoard } from '@/components/products/product-configuration-board'
 import { prisma } from '@/lib/prisma'
 
 export const dynamic = 'force-dynamic'
@@ -23,12 +24,15 @@ export default async function ProductsPage() {
       select: { id: true, name: true },
     })
     : []
-  return <ProductsBoard
-    catalog={catalog}
-    canEdit={canEdit}
-    canToggle={canEdit}
-    canCreateCategories={canEdit}
-    canManageCategories={session.role === ROLE.OWNER || session.role === ROLE.MANAGER}
-    branches={branches.map((branch) => ({ id: branch.id.toString(), name: branch.name }))}
-  />
+  return <div className="space-y-5">
+    <ProductsBoard
+      catalog={catalog}
+      canEdit={canEdit}
+      canToggle={canEdit}
+      canCreateCategories={canEdit}
+      canManageCategories={session.role === ROLE.OWNER || session.role === ROLE.MANAGER}
+      branches={branches.map((branch) => ({ id: branch.id.toString(), name: branch.name }))}
+    />
+    {session.role === ROLE.OWNER ? <ProductConfigurationBoard /> : null}
+  </div>
 }
