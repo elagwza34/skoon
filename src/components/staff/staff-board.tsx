@@ -202,6 +202,7 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
             <CardDescription>أنشئ اسم مستخدم وكلمة مرور مباشرة؛ لا تُرسل رسالة دعوة أو كلمة مرور بالبريد.</CardDescription>
           </CardHeader>
           <CardContent>
+            {error ? <p role="alert" className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="flex flex-col gap-1.5 text-sm">
                 <span className="text-muted-foreground">الاسم</span>
