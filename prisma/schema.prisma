@@ -538,10 +538,10 @@ model PayrollLine {
   payrollRunId    BigInt   @map("payroll_run_id")
   employeeId      String   @map("employee_id") @db.Uuid
   status          String   @default("draft") @db.VarChar(20)
-  grossAmount     Decimal  @db.Decimal(12, 2)
+  grossAmount     Decimal  @map("gross_amount") @db.Decimal(12, 2)
   deductionAmount Decimal  @default(0) @map("deduction_amount") @db.Decimal(12, 2)
   paidAmount      Decimal  @default(0) @map("paid_amount") @db.Decimal(12, 2)
-  netAmount       Decimal  @db.Decimal(12, 2)
+  netAmount       Decimal  @map("net_amount") @db.Decimal(12, 2)
   snapshot        Json
   createdAt       DateTime @default(now()) @map("created_at")
 

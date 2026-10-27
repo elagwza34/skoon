@@ -13,7 +13,8 @@ import type { StaffDirectory } from '@/lib/staff-directory'
 import { EmployeeManagementBoard } from '@/components/staff/employee-management-board'
 import { ScheduleManagementBoard } from '@/components/staff/schedule-management-board'
 import { PayrollManagementBoard } from '@/components/staff/payroll-management-board'
-import { AttendancePanel, HrKpis, LeaveManagementControls, LeavePanel, OvertimePanel, OvertimePolicyControls } from '@/components/staff/hr-workspace-panels'
+import { AttendancePanel, LeaveManagementControls, LeavePanel, OvertimePanel, OvertimePolicyControls } from '@/components/staff/hr-workspace-panels'
+import { HrKpiCards } from '@/components/staff/hr-kpi-cards'
 import { HrReportsBoard } from '@/components/staff/hr-reports-board'
 import { OvertimePolicyHistory } from '@/components/staff/overtime-policy-history'
 
@@ -180,7 +181,7 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
         <div><h1 className="text-xl font-bold">إدارة الموارد البشرية</h1><p className="text-sm text-muted-foreground">ملفات الموظفين، الحضور، الاستحقاقات والرواتب في مساحة عمل واحدة.</p></div>
         {activeTab === 'employees' && directory.canManage ? <Button onClick={openInvite}><Icon name="plus" size={16} /> إضافة موظف</Button> : null}
       </header>
-      <HrKpis />
+      <HrKpiCards />
       <nav aria-label="أقسام الموارد البشرية" className="flex gap-1 overflow-x-auto rounded-xl border border-border bg-card p-1">
         {([['employees', 'الموظفون'], ['schedules', 'الجداول'], ['attendance', 'الحضور'], ['leave', 'الإجازات'], ['overtime', 'الإضافي'], ['financials', 'المستحقات'], ['advances', 'السلف'], ['payroll', 'الرواتب'], ['reports', 'التقارير']] as const).map(([id, label]) => <button key={id} type="button" onClick={() => setActiveTab(id)} className={`whitespace-nowrap rounded-lg px-3 py-2 text-sm transition ${activeTab === id ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent hover:text-foreground'}`}>{label}</button>)}
       </nav>
