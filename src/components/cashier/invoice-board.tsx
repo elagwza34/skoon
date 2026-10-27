@@ -94,7 +94,7 @@ function InvoiceSettlementModal({ invoice, products, editable, pending, received
         <div className="min-w-0"><h2 id="invoice-settlement-title" className="truncate text-lg font-bold">تقفيل الفاتورة {invoice.number}</h2><p className="truncate text-xs text-muted-foreground">{dateTime(invoice.createdAt)} · {invoice.creator ?? '—'} · {invoice.status}</p></div>
         <Button variant="ghost" disabled={pending} onClick={onClose}>إغلاق</Button>
       </header>
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 sm:p-5"><InvoiceEditor invoice={invoice} products={products} editable={editable} pending={pending} received={received} method={method} reason={reason} setReceived={setReceived} setMethod={setMethod} setReason={setReason} edit={edit} collect={collect} cancel={cancel} onPrint={onPrint} modal />{editable && <ItemDiscountPanel items={invoice.items} pending={pending} edit={edit} />}</div>
+      <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-5"><InvoiceEditor invoice={invoice} products={products} editable={editable} pending={pending} received={received} method={method} reason={reason} setReceived={setReceived} setMethod={setMethod} setReason={setReason} edit={edit} collect={collect} cancel={cancel} onPrint={onPrint} modal /></div>
     </Card>
   </div>
 }
@@ -116,7 +116,47 @@ function ItemDiscountPanel({ items, pending, edit }: { items: InvoiceRow['items'
   return <Card className="border border-amber-200/70 p-3" dir="rtl"><div className="mb-2 flex items-center justify-between"><h3 className="font-semibold">خصم صنف</h3><span className="text-xs text-muted-foreground">يُحسب قبل خصم الفاتورة</span></div><div className="grid gap-2 sm:grid-cols-4"><select value={item.id} onChange={(event) => { const next = items.find((candidate) => candidate.id === event.target.value); setItemId(event.target.value); setType(next?.discountType ?? 'none'); setValue(next?.discountType ? next.discountValue : ''); setEligible(next?.eligibleForInvoiceDiscount ?? true) }} className="rounded-lg border bg-background p-2 text-sm">{items.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}</select><select value={type} onChange={(event) => setType(event.target.value as 'none' | 'percentage' | 'amount')} className="rounded-lg border bg-background p-2 text-sm"><option value="none">بدون خصم</option><option value="percentage">نسبة مئوية (%)</option><option value="amount">مبلغ ثابت</option></select><Input value={value} disabled={type === 'none'} onChange={(event) => setValue(event.target.value)} inputMode="decimal" placeholder="قيمة الخصم" /><Button disabled={pending} onClick={save}>حفظ خصم الصنف</Button></div><label className="mt-2 flex items-center gap-2 text-sm"><input type="checkbox" checked={eligible} onChange={(event) => setEligible(event.target.checked)} />يشمله الخصم العام للفاتورة</label>{error && <p className="mt-1 text-xs text-destructive">{error}</p>}</Card>
 }
 
+function InvoiceLineEditor({ item, editable, pending, edit }: { item: InvoiceRow['items'][number]; editable: boolean; pending: boolean; edit: (input: InvoiceEditInput) => void }) {
+  const [discountType, setDiscountType] = useState<'none' | 'percentage' | 'amount'>(item.discountType ?? 'none')
+  const [discountValue, setDiscountValue] = useState(item.discountType ? item.discountValue : '')
+  const [eligibleForInvoiceDiscount, setEligibleForInvoiceDiscount] = useState(item.eligibleForInvoiceDiscount)
+  const [error, setError] = useState<string | null>(null)
+  function applyItemDiscount() {
+    if (discountType !== 'none' && !/^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/.test(discountValue.trim())) { setError('أدخل قيمة خصم صحيحة'); return }
+    if (discountType === 'percentage' && !/^\d+$/.test(discountValue.trim())) { setError('النسبة يجب أن تكون رقمًا صحيحًا'); return }
+    setError(null)
+    edit({ action: 'line_discount', orderItemId: item.id, discountType, discountValue: discountType === 'none' ? '0' : discountValue.trim(), eligibleForInvoiceDiscount })
+  }
+  return <div className="grid gap-2 border-b py-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+    <div className="min-w-0"><div className="flex items-center justify-between gap-3"><span className="font-medium">{item.name} × {item.quantity}</span><strong>{money(item.lineTotal)}</strong></div>{Number(item.discountAmount) > 0 ? <p className="mt-1 text-xs text-emerald-600">خصم الصنف: -{money(item.discountAmount)}</p> : null}</div>
+    {editable && <div className="flex flex-wrap items-center gap-1.5"><select value={discountType} onChange={(event) => setDiscountType(event.target.value as 'none' | 'percentage' | 'amount')} className="h-8 rounded border bg-background px-1 text-xs"><option value="none">بدون خصم</option><option value="percentage">نسبة %</option><option value="amount">مبلغ</option></select><Input value={discountValue} disabled={discountType === 'none'} onChange={(event) => setDiscountValue(event.target.value)} inputMode="decimal" placeholder="القيمة" className="h-8 w-20 text-xs" /><label className="flex items-center gap-1 whitespace-nowrap text-[11px]"><input type="checkbox" checked={eligibleForInvoiceDiscount} onChange={(event) => setEligibleForInvoiceDiscount(event.target.checked)} />خصم عام</label><Button size="sm" variant="secondary" disabled={pending} onClick={applyItemDiscount}>تطبيق</Button><Button size="sm" variant="secondary" disabled={pending || item.quantity <= 1} onClick={() => edit({ action: 'quantity', orderItemId: item.id, quantity: item.quantity - 1 })}>−</Button><Button size="sm" variant="secondary" disabled={pending} onClick={() => edit({ action: 'quantity', orderItemId: item.id, quantity: item.quantity + 1 })}>+</Button>{error && <p className="basis-full text-xs text-destructive">{error}</p>}</div>}
+  </div>
+}
+
 function InvoiceEditor({ invoice, products, editable, pending, received, method, reason, setReceived, setMethod, setReason, edit, collect, cancel, onPrint, modal = false }: { invoice: InvoiceRow; products: { id: string; name: string; price: string }[]; editable: boolean; pending: boolean; received: string; method: string; reason: string; setReceived: (v: string) => void; setMethod: (v: string) => void; setReason: (v: string) => void; edit: (input: InvoiceEditInput) => void; collect: () => void; cancel: () => void; onPrint: () => void; modal?: boolean }) {
+  const cancellable = (invoice.status === 'new' || invoice.status === 'preparing') && Number(invoice.paid) === 0
+  const [discountType, setDiscountType] = useState<'none' | 'percentage' | 'amount'>(invoice.discountType ?? 'none')
+  const [discountValue, setDiscountValue] = useState(invoice.discountType ? invoice.discountValue ?? '' : '')
+  const [invoiceNotes, setInvoiceNotes] = useState(invoice.notes ?? '')
+  const [financialNotice, setFinancialNotice] = useState<string | null>(null)
+  function applyFinancials() {
+    if (!editable) return
+    if (discountType !== 'none' && !/^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/.test(discountValue.trim())) { setFinancialNotice('أدخل قيمة خصم صحيحة'); return }
+    if (discountType === 'percentage' && !/^\d+$/.test(discountValue.trim())) { setFinancialNotice('النسبة يجب أن تكون رقمًا صحيحًا'); return }
+    setFinancialNotice(null)
+    edit({ action: 'financials', discountType, discountValue: discountType === 'none' ? '0' : discountValue.trim(), notes: invoiceNotes.trim() || null })
+  }
+  return <Card className={modal ? 'border-0 p-0 shadow-none' : 'p-4'} dir="rtl">
+    {!modal && <div className="mb-3 flex justify-between"><div><h3 className="font-bold">{invoice.number}</h3><p className="text-xs text-muted-foreground">{dateTime(invoice.createdAt)}</p></div><span>{invoice.status}</span></div>}
+    <div className="space-y-1">{invoice.items.map((item) => <InvoiceLineEditor key={item.id} item={item} editable={editable} pending={pending} edit={edit} />)}</div>
+    {editable && <select className="mt-3 w-full rounded-lg border bg-background p-2 text-sm" defaultValue="" onChange={(event) => { if (event.target.value) { edit({ action: 'add', productId: event.target.value, quantity: 1 }); event.currentTarget.value = '' } }}><option value="">إضافة صنف من الكتالوج…</option>{products.map((product) => <option key={product.id} value={product.id}>{product.name} — {money(product.price)}</option>)}</select>}
+    <Totals invoice={invoice} />
+    {editable && <div className="mt-3 space-y-2 rounded-lg border border-amber-200/70 p-3"><div className="flex flex-wrap gap-2"><select value={discountType} onChange={(event) => setDiscountType(event.target.value as 'none' | 'percentage' | 'amount')} className="rounded-lg border bg-background p-2 text-sm"><option value="none">بدون خصم للفاتورة</option><option value="percentage">نسبة مئوية (%)</option><option value="amount">مبلغ ثابت</option></select><Input value={discountValue} disabled={discountType === 'none'} onChange={(event) => setDiscountValue(event.target.value)} inputMode="decimal" placeholder="قيمة خصم الفاتورة" className="max-w-44" /></div><Input value={invoiceNotes} onChange={(event) => setInvoiceNotes(event.target.value)} placeholder="ملاحظات الفاتورة…" />{financialNotice && <p className="text-xs text-destructive">{financialNotice}</p>}<Button disabled={pending} onClick={applyFinancials}>تطبيق خصم الفاتورة</Button></div>}
+    {(editable || cancellable) && <div className={modal ? 'sticky bottom-0 z-10 mt-4 grid gap-2 border-t bg-card py-3 sm:grid-cols-2' : 'mt-4 grid gap-2 sm:grid-cols-2'}>{editable && <><select value={method} onChange={(event) => setMethod(event.target.value)} className="rounded-lg border bg-background p-2"><option value="cash">نقدي</option><option value="mobile_wallet">محفظة إلكترونية</option><option value="instapay">إنستا باي</option></select><Input value={received} onChange={(event) => setReceived(event.target.value)} inputMode="decimal" placeholder={`المستلم (المطلوب ${invoice.remaining})`} /><Button disabled={pending} onClick={collect}>تحصيل</Button><Button variant="secondary" onClick={onPrint}>طباعة / معاينة</Button></>}{cancellable && <div className="sm:col-span-2 rounded-lg border border-rose-200 p-3"><Input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="سبب الإلغاء (مطلوب)" /><Button className="mt-2" variant="destructive" disabled={pending} onClick={cancel}>إلغاء الفاتورة</Button></div>}</div>}
+  </Card>
+}
+
+function LegacyInvoiceEditor({ invoice, products, editable, pending, received, method, reason, setReceived, setMethod, setReason, edit, collect, cancel, onPrint, modal = false }: { invoice: InvoiceRow; products: { id: string; name: string; price: string }[]; editable: boolean; pending: boolean; received: string; method: string; reason: string; setReceived: (v: string) => void; setMethod: (v: string) => void; setReason: (v: string) => void; edit: (input: InvoiceEditInput) => void; collect: () => void; cancel: () => void; onPrint: () => void; modal?: boolean }) {
  const cancellable = (invoice.status === 'new' || invoice.status === 'preparing') && Number(invoice.paid) === 0
   const [discountType, setDiscountType] = useState<'none' | 'percentage' | 'amount'>('none')
   const [discountValue, setDiscountValue] = useState('')

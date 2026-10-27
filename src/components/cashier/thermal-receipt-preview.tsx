@@ -108,10 +108,13 @@ export function ThermalReceiptPreview({ invoice, payment, autoPrint = false, onC
           <div className="py-2 text-xs">
             {invoice.items.map((item) => <div key={item.id} className="receipt-item grid grid-cols-[minmax(0,1fr)_auto] gap-x-2 border-b border-dashed border-black/40 py-1.5">
               <div className="min-w-0"><p className="break-words text-[13px] font-bold leading-5">{item.name}</p><p className="text-[11px]" dir="ltr">{item.quantity} × {money(item.unitPrice)}</p>{item.details?.length ? <p className="mt-0.5 break-words text-[11px] leading-4">{item.details.join(' · ')}</p> : null}{item.notes?.trim() ? <p className="mt-0.5 break-words text-[11px] leading-4">{item.notes.trim()}</p> : null}</div>
-              <strong className="self-start whitespace-nowrap pt-0.5 text-[12px]" dir="ltr">{money(item.lineTotal)}</strong>
+              <div className="self-start whitespace-nowrap pt-0.5 text-left" dir="ltr"><strong className="text-[12px]">{money(item.lineTotal)}</strong>{Number(item.discountAmount) > 0 ? <p className="mt-0.5 text-[10px] font-medium text-emerald-800">خصم -{money(item.discountAmount)}</p> : null}</div>
             </div>)}
           </div>
           <div className="receipt-summary space-y-1 border-t border-black pt-2 text-xs">
+            {Number(invoice.itemDiscount ?? 0) > 0 ? <div className="flex justify-between gap-3"><span>خصم الأصناف</span><span dir="ltr">-{money(invoice.itemDiscount ?? 0)}</span></div> : null}
+            {Number(invoice.discountEligibleBase ?? invoice.subtotal) !== Number(invoice.subtotal) ? <div className="flex justify-between gap-3"><span>قاعدة خصم الفاتورة</span><span dir="ltr">{money(invoice.discountEligibleBase ?? invoice.subtotal)}</span></div> : null}
+            {Number(invoice.discount) > Number(invoice.itemDiscount ?? 0) ? <div className="flex justify-between gap-3"><span>خصم الفاتورة</span><span dir="ltr">-{money(Number(invoice.discount) - Number(invoice.itemDiscount ?? 0))}</span></div> : null}
             <div className="flex justify-between gap-3 text-sm font-bold"><span>الإجمالي</span><strong dir="ltr">{money(invoice.subtotal)}</strong></div>
             <div className="flex justify-between gap-3"><span>الخصم</span><span dir="ltr">{Number(invoice.discount) > 0 ? `-${money(invoice.discount)}` : money(0)}</span></div>
             <div className="flex justify-between gap-3 border-t border-black pt-1 text-sm font-bold"><span>المدفوع</span><strong dir="ltr">{money(paid)}</strong></div>
