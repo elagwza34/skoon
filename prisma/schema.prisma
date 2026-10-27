@@ -318,6 +318,7 @@ model WorkScheduleDay {
   startsAt   String?      @map("starts_at") @db.VarChar(5)
   endsAt     String?      @map("ends_at") @db.VarChar(5)
   schedule   WorkSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  intervals  WorkScheduleInterval[]
 
   @@unique([scheduleId, weekday])
   @@map("work_schedule_days")
@@ -358,6 +359,7 @@ model LeaveRequest {
   startsOn     DateTime  @map("starts_on") @db.Date
   endsOn       DateTime  @map("ends_on") @db.Date
   days         Decimal   @db.Decimal(6, 2)
+  isPaid       Boolean?  @map("is_paid")
   reason       String    @db.VarChar(500)
   reviewerId   String?   @map("reviewer_id") @db.Uuid
   decisionNote String?   @map("decision_note") @db.VarChar(500)
@@ -380,6 +382,7 @@ model OfficialHoliday {
   name        String   @db.VarChar(150)
   startsOn    DateTime @map("starts_on") @db.Date
   endsOn      DateTime @map("ends_on") @db.Date
+  isPaid      Boolean?  @map("is_paid")
   createdById String   @map("created_by") @db.Uuid
   createdAt   DateTime @default(now()) @map("created_at")
 
@@ -388,6 +391,176 @@ model OfficialHoliday {
 
   @@index([branchId, startsOn])
   @@map("official_holidays")
+}
+
+// ============================ HR PHASE DRAFT ============================
+// These records are additive and intentionally have no production writer until
+// their local migration is separately reviewed and deployed.
+model WorkScheduleInterval {
+  id                 BigInt          @id @default(autoincrement())
+  scheduleDayId      BigInt          @map("schedule_day_id")
+  startsAt           String          @map("starts_at") @db.VarChar(5)
+  endsAt             String          @map("ends_at") @db.VarChar(5)
+  unpaidBreakMinutes Int             @default(0) @map("unpaid_break_minutes")
+  scheduleDay        WorkScheduleDay @relation(fields: [scheduleDayId], references: [id], onDelete: Cascade)
+
+  @@index([scheduleDayId])
+  @@map("work_schedule_intervals")
+}
+
+model EmployeeDocument {
+  id           BigInt   @id @default(autoincrement())
+  employeeId   BigInt   @map("employee_id")
+  kind         String   @db.VarChar(40)
+  storagePath  String   @map("storage_path") @db.VarChar(500)
+  uploadedById String   @map("uploaded_by") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@unique([employeeId, kind, storagePath])
+  @@index([employeeId, kind])
+  @@map("employee_documents")
+}
+
+model OvertimePolicy {
+  id                 BigInt   @id @default(autoincrement())
+  branchId           BigInt?  @map("branch_id")
+  employeeId         String?  @map("employee_id") @db.Uuid
+  roleId             BigInt?  @map("role_id")
+  effectiveFrom      DateTime @map("effective_from") @db.Date
+  effectiveUntil     DateTime? @map("effective_until") @db.Date
+  regularMultiplier  Decimal? @map("regular_multiplier") @db.Decimal(8, 4)
+  restDayMultiplier  Decimal? @map("rest_day_multiplier") @db.Decimal(8, 4)
+  holidayMultiplier  Decimal? @map("holiday_multiplier") @db.Decimal(8, 4)
+  nightMultiplier    Decimal? @map("night_multiplier") @db.Decimal(8, 4)
+  fixedHourlyRate    Decimal? @map("fixed_hourly_rate") @db.Decimal(12, 2)
+  graceMinutes       Int      @default(0) @map("grace_minutes")
+  dailyLimitMinutes  Int?     @map("daily_limit_minutes")
+  monthlyLimitMinutes Int?    @map("monthly_limit_minutes")
+  premiumOnly        Boolean  @default(true) @map("premium_only")
+  approvalRequired   Boolean  @default(true) @map("approval_required")
+  createdById        String   @map("created_by") @db.Uuid
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  @@index([employeeId, effectiveFrom])
+  @@index([roleId, effectiveFrom])
+  @@index([branchId, effectiveFrom])
+  @@map("overtime_policies")
+}
+
+model OvertimeRequest {
+  id              BigInt   @id @default(autoincrement())
+  employeeId      String   @map("employee_id") @db.Uuid
+  branchId        BigInt   @map("branch_id")
+  startsAt        DateTime @map("starts_at")
+  endsAt          DateTime @map("ends_at")
+  category        String   @db.VarChar(30)
+  detectedMinutes Int      @map("detected_minutes")
+  approvedMinutes Int?     @map("approved_minutes")
+  status          String   @default("pending") @db.VarChar(20)
+  requestedById   String   @map("requested_by") @db.Uuid
+  decidedById     String?  @map("decided_by") @db.Uuid
+  decisionNote    String?  @map("decision_note") @db.VarChar(500)
+  decidedAt       DateTime? @map("decided_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@index([employeeId, status, startsAt])
+  @@index([branchId, status, startsAt])
+  @@map("overtime_requests")
+}
+
+model HrAdjustment {
+  id           BigInt   @id @default(autoincrement())
+  employeeId   String   @map("employee_id") @db.Uuid
+  branchId     BigInt   @map("branch_id")
+  type         String   @db.VarChar(30)
+  amount       Decimal  @db.Decimal(12, 2)
+  currency     String   @default("EGP") @db.VarChar(3)
+  effectiveOn  DateTime @map("effective_on") @db.Date
+  status       String   @default("pending") @db.VarChar(20)
+  reason       String   @db.VarChar(500)
+  requestedById String  @map("requested_by") @db.Uuid
+  approvedById String?  @map("approved_by") @db.Uuid
+  approvedAt   DateTime? @map("approved_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([employeeId, status, effectiveOn])
+  @@map("hr_adjustments")
+}
+
+model EmployeeAdvance {
+  id            BigInt   @id @default(autoincrement())
+  employeeId    String   @map("employee_id") @db.Uuid
+  branchId      BigInt   @map("branch_id")
+  amount        Decimal  @db.Decimal(12, 2)
+  repaidAmount  Decimal  @default(0) @map("repaid_amount") @db.Decimal(12, 2)
+  currency      String   @default("EGP") @db.VarChar(3)
+  status        String   @default("pending") @db.VarChar(20)
+  reason        String   @db.VarChar(500)
+  requestedById String   @map("requested_by") @db.Uuid
+  approvedById  String?  @map("approved_by") @db.Uuid
+  approvedAt    DateTime? @map("approved_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([employeeId, status, createdAt])
+  @@map("employee_advances")
+}
+
+model PayrollPeriod {
+  id        BigInt   @id @default(autoincrement())
+  startsOn  DateTime @map("starts_on") @db.Date
+  endsOn    DateTime @map("ends_on") @db.Date
+  status    String   @default("draft") @db.VarChar(20)
+  createdById String @map("created_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([startsOn, endsOn])
+  @@map("payroll_periods")
+}
+
+model PayrollRun {
+  id          BigInt   @id @default(autoincrement())
+  periodId    BigInt   @map("period_id")
+  branchId    BigInt   @map("branch_id")
+  status      String   @default("draft") @db.VarChar(20)
+  createdById String   @map("created_by") @db.Uuid
+  reviewedById String? @map("reviewed_by") @db.Uuid
+  approvedById String? @map("approved_by") @db.Uuid
+  approvedAt  DateTime? @map("approved_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@unique([periodId, branchId])
+  @@index([branchId, status])
+  @@map("payroll_runs")
+}
+
+model PayrollLine {
+  id              BigInt   @id @default(autoincrement())
+  payrollRunId    BigInt   @map("payroll_run_id")
+  employeeId      String   @map("employee_id") @db.Uuid
+  status          String   @default("draft") @db.VarChar(20)
+  grossAmount     Decimal  @db.Decimal(12, 2)
+  deductionAmount Decimal  @default(0) @map("deduction_amount") @db.Decimal(12, 2)
+  paidAmount      Decimal  @default(0) @map("paid_amount") @db.Decimal(12, 2)
+  netAmount       Decimal  @db.Decimal(12, 2)
+  snapshot        Json
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@unique([payrollRunId, employeeId])
+  @@index([employeeId, status])
+  @@map("payroll_lines")
+}
+
+model PayrollPayment {
+  id             BigInt   @id @default(autoincrement())
+  payrollLineId  BigInt   @map("payroll_line_id")
+  amount         Decimal  @db.Decimal(12, 2)
+  method         String   @db.VarChar(30)
+  idempotencyKey String   @map("idempotency_key") @db.VarChar(100)
+  recordedById   String   @map("recorded_by") @db.Uuid
+  recordedAt     DateTime @default(now()) @map("recorded_at")
+
+  @@unique([payrollLineId, idempotencyKey])
+  @@map("payroll_payments")
 }
 
 /// Public QR and staff service requests are operational records, not customer-auth records.

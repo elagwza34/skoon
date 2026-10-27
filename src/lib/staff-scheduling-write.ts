@@ -88,7 +88,13 @@ export async function requestAttendanceCorrection(session: StaffSession, input: 
     const employee = await tx.user.findFirst({ where: { id: value.employeeId, isActive: true, deletedAt: null }, select: { branchId: true } })
     if (!employee?.branchId) throw new SchedulingError('Employee branch is required', 409)
     branchFor(session, employee.branchId.toString())
-    if (value.shiftId) { const shift = await tx.shift.findFirst({ where: { id: BigInt(value.shiftId), branchId: employee.branchId }, select: { id: true, cashierId: true } }); if (!shift || (shift.cashierId && shift.cashierId !== value.employeeId)) throw new SchedulingError('Shift does not belong to this employee and branch', 409) }
+    if (value.shiftId) {
+      const shiftId = BigInt(value.shiftId)
+      const shift = await tx.shift.findFirst({ where: { id: shiftId, branchId: employee.branchId }, select: { id: true, cashierId: true } })
+      if (!shift || (shift.cashierId && shift.cashierId !== value.employeeId)) throw new SchedulingError('Shift does not belong to this employee and branch', 409)
+      const existing = await tx.attendanceCorrection.findFirst({ where: { shiftId, status: { in: ['pending', 'approved'] } }, select: { id: true } })
+      if (existing) throw new SchedulingError('A pending or approved correction already exists for this shift', 409)
+    }
     const row = await tx.attendanceCorrection.create({ data: { branchId: employee.branchId, employeeId: value.employeeId, shiftId: value.shiftId ? BigInt(value.shiftId) : null, proposedById: session.id, reason: value.reason, proposedOpenedAt: value.proposedOpenedAt ?? null, proposedClosedAt: value.proposedClosedAt ?? null } })
     await tx.auditLog.create({ data: { userId: session.id, branchId: employee.branchId, action: 'hr.attendance_correction.request', entityType: 'attendance_correction', entityId: row.id, newValues: { employeeId: value.employeeId } } })
     return row
@@ -123,8 +129,9 @@ export async function listAttendanceCorrections(session: StaffSession) {
 export async function decideAttendanceCorrection(session: StaffSession, id: bigint, approve: boolean) {
   if (!canApproveAttendanceCorrections(session.role)) throw new SchedulingError('Owner approval is required', 403)
   try { return await prisma.$transaction(async (tx) => {
-    const row = await tx.attendanceCorrection.findFirst({ where: { id, status: 'pending' }, select: { id: true, employeeId: true, branchId: true } })
+    const row = await tx.attendanceCorrection.findFirst({ where: { id, status: 'pending' }, select: { id: true, employeeId: true, branchId: true, proposedById: true } })
     if (!row) throw new SchedulingError('Pending correction not found', 404)
+    if (row.proposedById === session.id) throw new SchedulingError('A requester cannot approve their own attendance correction', 403)
     const updated = await tx.attendanceCorrection.update({ where: { id }, data: { status: approve ? 'approved' : 'rejected', approvedById: session.id, decidedAt: new Date() } })
     await tx.auditLog.create({ data: { userId: session.id, branchId: row.branchId, action: approve ? 'hr.attendance_correction.approve' : 'hr.attendance_correction.reject', entityType: 'attendance_correction', entityId: id, newValues: {} } })
     await notifyUser(tx, row.employeeId, { type: 'hr.attendance.correction_decided', title: approve ? 'تمت الموافقة على تصحيح الحضور' : 'تم رفض تصحيح الحضور' })

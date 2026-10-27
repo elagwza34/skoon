@@ -15,6 +15,8 @@ import { normalizedRequestId } from '../src/lib/request-correlation'
 import { clearLegacyLoginCredentials, LEGACY_LOGIN_CREDENTIAL_KEY } from '../src/lib/auth/login-storage'
 import { safeInternalRedirect } from '../src/lib/auth/safe-redirect'
 import { calculatePayrollPreview, INITIAL_PAYROLL_POLICY } from '../src/lib/payroll-preview-policy'
+import { calculatePayroll } from '../src/lib/hr-payroll-calculation'
+import { nextPayrollStatus, toCents as payrollToCents } from '../src/lib/staff-payroll-write'
 import { normalizeStaffUsername, staffLoginEmail, staffUsernameEmail, usernameFromStaffEmail } from '../src/lib/staff-username'
 import { isSameOriginStaffApiRequest } from '../src/components/auth/auth-expiry-guard'
 import {
@@ -89,6 +91,7 @@ import {
   validateUnitConversion,
 } from '../src/lib/product-configuration-policy'
 import { effectivePeriodsOverlap, evaluateAttendance, validateWeeklySchedule } from '../src/lib/hr-scheduling-policy'
+import { calculateHrTimeSummary } from '../src/lib/hr-time-calculation'
 import { classifyUnassignedWaiterOrder } from '../src/lib/waiter-readiness-policy'
 import {
   approvalExecutesOrderMutation,
@@ -1522,4 +1525,73 @@ test('manager cash policy: Fixed-float and cash advance invariants preserved', (
   // It is NOT weakened by this change.
   assert.equal(hasAtLeast(ROLE.MANAGER, ROLE.CASHIER), true)
   assert.equal(hasAtLeast(ROLE.CASHIER, ROLE.CASHIER), true)
+})
+
+test('HR time summary uses actual calendar dates and effective schedule revisions', () => {
+  const everyDay = (hours: string) => Array.from({ length: 7 }, (_, weekday) => ({ weekday, restDay: false, startsAt: '09:00', endsAt: hours }))
+  const summary = calculateHrTimeSummary({
+    startsOn: '2026-08-01', endsOn: '2026-08-03', timezone: 'Africa/Cairo', shifts: [],
+    schedules: [
+      { effectiveFrom: '2026-08-01', effectiveUntil: '2026-08-03', graceMinutes: 10, days: everyDay('17:00') },
+      { effectiveFrom: '2026-08-03', graceMinutes: 10, days: everyDay('15:00') },
+    ],
+  })
+  assert.equal(summary.totals.scheduledMinutes, 1_320)
+  assert.deepEqual(summary.days.map((day) => day.scheduledMinutes), [480, 480, 360])
+})
+
+test('HR time summary splits overnight attendance across local dates without double counting', () => {
+  const summary = calculateHrTimeSummary({
+    startsOn: '2026-08-01', endsOn: '2026-08-02', timezone: 'Africa/Cairo',
+    schedules: [],
+    shifts: [{ id: 'night-1', openedAt: '2026-08-01T20:00:00.000Z', closedAt: '2026-08-02T03:00:00.000Z' }],
+  })
+  assert.equal(summary.totals.actualMinutes, 420)
+  assert.deepEqual(summary.days.map((day) => day.actualMinutes), [60, 360])
+  assert.equal(summary.days[1].overnightWorkMinutes, 360)
+  assert.equal(summary.totals.restDayWorkMinutes, 420)
+})
+
+test('HR time summary distinguishes paid leave, holiday work, and unknown leave classification', () => {
+  const schedule = [{ effectiveFrom: '2026-08-01', graceMinutes: 0, days: Array.from({ length: 7 }, (_, weekday) => ({ weekday, restDay: false, startsAt: '09:00', endsAt: '17:00' })) }]
+  const paid = calculateHrTimeSummary({ startsOn: '2026-08-03', endsOn: '2026-08-03', timezone: 'Africa/Cairo', schedules: schedule, shifts: [], leaves: [{ status: 'approved', startsOn: '2026-08-03', endsOn: '2026-08-03', paid: true }] })
+  assert.equal(paid.totals.payableMinutes, 480)
+  assert.equal(paid.totals.missingMinutes, 0)
+  const unknown = calculateHrTimeSummary({ startsOn: '2026-08-04', endsOn: '2026-08-04', timezone: 'Africa/Cairo', schedules: schedule, shifts: [], leaves: [{ status: 'approved', startsOn: '2026-08-04', endsOn: '2026-08-04' }], holidays: [{ startsOn: '2026-08-04', endsOn: '2026-08-04' }] })
+  assert.equal(unknown.totals.leaveClassificationUnknown, true)
+  assert.equal(unknown.days[0].holiday, true)
+})
+
+test('HR time summary rejects contradictory approved corrections for a shift', () => {
+  assert.throws(() => calculateHrTimeSummary({
+    startsOn: '2026-08-01', endsOn: '2026-08-01', timezone: 'Africa/Cairo', schedules: [], shifts: [{ id: 1, openedAt: '2026-08-01T09:00:00.000Z', closedAt: '2026-08-01T10:00:00.000Z' }],
+    corrections: [{ status: 'approved', shiftId: 1 }, { status: 'approved', shiftId: 1 }],
+  }), /Contradictory approved attendance corrections/)
+})
+
+test('HR payroll uses contractual calendar minutes and prevents duplicate overtime base pay', () => {
+  const result = calculatePayroll({
+    compensation: { kind: 'monthly', cents: 30_000_00, scheduledMinutes: 9_600, payableMinutes: 9_600 },
+    overtime: [{ approvedMinutes: 120, multiplierBasisPoints: 15_000, premiumOnly: true }],
+    adjustments: [{ type: 'bonus', cents: 500_00, approved: true }, { type: 'deduction', cents: 250_00, approved: true }],
+  })
+  assert.equal(result.baseCents, 30_000_00)
+  assert.equal(result.overtimeCents, 18_750)
+  assert.equal(result.grossCents, 30_687_50)
+  assert.equal(result.netCents, 30_437_50)
+})
+
+test('HR payroll fails closed without a monthly contractual-hours basis and caps recovery', () => {
+  assert.throws(() => calculatePayroll({ compensation: { kind: 'monthly', cents: 10_000, scheduledMinutes: 0, payableMinutes: 0 } }), /contractual scheduled minutes/)
+  const result = calculatePayroll({ compensation: { kind: 'hourly', cents: 10_00, scheduledMinutes: 0, payableMinutes: 60 }, adjustments: [{ type: 'advance_repayment', cents: 20_00, approved: true }] })
+  assert.equal(result.netCents, 0)
+  assert.equal(result.advanceRecoveryCents, 10_00)
+})
+
+test('payroll lifecycle only permits ordered immutable transitions', () => {
+  assert.equal(nextPayrollStatus('draft', 'review'), 'under_review')
+  assert.equal(nextPayrollStatus('under_review', 'approve'), 'approved')
+  assert.equal(nextPayrollStatus('paid', 'close'), 'closed')
+  assert.throws(() => nextPayrollStatus('approved', 'review'))
+  assert.equal(payrollToCents('12.5'), 1250)
 })

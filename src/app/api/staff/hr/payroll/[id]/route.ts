@@ -1,0 +1,5 @@
+import { NextResponse } from 'next/server'
+import { generatePayrollDraft, PayrollError, transitionPayrollRun } from '@/lib/staff-payroll-write'
+import { getStaffSession } from '@/lib/session'
+export const dynamic = 'force-dynamic'
+export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) { const session = await getStaffSession(); if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 }); const { id } = await params; if (!/^\d+$/.test(id)) return NextResponse.json({ error: 'Invalid payroll run id' }, { status: 400 }); try { const body = await request.json(); if (body.action === 'generate') return NextResponse.json(await generatePayrollDraft(session, BigInt(id))); if (!['review', 'approve', 'close'].includes(body.action)) return NextResponse.json({ error: 'Invalid payroll action' }, { status: 400 }); return NextResponse.json({ run: await transitionPayrollRun(session, BigInt(id), body.action) }) } catch (error) { return NextResponse.json({ error: error instanceof PayrollError ? error.message : 'Unable to update payroll' }, { status: error instanceof PayrollError ? error.status : 500 }) } }

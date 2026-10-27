@@ -12,6 +12,7 @@ import { formatRelative } from '@/lib/format'
 import type { StaffDirectory } from '@/lib/staff-directory'
 import { EmployeeManagementBoard } from '@/components/staff/employee-management-board'
 import { ScheduleManagementBoard } from '@/components/staff/schedule-management-board'
+import { PayrollManagementBoard } from '@/components/staff/payroll-management-board'
 
 /**
  * Staff board — real directory + trusted provisioning UI (owner/manager).
@@ -342,6 +343,7 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
       </Card>
       <EmployeeManagementBoard canManage={directory.canManage} />
       <ScheduleManagementBoard employees={directory.rows.map((row) => ({ id: row.id, name: row.name, branchId: row.branchId }))} canManage={directory.canSchedule} />
+      <PayrollManagementBoard employees={directory.rows.map((row) => ({ id: row.id, name: row.name, branchId: row.branchId }))} canManage={directory.canManage} />
       <p className="text-xs text-muted-foreground">
         الدعوة تُنشئ حساباً في Supabase Auth ثم يُربط بدور وفرع محددين هنا — تعديلات الأدوار تُطبَّق على
         الخادم ولا يمكن تجاوزها من المتصفح.

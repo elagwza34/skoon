@@ -1,0 +1,7 @@
+import { NextResponse } from 'next/server'
+import { createPayrollPeriod, createPayrollRun, listPayrollRuns, PayrollError } from '@/lib/staff-payroll-write'
+import { getStaffSession } from '@/lib/session'
+export const dynamic = 'force-dynamic'
+const fail = (error: unknown) => NextResponse.json({ error: error instanceof PayrollError ? error.message : 'Unable to process payroll' }, { status: error instanceof PayrollError ? error.status : 500 })
+export async function GET() { const session = await getStaffSession(); if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 }); try { return NextResponse.json({ runs: await listPayrollRuns(session) }) } catch (error) { return fail(error) } }
+export async function POST(request: Request) { const session = await getStaffSession(); if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 }); try { const body = await request.json(); if (body.kind === 'period') return NextResponse.json({ period: await createPayrollPeriod(session, body) }, { status: 201 }); if (body.kind === 'run' && /^\d+$/.test(body.periodId ?? '') && /^\d+$/.test(body.branchId ?? '')) return NextResponse.json({ run: await createPayrollRun(session, BigInt(body.periodId), BigInt(body.branchId)) }, { status: 201 }); return NextResponse.json({ error: 'Invalid payroll request' }, { status: 400 }) } catch (error) { return fail(error) } }

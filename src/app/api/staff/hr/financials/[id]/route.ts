@@ -1,0 +1,5 @@
+import { NextResponse } from 'next/server'
+import { decideAdjustment, decideAdvance, HrFinancialError } from '@/lib/staff-hr-financial-write'
+import { getStaffSession } from '@/lib/session'
+export const dynamic = 'force-dynamic'
+export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) { const s = await getStaffSession(); if (!s) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 }); const { id } = await params; if (!/^\d+$/.test(id)) return NextResponse.json({ error: 'Invalid record id' }, { status: 400 }); try { const body = await request.json(); if (typeof body.approve !== 'boolean' || !['adjustment', 'advance'].includes(body.kind)) return NextResponse.json({ error: 'Invalid decision' }, { status: 400 }); const data = body.kind === 'adjustment' ? await decideAdjustment(s, BigInt(id), body.approve) : await decideAdvance(s, BigInt(id), body.approve); return NextResponse.json({ record: data }) } catch (e) { return NextResponse.json({ error: e instanceof HrFinancialError ? e.message : 'Unable to decide HR financial record' }, { status: e instanceof HrFinancialError ? e.status : 500 }) } }
