@@ -1,2 +1,2 @@
-/** Canonical Owner home; intentionally independent of legacy /dashboard. */
-export { default } from '../dashboard/page'
+/** Canonical Owner home. */
+export { default } from '../admin-home'

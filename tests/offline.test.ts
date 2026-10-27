@@ -450,6 +450,8 @@ test('auth redirect: accepts only safe same-origin application paths', () => {
   assert.equal(safeInternalRedirect('/\\attacker.example'), null)
   assert.equal(safeInternalRedirect('https://attacker.example'), null)
   assert.equal(safeInternalRedirect('/dashboard\nSet-Cookie: bad'), null)
+  assert.equal(safeInternalRedirect('/login?next=/owner'), null)
+  assert.equal(safeInternalRedirect('/dashboard'), null)
 })
 
 test('auth expiry guard: only same-origin staff API 401 responses clear stale client UI', () => {

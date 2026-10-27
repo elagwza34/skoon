@@ -1,2 +1,2 @@
-/** Canonical Manager home; intentionally independent of legacy /dashboard. */
-export { default } from '../dashboard/page'
+/** Canonical Manager home. */
+export { default } from '../admin-home'

@@ -9,7 +9,12 @@ export function safeInternalRedirect(value: FormDataEntryValue | null): string |
   if (value.includes('\\') || /[\r\n]/.test(value)) return null
   try {
     const parsed = new URL(value, 'https://skoon.invalid')
-    return parsed.origin === 'https://skoon.invalid' ? `${parsed.pathname}${parsed.search}${parsed.hash}` : null
+    if (parsed.origin !== 'https://skoon.invalid') return null
+    // These routes make navigation decisions themselves. Never send a newly
+    // authenticated user back through them, otherwise an old `next` value can
+    // bounce between the login page and a role home.
+    if (parsed.pathname === '/login' || parsed.pathname === '/dashboard') return null
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`
   } catch {
     return null
   }
