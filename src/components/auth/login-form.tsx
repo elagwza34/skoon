@@ -18,6 +18,7 @@ export function LoginForm({ next, reason }: { next?: string; reason?: string }) 
   const [identifier, setIdentifier] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
+  const [attempted, setAttempted] = useState(false)
 
   useEffect(() => {
     try {
@@ -36,7 +37,7 @@ export function LoginForm({ next, reason }: { next?: string; reason?: string }) 
           <CardDescription>ادخل بحسابك للوصول للوحة التحكم</CardDescription>
         </CardHeader>
         <CardContent>
-          <form action={formAction} className="flex flex-col gap-3">
+          <form action={formAction} onSubmit={() => setAttempted(true)} className="flex flex-col gap-3">
             {next ? <input type="hidden" name="next" value={next} /> : null}
 
             <label className="flex flex-col gap-1.5 text-sm">
@@ -78,7 +79,7 @@ export function LoginForm({ next, reason }: { next?: string; reason?: string }) 
               </div>
             </label>
 
-            {reason === 'unprovisioned' ? (
+            {reason === 'unprovisioned' && !attempted ? (
               <p className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
                 الحساب مسجّل الدخول لكنه غير مفعّل في النظام — راجع مدير النظام لتفعيل حسابك.
               </p>
@@ -90,7 +91,7 @@ export function LoginForm({ next, reason }: { next?: string; reason?: string }) 
               </p>
             ) : null}
 
-            {state.error ? (
+            {state.error && !(attempted && pending) ? (
               <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
                 {state.error}
               </p>

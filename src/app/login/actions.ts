@@ -4,11 +4,11 @@ import { redirect } from 'next/navigation'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { getStaffSession } from '@/lib/session'
-import { homeForRole } from '@/lib/route-access'
+import { homeForRole, resolveRoleHome } from '@/lib/route-access'
 import { safeInternalRedirect } from '@/lib/auth/safe-redirect'
 import { staffLoginEmail } from '@/lib/staff-username'
-import { manageSingleActiveSession, deviceFingerprint, clientIp } from '@/lib/single-active-session'
 import { getLogoutEligibility } from '@/lib/logout-eligibility'
+import { prisma } from '@/lib/prisma'
 
 /**
  * Staff sign-in — Supabase Auth (legacy email or staff username + password).
@@ -50,17 +50,34 @@ export async function loginAction(
     return { error: 'اسم المستخدم أو البريد الإلكتروني أو كلمة المرور غير صحيحة' }
   }
 
-  // A login failure must never create or mutate an application session record.
+  // Credential verification completed. Resolve employee authorization directly
+  // so a missing/inactive staff row never gets mislabeled as a bad password.
   const currentUser = await supabase.auth.getUser()
-  if (currentUser.data.user) {
-    const userAgent = formData.get('user-agent') as string | undefined
-    const forwardedFor = formData.get('x-forwarded-for') as string | string[] | undefined
-    const reqIp = formData.get('x-forwarded-for') as string | undefined
-    await manageSingleActiveSession(
-      currentUser.data.user.id,
-      deviceFingerprint(userAgent),
-      clientIp(reqIp, forwardedFor),
-    )
+  if (!currentUser.data.user) {
+    await supabase.auth.signOut()
+    return { error: 'تعذر التحقق من جلسة تسجيل الدخول. حاول مرة أخرى.' }
+  }
+
+  const employee = await prisma.user.findUnique({
+    where: { id: currentUser.data.user.id },
+    select: { isActive: true, deletedAt: true, branchId: true, role: { select: { slug: true } } },
+  })
+  if (!employee) {
+    await supabase.auth.signOut()
+    return { error: 'تم التحقق من بيانات الدخول، لكن الحساب غير مرتبط بموظف في النظام. راجع مدير النظام.' }
+  }
+  if (!employee.isActive || employee.deletedAt) {
+    await supabase.auth.signOut()
+    return { error: 'الحساب غير مفعّل في النظام. راجع مدير النظام لتفعيل حسابك.' }
+  }
+  const canonicalHome = resolveRoleHome(employee.role.slug)
+  if (!canonicalHome) {
+    await supabase.auth.signOut()
+    return { error: 'الحساب ليس له دور تشغيلي صالح. راجع مدير النظام.' }
+  }
+  if (employee.role.slug === 'cashier' && employee.branchId === null) {
+    await supabase.auth.signOut()
+    return { error: 'حساب الكاشير غير مرتبط بفرع. راجع مدير النظام.' }
   }
 
   const requested = safeInternalRedirect(formData.get('next'))
@@ -71,19 +88,16 @@ export async function loginAction(
   // staff go straight to their board, owner/manager to the dashboard).
   // Operational staff without an open shift are sent to /shifts first.
   const session = await getStaffSession()
-  // Authenticated identities without an active trusted staff row fail closed.
-  // Keep /login reachable so middleware does not bounce this state in a loop.
+  // This is defense in depth after the explicit employee status messages above.
   if (!session) {
-    // An archived/suspended public.users record is authoritative. Remove the
-    // just-created cookie so it cannot leave stale client identity state.
     await supabase.auth.signOut()
-    return { error: 'اسم المستخدم أو البريد الإلكتروني أو كلمة المرور غير صحيحة' }
+    return { error: 'تعذر تهيئة صلاحيات الحساب. راجع مدير النظام.' }
   }
   // Shift enforcement belongs to the role workspace, not to identity login.
   // This preserves one canonical home for each role and avoids role-routing
   // loops; an operational screen will direct an employee to /shifts when its
   // work actually requires an open shift.
-  redirect(requested ?? homeForRole(session.role))
+  redirect(requested ?? canonicalHome ?? homeForRole(session.role))
 }
 
 /** Sign out and return to the login screen. */
