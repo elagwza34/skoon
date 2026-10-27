@@ -9,7 +9,9 @@ import { Badge, type BadgeTone } from '@/components/ui/badge'
 import { StatCard } from '@/components/ui/stat'
 import { EmptyState } from '@/components/ui/empty-state'
 import { formatCurrency, formatDateShort, formatTime, formatNumber } from '@/lib/format'
+import { Icon } from '@/components/ui/icon'
 import { homeForRole } from '@/lib/route-access'
+import { logoutAction } from '@/app/login/actions'
 import type { ShiftBoardData, ShiftView } from '@/lib/staff-shifts'
 
 const CASH_HANDLING_ROLES = ['cashier', 'manager']
@@ -279,6 +281,16 @@ export function ShiftsBoard({ initial }: { initial: ShiftBoardData }) {
               <Button onClick={open} disabled={busy}>
                 {busy ? 'جارٍ الفتح…' : 'فتح الوردية'}
               </Button>
+              <form action={logoutAction}>
+                <button
+                  type="submit"
+                  disabled={busy}
+                  className="flex w-full sm:w-auto items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium text-destructive hover:bg-accent hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <Icon name="logout" size={16} />
+                  تسجيل الخروج
+                </button>
+              </form>
             </div>
             {!isCashHandling ? (
               <p className="text-xs text-muted-foreground mt-2">
