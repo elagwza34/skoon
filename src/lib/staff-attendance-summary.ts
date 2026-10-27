@@ -31,7 +31,7 @@ export async function getAttendanceSummary(session: StaffSession, input: unknown
 
   const queryStart = plusDays(value.startsOn, -1); const queryEnd = plusDays(value.endsOn, 2)
   const [schedules, shifts, corrections, leaves, holidays] = await Promise.all([
-    prisma.workSchedule.findMany({ where: { employeeId, effectiveFrom: { lte: utcDay(value.endsOn) }, OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: utcDay(value.startsOn) } }] }, include: { days: { orderBy: { weekday: 'asc' } } }, orderBy: { effectiveFrom: 'asc' } }),
+    prisma.workSchedule.findMany({ where: { employeeId, effectiveFrom: { lte: utcDay(value.endsOn) }, OR: [{ effectiveUntil: null }, { effectiveUntil: { gt: utcDay(value.startsOn) } }] }, include: { days: { orderBy: { weekday: 'asc' }, include: { intervals: { orderBy: { id: 'asc' } } } } }, orderBy: { effectiveFrom: 'asc' } }),
     prisma.shift.findMany({ where: { cashierId: employeeId, openedAt: { gte: queryStart, lt: queryEnd } }, select: { id: true, openedAt: true, closedAt: true } }),
     prisma.attendanceCorrection.findMany({ where: { employeeId, status: 'approved' }, select: { shiftId: true, status: true, proposedOpenedAt: true, proposedClosedAt: true, decidedAt: true } }),
     prisma.leaveRequest.findMany({ where: { employeeId, status: 'approved', startsOn: { lte: utcDay(value.endsOn) }, endsOn: { gte: utcDay(value.startsOn) } }, select: { status: true, startsOn: true, endsOn: true, isPaid: true } }),

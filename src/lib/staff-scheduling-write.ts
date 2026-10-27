@@ -15,6 +15,7 @@ const daySchema = z.object({
   weekday: z.coerce.number().int().min(0).max(6), restDay: z.boolean(),
   startsAt: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable().optional(),
   endsAt: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable().optional(),
+  intervals: z.array(z.object({ startsAt: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/), endsAt: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/), unpaidBreakMinutes: z.coerce.number().int().min(0).max(720).default(0) })).max(6).optional(),
 })
 const scheduleSchema = z.object({
   employeeId: z.string().uuid(), branchId: z.union([z.string().regex(/^\d+$/), z.number().int().positive()]),
@@ -55,7 +56,7 @@ export async function createWorkSchedule(session: StaffSession, input: unknown) 
     if (!employee) throw new SchedulingError('Employee is not active in this branch', 404)
     const existing = await tx.workSchedule.findMany({ where: { employeeId: value.employeeId, status: 'active' }, select: { effectiveFrom: true, effectiveUntil: true } })
     if (existing.some((row) => effectivePeriodsOverlap(from, until, row.effectiveFrom, row.effectiveUntil))) throw new SchedulingError('Schedule overlaps an active effective period', 409)
-    const created = await tx.workSchedule.create({ data: { employeeId: value.employeeId, branchId, effectiveFrom: from, effectiveUntil: until, timezone: value.timezone, graceMinutes: value.graceMinutes, createdById: session.id, days: { create: value.days.map((day) => ({ weekday: day.weekday, restDay: day.restDay, startsAt: day.restDay ? null : day.startsAt ?? null, endsAt: day.restDay ? null : day.endsAt ?? null })) } }, include: { days: { orderBy: { weekday: 'asc' } } } })
+    const created = await tx.workSchedule.create({ data: { employeeId: value.employeeId, branchId, effectiveFrom: from, effectiveUntil: until, timezone: value.timezone, graceMinutes: value.graceMinutes, createdById: session.id, days: { create: value.days.map((day) => { const intervals = day.restDay ? [] : day.intervals?.length ? day.intervals : day.startsAt && day.endsAt ? [{ startsAt: day.startsAt, endsAt: day.endsAt, unpaidBreakMinutes: 0 }] : []; return { weekday: day.weekday, restDay: day.restDay, startsAt: intervals[0]?.startsAt ?? null, endsAt: intervals[0]?.endsAt ?? null, intervals: { create: intervals } } }) } }, include: { days: { orderBy: { weekday: 'asc' }, include: { intervals: { orderBy: { id: 'asc' } } } } } })
     await tx.auditLog.create({ data: { userId: session.id, branchId, action: 'hr.schedule.create', entityType: 'work_schedule', entityId: created.id, newValues: { employeeId: value.employeeId, effectiveFrom: from.toISOString().slice(0, 10) } } })
     await notifyUser(tx, value.employeeId, { type: 'hr.schedule.published', title: 'تم نشر جدول عملك' })
     return created
@@ -74,7 +75,7 @@ export async function listWorkSchedules(session: StaffSession, employeeId?: stri
     }
     return await prisma.workSchedule.findMany({
       where, orderBy: { effectiveFrom: 'desc' }, take: 100,
-      include: { days: { orderBy: { weekday: 'asc' } }, employee: { select: { id: true, name: true } } },
+      include: { days: { orderBy: { weekday: 'asc' }, include: { intervals: { orderBy: { id: 'asc' } } } }, employee: { select: { id: true, name: true } } },
     })
   } catch (error) { return migrationError(error) }
 }

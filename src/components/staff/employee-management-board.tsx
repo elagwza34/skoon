@@ -131,7 +131,7 @@ function EmployeeDetailPanel({ employee, canManage, onClose, onChanged, onArchiv
     finally { setBusy(false) }
   }
 
-  return <section className="space-y-4 rounded-xl border border-primary/25 bg-primary/5 p-4">
+  return <aside role="dialog" aria-modal="true" aria-label={`ملف ${employee.name}`} className="fixed inset-y-0 right-0 z-50 w-full max-w-2xl overflow-y-auto border-s border-border bg-background p-4 shadow-2xl sm:p-6">
     <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-bold">ملف {employee.name}</h3><Button variant="ghost" size="sm" onClick={onClose}>إغلاق</Button></div>
     {!canManage ? <p className="text-sm text-muted-foreground">هذه بيانات تشغيلية فقط. البيانات الشخصية والتعويضات والعقود متاحة للمالك فقط.</p> : <>
       <div className="grid gap-3 sm:grid-cols-2">
@@ -154,7 +154,7 @@ function EmployeeDetailPanel({ employee, canManage, onClose, onChanged, onArchiv
       <div><Button onClick={() => void save()} disabled={busy}>حفظ بيانات HR</Button></div>
       <HistoryPanels employee={employee} post={post} onChanged={onChanged} setError={setError} />
     </>}
-  </section>
+  </aside>
 }
 
 function HistoryPanels({ employee, post, onChanged, setError }: { employee: EmployeeDetail; post: (path: string, body?: unknown) => Promise<unknown>; onChanged: () => void; setError: (value: string | null) => void }) {
@@ -170,5 +170,15 @@ function HistoryPanels({ employee, post, onChanged, setError }: { employee: Empl
   return <div className="grid gap-4 lg:grid-cols-2">
     <div className="rounded-lg border bg-background p-3"><b>العقود والسجل</b><div className="mt-2 space-y-1 text-xs">{profile?.contracts.map((contract) => <div key={String(contract.id)}>{contract.contractType} · {dateInput(contract.effectiveFrom)} إلى {dateInput(contract.effectiveUntil) || 'مفتوح'}</div>)}</div><div className="mt-3 flex gap-2"><Input value={contractType} onChange={(e) => setContractType(e.target.value)} /><Input type="date" value={contractStart} onChange={(e) => setContractStart(e.target.value)} /><Button size="sm" disabled={!contractStart} onClick={() => void addContract()}>إضافة</Button></div></div>
     <div className="rounded-lg border bg-background p-3"><b>تاريخ التعويض</b><p className="mt-1 text-xs text-muted-foreground">لا تُنشئ هذه الشاشة Payroll أو حركة مالية.</p><div className="mt-2 space-y-1 text-xs">{profile?.compensationRates.map((rate) => <div key={String(rate.id)}>{rate.compensationType} · {String(rate.amount)} {rate.currency} · يبدأ {dateInput(rate.effectiveFrom)}</div>)}</div><div className="mt-3 grid gap-2 sm:grid-cols-2"><select value={rateType} onChange={(e) => setRateType(e.target.value)} className="h-10 rounded border bg-background px-2"><option value="monthly">شهري</option><option value="daily">يومي</option><option value="hourly">بالساعة</option><option value="per_shift">بالوردية</option></select><select value={rateFrequency} onChange={(e) => setRateFrequency(e.target.value)} className="h-10 rounded border bg-background px-2"><option value="weekly">أسبوعي</option><option value="semi_monthly">نصف شهري</option><option value="monthly">شهري</option></select><Input inputMode="decimal" value={rateAmount} onChange={(e) => setRateAmount(e.target.value)} placeholder="المبلغ" /><Input type="date" value={rateStart} onChange={(e) => setRateStart(e.target.value)} /><Button size="sm" disabled={!rateAmount || !rateStart} onClick={() => void addRate()}>إضافة سعر</Button></div></div>
+    <EmployeeDocumentsPanel employeeId={employee.id} />
   </div>
+}
+
+function EmployeeDocumentsPanel({ employeeId }: { employeeId: string }) {
+  const [rows, setRows] = useState<Array<{ id: string; kind: string }>>([]); const [file, setFile] = useState<File | null>(null); const [kind, setKind] = useState('other'); const [error, setError] = useState(''); const [busy, setBusy] = useState(false)
+  const load = async () => { try { const response = await fetch(`/api/staff/hr/documents?employeeId=${encodeURIComponent(employeeId)}`); const data = await response.json(); if (!response.ok) throw new Error(data.error); setRows(data.documents ?? []) } catch (cause) { setError(cause instanceof Error ? cause.message : 'تعذر تحميل المستندات') } }
+  useEffect(() => { void load() }, [employeeId])
+  const upload = async () => { if (!file) return; setBusy(true); setError(''); try { const form = new FormData(); form.set('employeeId', employeeId); form.set('kind', kind); form.set('file', file); const response = await fetch('/api/staff/hr/documents', { method: 'POST', body: form }); const data = await response.json(); if (!response.ok) throw new Error(data.error); setFile(null); await load() } catch (cause) { setError(cause instanceof Error ? cause.message : 'تعذر رفع المستند') } finally { setBusy(false) } }
+  const open = async (id: string) => { try { const response = await fetch(`/api/staff/hr/documents/${id}/signed-url`); const data = await response.json(); if (!response.ok) throw new Error(data.error); window.open(data.url, '_blank', 'noopener,noreferrer') } catch (cause) { setError(cause instanceof Error ? cause.message : 'تعذر فتح المستند') } }
+  return <div className="rounded-lg border bg-background p-3 lg:col-span-2"><b>المستندات الخاصة</b><p className="mt-1 text-xs text-muted-foreground">PDF أو صور حتى 8 MB؛ روابط التحميل مؤقتة ومخوّلة للمالك فقط.</p>{error ? <p className="mt-2 text-xs text-destructive">{error}</p> : null}<div className="mt-3 flex flex-wrap gap-2"><select value={kind} onChange={(event) => setKind(event.target.value)} className="h-10 rounded border bg-background px-2 text-sm"><option value="national_id_front">الرقم القومي — أمامي</option><option value="national_id_back">الرقم القومي — خلفي</option><option value="signed_contract">عقد موقّع</option><option value="other">مستند آخر</option></select><Input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" onChange={(event) => setFile(event.target.files?.[0] ?? null)} className="max-w-xs"/><Button size="sm" disabled={!file || busy} onClick={() => void upload()}>رفع</Button></div><div className="mt-3 flex flex-wrap gap-2">{rows.map((row) => <Button key={row.id} size="sm" variant="outline" onClick={() => void open(row.id)}>{row.kind}</Button>)}</div></div>
 }

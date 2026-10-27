@@ -10,7 +10,16 @@ const policySchema = z.object({ branchId: z.string().regex(/^\d+$/).optional(), 
 const requestSchema = z.object({ employeeId: z.string().uuid(), branchId: z.string().regex(/^\d+$/), startsAt: z.coerce.date(), endsAt: z.coerce.date(), category: z.enum(['regular','rest_day','holiday','night']), detectedMinutes: z.coerce.number().int().min(0).max(1440) }).refine((v) => v.endsAt > v.startsAt, { path: ['endsAt'], message: 'Overtime end must follow start' })
 function owner(session: StaffSession) { if (!canManageEmployeeLifecycle(session.role)) throw new OvertimeError('Owner access is required', 403) }
 function unavailable(error: unknown): never { if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2021') throw new OvertimeError('Phase D HR migration is not applied yet', 503); throw error }
-export async function listOvertime(session: StaffSession) { owner(session); try { return await prisma.overtimeRequest.findMany({ orderBy: { createdAt: 'desc' }, take: 200 }) } catch (e) { return unavailable(e) } }
+export async function listOvertime(session: StaffSession) {
+  owner(session)
+  try {
+    const [requests, policies] = await Promise.all([
+      prisma.overtimeRequest.findMany({ orderBy: { createdAt: 'desc' }, take: 200 }),
+      prisma.overtimePolicy.findMany({ orderBy: [{ effectiveFrom: 'desc' }, { createdAt: 'desc' }], take: 200 }),
+    ])
+    return { requests, policies }
+  } catch (e) { return unavailable(e) }
+}
 export async function createOvertimePolicy(session: StaffSession, input: unknown) { owner(session); const p = policySchema.safeParse(input); if (!p.success) throw new OvertimeError(p.error.issues[0]?.message ?? 'Invalid overtime policy'); try { return await prisma.overtimePolicy.create({ data: { ...p.data, branchId: p.data.branchId ? BigInt(p.data.branchId) : null, roleId: p.data.roleId ? BigInt(p.data.roleId) : null, createdById: session.id } }) } catch (e) { return unavailable(e) } }
 export async function createOvertimeRequest(session: StaffSession, input: unknown) { owner(session); const p = requestSchema.safeParse(input); if (!p.success) throw new OvertimeError(p.error.issues[0]?.message ?? 'Invalid overtime request'); try { return await prisma.overtimeRequest.create({ data: { ...p.data, branchId: BigInt(p.data.branchId), requestedById: session.id } }) } catch (e) { return unavailable(e) } }
 export async function decideOvertimeRequest(session: StaffSession, id: bigint, approve: boolean, approvedMinutes?: unknown, note?: unknown) { owner(session); const minutes = approvedMinutes === undefined ? undefined : z.coerce.number().int().min(0).max(1440).parse(approvedMinutes); const decisionNote = note === undefined ? null : z.string().trim().max(500).parse(note); try { return await prisma.$transaction(async (tx) => { const row = await tx.overtimeRequest.findFirst({ where: { id, status: 'pending' } }); if (!row) throw new OvertimeError('Pending overtime request not found', 404); if (row.requestedById === session.id) throw new OvertimeError('A requester cannot approve their own overtime', 403); const accepted = approve ? Math.min(minutes ?? row.detectedMinutes, row.detectedMinutes) : null; return tx.overtimeRequest.update({ where: { id }, data: { status: approve ? 'approved' : 'rejected', approvedMinutes: accepted, decidedById: session.id, decisionNote, decidedAt: new Date() } }) }) } catch (e) { return unavailable(e) } }

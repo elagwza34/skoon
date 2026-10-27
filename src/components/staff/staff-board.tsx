@@ -13,6 +13,9 @@ import type { StaffDirectory } from '@/lib/staff-directory'
 import { EmployeeManagementBoard } from '@/components/staff/employee-management-board'
 import { ScheduleManagementBoard } from '@/components/staff/schedule-management-board'
 import { PayrollManagementBoard } from '@/components/staff/payroll-management-board'
+import { AttendancePanel, HrKpis, LeaveManagementControls, LeavePanel, OvertimePanel, OvertimePolicyControls } from '@/components/staff/hr-workspace-panels'
+import { HrReportsBoard } from '@/components/staff/hr-reports-board'
+import { OvertimePolicyHistory } from '@/components/staff/overtime-policy-history'
 
 /**
  * Staff board — real directory + trusted provisioning UI (owner/manager).
@@ -26,6 +29,9 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
   const router = useRouter()
   const [, startTransition] = useTransition()
   const [query, setQuery] = useState('')
+  const [activeTab, setActiveTab] = useState<'employees' | 'schedules' | 'attendance' | 'leave' | 'overtime' | 'financials' | 'advances' | 'payroll' | 'reports'>('employees')
+  const [roleFilter, setRoleFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all')
 
   // Direct employee-account form. Password is held only in component state for
   // the request and is never persisted in browser storage.
@@ -72,10 +78,8 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
   const rows = useMemo(() => {
     const q = query.trim()
     if (!q) return directory.rows
-    return directory.rows.filter(
-      (r) => r.name.includes(q) || (r.username ?? '').includes(q.toLowerCase()) || (r.email ?? '').toLowerCase().includes(q.toLowerCase()),
-    )
-  }, [directory.rows, query])
+    return directory.rows.filter((r) => (r.name.includes(q) || (r.username ?? '').includes(q.toLowerCase()) || (r.email ?? '').toLowerCase().includes(q.toLowerCase())) && (!roleFilter || r.role === roleFilter) && (statusFilter === 'all' || (statusFilter === 'active' ? r.isActive : !r.isActive)))
+  }, [directory.rows, query, roleFilter, statusFilter])
 
   async function createEmployee() {
     if (saving) return
@@ -171,7 +175,15 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div dir="rtl" className="flex min-h-0 flex-col gap-4">
+      <header className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card/70 px-4 py-3">
+        <div><h1 className="text-xl font-bold">إدارة الموارد البشرية</h1><p className="text-sm text-muted-foreground">ملفات الموظفين، الحضور، الاستحقاقات والرواتب في مساحة عمل واحدة.</p></div>
+        {activeTab === 'employees' && directory.canManage ? <Button onClick={openInvite}><Icon name="plus" size={16} /> إضافة موظف</Button> : null}
+      </header>
+      <HrKpis />
+      <nav aria-label="أقسام الموارد البشرية" className="flex gap-1 overflow-x-auto rounded-xl border border-border bg-card p-1">
+        {([['employees', 'الموظفون'], ['schedules', 'الجداول'], ['attendance', 'الحضور'], ['leave', 'الإجازات'], ['overtime', 'الإضافي'], ['financials', 'المستحقات'], ['advances', 'السلف'], ['payroll', 'الرواتب'], ['reports', 'التقارير']] as const).map(([id, label]) => <button key={id} type="button" onClick={() => setActiveTab(id)} className={`whitespace-nowrap rounded-lg px-3 py-2 text-sm transition ${activeTab === id ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent hover:text-foreground'}`}>{label}</button>)}
+      </nav>
       {error ? (
         <Card className="border-destructive/40">
           <CardContent className="pt-5 text-sm text-destructive">{error}</CardContent>
@@ -183,6 +195,7 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
         </Card>
       ) : null}
 
+      {activeTab === 'employees' ? <>
       <div className="flex flex-wrap items-center gap-3">
         <Input
           icon="search" value={query} onChange={(e) => setQuery(e.target.value)}
@@ -342,8 +355,13 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
         </CardContent>
       </Card>
       <EmployeeManagementBoard canManage={directory.canManage} />
-      <ScheduleManagementBoard employees={directory.rows.map((row) => ({ id: row.id, name: row.name, branchId: row.branchId }))} canManage={directory.canSchedule} />
-      <PayrollManagementBoard employees={directory.rows.map((row) => ({ id: row.id, name: row.name, branchId: row.branchId }))} canManage={directory.canManage} />
+      </> : null}
+      {activeTab === 'schedules' ? <ScheduleManagementBoard employees={directory.rows.map((row) => ({ id: row.id, name: row.name, branchId: row.branchId }))} canManage={directory.canSchedule} /> : null}
+      {activeTab === 'attendance' ? <AttendancePanel employees={directory.rows.map((row) => ({ id: row.id, name: row.name, branchId: row.branchId }))} /> : null}
+      {activeTab === 'leave' ? <><LeaveManagementControls employees={directory.rows.map((row) => ({ id: row.id, name: row.name, branchId: row.branchId }))} /><LeavePanel canDecide={directory.canManage} /></> : null}
+      {activeTab === 'overtime' ? <><OvertimePolicyControls /><OvertimePolicyHistory /><OvertimePanel /></> : null}
+      {activeTab === 'financials' || activeTab === 'advances' || activeTab === 'payroll' ? <PayrollManagementBoard employees={directory.rows.map((row) => ({ id: row.id, name: row.name, branchId: row.branchId }))} canManage={directory.canManage} /> : null}
+      {activeTab === 'reports' ? <HrReportsBoard employees={directory.rows.map((row) => ({ id: row.id, name: row.name }))} /> : null}
       <p className="text-xs text-muted-foreground">
         الدعوة تُنشئ حساباً في Supabase Auth ثم يُربط بدور وفرع محددين هنا — تعديلات الأدوار تُطبَّق على
         الخادم ولا يمكن تجاوزها من المتصفح.

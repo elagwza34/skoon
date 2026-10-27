@@ -3,7 +3,8 @@
  * side effects: callers provide persisted schedule, leave, holiday, shift, and
  * approved-correction snapshots. All totals are integer minutes.
  */
-export type HrScheduleDay = { weekday: number; restDay: boolean; startsAt?: string | null; endsAt?: string | null }
+export type HrScheduleInterval = { startsAt: string; endsAt: string; unpaidBreakMinutes?: number }
+export type HrScheduleDay = { weekday: number; restDay: boolean; startsAt?: string | null; endsAt?: string | null; intervals?: readonly HrScheduleInterval[] }
 export type HrScheduleRevision = {
   effectiveFrom: Date | string; effectiveUntil?: Date | string | null; graceMinutes: number; days: readonly HrScheduleDay[]
 }
@@ -73,11 +74,21 @@ function effectiveSchedule(schedules: readonly HrScheduleRevision[], key: string
   return candidates[0] ?? null
 }
 
+function plannedIntervals(day: HrScheduleDay | undefined): readonly HrScheduleInterval[] {
+  if (!day || day.restDay) return []
+  if (day.intervals?.length) return day.intervals
+  if (!day.startsAt || !day.endsAt) throw new Error('Working schedule day has no complete interval')
+  return [{ startsAt: day.startsAt, endsAt: day.endsAt, unpaidBreakMinutes: 0 }]
+}
+
 function scheduledMinutes(day: HrScheduleDay | undefined) {
   if (!day || day.restDay) return 0
-  if (!day.startsAt || !day.endsAt) throw new Error('Working schedule day has no complete interval')
-  const start = minuteOfDay(day.startsAt), end = minuteOfDay(day.endsAt)
-  return end <= start ? end + 1440 - start : end - start
+  return plannedIntervals(day).reduce((sum, interval) => {
+    const start = minuteOfDay(interval.startsAt), end = minuteOfDay(interval.endsAt); const duration = end <= start ? end + 1440 - start : end - start
+    const breakMinutes = interval.unpaidBreakMinutes ?? 0
+    if (!Number.isInteger(breakMinutes) || breakMinutes < 0 || breakMinutes >= duration) throw new Error('Invalid unpaid break')
+    return sum + duration - breakMinutes
+  }, 0)
 }
 
 function correctionForShift(shift: HrShiftInterval, corrections: readonly HrAttendanceCorrection[]) {
@@ -111,7 +122,7 @@ export function calculateHrTimeSummary(input: {
     const schedule = effectiveSchedule(input.schedules, key); const plan = schedule?.days.find((day) => day.weekday === weekday(key)); const scheduled = scheduledMinutes(plan); const actualMinutes = actual.get(key) ?? 0
     const holiday = holidays.some((item) => dateKey(item.startsOn) <= key && key <= dateKey(item.endsOn)); const approvedLeave = leaves.find((item) => item.status === 'approved' && dateKey(item.startsOn) <= key && key <= dateKey(item.endsOn))
     const leaveUnknown = Boolean(approvedLeave && approvedLeave.paid === undefined); const paidLeaveMinutes = approvedLeave?.paid === true ? Math.max(0, scheduled - actualMinutes) : 0
-    const expectedStart = plan && !plan.restDay && plan.startsAt ? minuteOfDay(plan.startsAt) : null; const grace = schedule?.graceMinutes ?? 0; const lateMinutes = expectedStart == null || firstStart.get(key) == null ? 0 : Math.max(0, firstStart.get(key)! - expectedStart - grace)
+    const firstInterval = plannedIntervals(plan)[0]; const expectedStart = firstInterval ? minuteOfDay(firstInterval.startsAt) : null; const grace = schedule?.graceMinutes ?? 0; const lateMinutes = expectedStart == null || firstStart.get(key) == null ? 0 : Math.max(0, firstStart.get(key)! - expectedStart - grace)
     const payableMinutes = actualMinutes + paidLeaveMinutes; const missingMinutes = Math.max(0, scheduled - actualMinutes - paidLeaveMinutes)
     days.push({ date: key, scheduledMinutes: scheduled, actualMinutes, payableMinutes, missingMinutes, lateMinutes, earlyDepartureMinutes: missingMinutes, extraMinutes: Math.max(0, actualMinutes - scheduled), restDayWorkMinutes: scheduled === 0 ? actualMinutes : 0, holidayWorkMinutes: holiday ? actualMinutes : 0, approvedLeaveMinutes: approvedLeave ? Math.max(0, scheduled - actualMinutes) : 0, paidLeaveMinutes, leaveClassificationUnknown: leaveUnknown, holiday, overnightWorkMinutes: overnight.get(key) ?? 0 })
   }

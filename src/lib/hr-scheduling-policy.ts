@@ -8,6 +8,7 @@ export type WeeklyScheduleDay = {
   restDay: boolean
   startsAt?: string | null // HH:mm, branch-local time
   endsAt?: string | null
+  intervals?: readonly { startsAt: string; endsAt: string; unpaidBreakMinutes?: number }[]
 }
 
 export type AttendanceEvaluation = {
@@ -30,9 +31,13 @@ export function validateWeeklySchedule(days: readonly WeeklyScheduleDay[]): stri
   for (const day of days) {
     if (!Number.isInteger(day.weekday) || day.weekday < 0 || day.weekday > 6 || seen.has(day.weekday)) return 'Each weekday must appear once at most'
     seen.add(day.weekday)
-    const hasStart = Boolean(day.startsAt), hasEnd = Boolean(day.endsAt)
-    if (day.restDay && (hasStart || hasEnd)) return 'A rest day cannot have working hours'
-    if (!day.restDay && (!hasStart || !hasEnd || !TIME.test(day.startsAt!) || !TIME.test(day.endsAt!))) return 'A working day needs valid start and end times'
+    const intervals = day.intervals?.length ? day.intervals : day.startsAt && day.endsAt ? [{ startsAt: day.startsAt, endsAt: day.endsAt }] : []
+    if (day.restDay && (Boolean(day.startsAt) || Boolean(day.endsAt) || intervals.length)) return 'A rest day cannot have working hours'
+    if (!day.restDay && !intervals.length) return 'A working day needs at least one interval'
+    const expanded = intervals.map((interval) => { if (!TIME.test(interval.startsAt) || !TIME.test(interval.endsAt)) return null; const start = minutes(interval.startsAt); const rawEnd = minutes(interval.endsAt); const end = rawEnd <= start ? rawEnd + 1440 : rawEnd; const unpaid = interval.unpaidBreakMinutes ?? 0; return { start, end, unpaid } })
+    if (expanded.some((interval) => !interval || !Number.isInteger(interval.unpaid) || interval.unpaid < 0 || interval.unpaid >= interval.end - interval.start)) return 'Working intervals and unpaid breaks are invalid'
+    const ordered = expanded as Array<{ start: number; end: number; unpaid: number }>
+    if (ordered.some((interval, index) => ordered.slice(0, index).some((prior) => interval.start < prior.end && prior.start < interval.end))) return 'Working intervals cannot overlap'
   }
   return null
 }
