@@ -114,16 +114,9 @@ export async function middleware(request: NextRequest) {
     return redirectResponse
   }
 
-  if (user && pathname === '/login' && !request.nextUrl.searchParams.has('reason')) {
-    // Already signed in → straight to the dashboard. (Skipped when bounced
-    // with ?reason=unprovisioned — that page must stay reachable.)
-    const dashUrl = request.nextUrl.clone()
-    dashUrl.pathname = '/dashboard'
-    dashUrl.search = ''
-    const redirectResponse = NextResponse.redirect(dashUrl)
-    redirectResponse.headers.set('x-request-id', requestId)
-    return redirectResponse
-  }
+  // `/login` resolves a trusted database role in its server component and
+  // redirects to the canonical role home. Middleware only has Auth identity,
+  // so it must not guess a role or send everyone through `/dashboard`.
 
   // Expose the resolved pathname to server components (e.g. the (app) layout's
   // role-based route guard) which cannot read the URL directly. Safe: this is
@@ -135,7 +128,16 @@ export async function middleware(request: NextRequest) {
   requestHeaders.set('x-pathname', pathname)
   // Correlation only; handlers may log it but must never treat it as identity.
   requestHeaders.set('x-request-id', requestId)
-  const responseWithPath = NextResponse.next({ request: { headers: requestHeaders } })
+  // Keep the canonical owner/manager URL in the browser while reusing the
+  // legacy dashboard implementation until its modules are physically moved.
+  // The request header retains the original path, so AppLayout authorizes the
+  // canonical route before the compatibility implementation renders.
+  const internalUrl = request.nextUrl.clone()
+  const isCanonicalAdminHome = pathname === '/owner' || pathname === '/manager'
+  if (isCanonicalAdminHome) internalUrl.pathname = '/dashboard'
+  const responseWithPath = isCanonicalAdminHome
+    ? NextResponse.rewrite(internalUrl, { request: { headers: requestHeaders } })
+    : NextResponse.next({ request: { headers: requestHeaders } })
   // Preserve any refreshed auth cookies that were set on `response` above.
   response.cookies.getAll().forEach((c) => responseWithPath.cookies.set(c))
   response.headers.forEach((value, key) => responseWithPath.headers.set(key, value))

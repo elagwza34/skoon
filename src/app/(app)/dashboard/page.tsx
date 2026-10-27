@@ -18,6 +18,9 @@ import { getWaiterOperationalReadiness } from '@/lib/staff-waiter-readiness'
 import { WaiterOperationalReadinessPanel } from '@/components/dashboard/waiter-operational-readiness-panel'
 import { isOwner } from '@/lib/authz'
 import { OwnerCommandCenter } from '@/components/owner/owner-command-center'
+import { redirect } from 'next/navigation'
+import { headers } from 'next/headers'
+import { homeForRole } from '@/lib/route-access'
 
 /** Signed percent change between two numbers. */
 function pctDelta(now: number, before: number): { delta: string; dir: "up" | "down" } {
@@ -25,8 +28,8 @@ function pctDelta(now: number, before: number): { delta: string; dir: "up" | "do
   return { delta: formatPercent(Math.abs(change)), dir: change >= 0 ? "up" : "down" };
 }
 
-export default async function DashboardPage() {
-  const session = await requirePageAccess("/dashboard");
+async function CanonicalDashboardPage({ pathname }: { pathname: '/owner' | '/manager' }) {
+  const session = await requirePageAccess(pathname);
 
   const stats = await getDashboardStats(session);
   const managerOperations = await getManagerOperations(session)
@@ -145,4 +148,14 @@ export default async function DashboardPage() {
       </div>
     </div>
   );
+}
+
+/** Legacy compatibility endpoint: it is never a canonical role home. */
+export default async function DashboardPage() {
+  const pathname = (await headers()).get('x-pathname')
+  if (pathname === '/owner' || pathname === '/manager') {
+    return <CanonicalDashboardPage pathname={pathname} />
+  }
+  const session = await requirePageAccess('/dashboard')
+  redirect(homeForRole(session.role))
 }

@@ -5,10 +5,10 @@ import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { getStaffSession } from '@/lib/session'
 import { homeForRole } from '@/lib/route-access'
-import { requiresOperationalShift } from '@/lib/authz'
-import { getOpenShift } from '@/lib/staff-shifts'
 import { safeInternalRedirect } from '@/lib/auth/safe-redirect'
 import { staffLoginEmail } from '@/lib/staff-username'
+import { manageSingleActiveSession, deviceFingerprint, clientIp } from '@/lib/single-active-session'
+import { getLogoutEligibility } from '@/lib/logout-eligibility'
 
 /**
  * Staff sign-in — Supabase Auth (legacy email or staff username + password).
@@ -44,9 +44,23 @@ export async function loginAction(
   if (!email) return { error: 'اسم المستخدم أو البريد الإلكتروني أو كلمة المرور غير صحيحة' }
   const supabase = await createClient()
   const { error } = await supabase.auth.signInWithPassword({ email, password: parsed.data.password })
+
   if (error) {
     // Do not distinguish "user not found" vs "wrong password" (anti-enumeration).
     return { error: 'اسم المستخدم أو البريد الإلكتروني أو كلمة المرور غير صحيحة' }
+  }
+
+  // A login failure must never create or mutate an application session record.
+  const currentUser = await supabase.auth.getUser()
+  if (currentUser.data.user) {
+    const userAgent = formData.get('user-agent') as string | undefined
+    const forwardedFor = formData.get('x-forwarded-for') as string | string[] | undefined
+    const reqIp = formData.get('x-forwarded-for') as string | undefined
+    await manageSingleActiveSession(
+      currentUser.data.user.id,
+      deviceFingerprint(userAgent),
+      clientIp(reqIp, forwardedFor),
+    )
   }
 
   const requested = safeInternalRedirect(formData.get('next'))
@@ -65,17 +79,21 @@ export async function loginAction(
     await supabase.auth.signOut()
     return { error: 'اسم المستخدم أو البريد الإلكتروني أو كلمة المرور غير صحيحة' }
   }
-  // Login is identity-only. Only operational roles are routed through the
-  // existing shift-opening workflow; it never writes attendance itself.
-  if (requiresOperationalShift(session.role) && session.branchId) {
-    const shift = await getOpenShift(session.id, BigInt(session.branchId))
-    if (!shift) redirect('/shifts')
-  }
+  // Shift enforcement belongs to the role workspace, not to identity login.
+  // This preserves one canonical home for each role and avoids role-routing
+  // loops; an operational screen will direct an employee to /shifts when its
+  // work actually requires an open shift.
   redirect(requested ?? homeForRole(session.role))
 }
 
 /** Sign out and return to the login screen. */
 export async function logoutAction(): Promise<void> {
+  const session = await getStaffSession()
+  if (session) {
+    const eligibility = await getLogoutEligibility(session)
+    if (!eligibility.allowed) redirect('/logout-blocked')
+  }
+
   const supabase = await createClient()
   await supabase.auth.signOut()
   redirect('/login')

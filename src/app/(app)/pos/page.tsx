@@ -4,6 +4,7 @@ import { getPosCatalog, PosError } from '@/lib/staff-pos'
 import { PosCheckout } from '@/components/pos/pos-checkout'
 import { getOpenShift } from '@/lib/staff-shifts'
 import { requiresOperationalShift } from '@/lib/authz'
+import { homeForRole } from '@/lib/route-access'
 
 export const dynamic = 'force-dynamic'
 
@@ -21,7 +22,7 @@ export default async function PosPage() {
     const catalog = await getPosCatalog(session)
     return <PosCheckout catalog={catalog} />
   } catch (e) {
-    if (e instanceof PosError) redirect('/dashboard')
+    if (e instanceof PosError) redirect(homeForRole(session.role))
     throw e
   }
 }

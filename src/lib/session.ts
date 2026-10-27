@@ -60,6 +60,13 @@ export async function getStaffSession(): Promise<StaffSession | null> {
   })
   if (!row) return bootstrapFirstOwner(user)
 
+  // SINGLE-ACTIVE-SESSION GUARD: if a session record exists and is not active,
+  // this identity is already covered by another device. Fail closed.
+  const existingSession = await prisma.userSession.findUnique({
+    where: { userId: user.id },
+  })
+  if (existingSession && !existingSession.isActive) return null
+
   const slug = row.role.slug as RoleSlug
   return {
     id: row.id,

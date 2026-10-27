@@ -59,6 +59,9 @@ export function isOpsPath(pathname: string): boolean {
  * /cashier (their operational dashboard).
  */
 export function canRenderInOpsShell(role: string, pathname: string): boolean {
+  if (pathname === '/logout-blocked' || pathname.startsWith('/logout-blocked/')) {
+    return isOperationalRole(role)
+  }
   if (pathname === '/shifts' || pathname.startsWith('/shifts/')) {
     return role === ROLE.CASHIER || role === ROLE.WAITER || role === ROLE.KITCHEN
   }
@@ -76,12 +79,32 @@ export function shouldRedirectOperationalUserToHome(role: string, pathname: stri
   return Boolean(pathname) && isOperationalRole(role) && !isOpsPath(pathname) && !canRenderInOpsShell(role, pathname) && pathname !== homeForRole(role)
 }
 
-/** Home screen per role — operational roles land on their dedicated board. */
+/**
+ * Canonical, role-owned landing route. The role comes exclusively from the
+ * trusted server-side staff session; browser-provided roles are never used.
+ * Unknown roles deliberately fail closed at login instead of selecting a more
+ * privileged default home.
+ */
+export function resolveRoleHome(role: string): string | null {
+  switch (role) {
+    case ROLE.OWNER:
+      return '/owner'
+    case ROLE.MANAGER:
+      return '/manager'
+    case ROLE.CASHIER:
+      return '/cashier'
+    case ROLE.KITCHEN:
+      return '/kitchen'
+    case ROLE.WAITER:
+      return '/waiter'
+    default:
+      return null
+  }
+}
+
+/** Backward-compatible name for callers; never returns `/dashboard`. */
 export function homeForRole(role: string): string {
-  if (role === ROLE.WAITER) return '/waiter'
-  if (role === ROLE.KITCHEN) return '/kitchen'
-  if (role === ROLE.CASHIER) return '/cashier'
-  return '/dashboard'
+  return resolveRoleHome(role) ?? '/login?reason=unprovisioned'
 }
 
 /** The permission required to open `pathname`, or null if any staff may open it. */
@@ -95,6 +118,8 @@ export function permissionForPath(pathname: string): string | null {
 /** Pure check: may this role (with these granted permissions) open `pathname`? */
 export function canSeeRoute(role: string, permissions: readonly string[], pathname: string): boolean {
   if (isOwner(role)) return true
+  if (pathname === '/owner' || pathname.startsWith('/owner/')) return false
+  if (pathname === '/manager' || pathname.startsWith('/manager/')) return role === ROLE.MANAGER
   // An operational employee must always be able to open and close their own
   // attendance/operational shift. Requiring orders.view here creates a redirect
   // loop for a correctly provisioned kitchen user that only has kitchen access:

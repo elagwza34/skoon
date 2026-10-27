@@ -163,6 +163,8 @@ model User {
   receivedMovements                   FinancialMovement[]               @relation("movementRecipient")
   // Notifications sent to this user (order status transitions, payments).
   notifications                       Notification[]
+  userSessions      UserSession[] @relation("userSessions")
+
   employeeProfile                     EmployeeProfile?                  @relation("employeeProfileUser")
   archivedEmployeeProfiles            EmployeeProfile[]                 @relation("employeeProfileArchivedBy")
   uploadedEmployeeContracts           EmploymentContract[]              @relation("employeeContractUploadedBy")
@@ -193,7 +195,24 @@ model User {
   @@map("users")
 }
 
-// ============================ HR FOUNDATION ============================
+model UserSession {
+  id             String   @id @default(cuid())
+  userId         String   @db.Uuid  @map("user_id")
+  user           User     @relation("userSessions", fields: [userId], references: [id], onDelete: Cascade)
+  deviceInfo     String?  @db.VarChar(255)
+  ipAddress      String?  @db.VarChar(45)
+
+  supabaseSessionId String? @db.Uuid @map("supabase_session_id")
+  isActive       Boolean  @default(true) @map("is_active")
+  lastActivityAt DateTime @default(now()) @map("last_activity_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@unique([userId])
+  @@index([userId, isActive])
+}
+
+/// ============================ HR FOUNDATION ============================
 // The HR domain is deliberately separated from the authentication profile.
 // User remains the durable Supabase Auth-linked identity; this model stores
 // employee lifecycle data and is never hard-deleted through HR workflows.

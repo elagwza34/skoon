@@ -1,4 +1,5 @@
 import type { IconName } from '@/components/ui/icon'
+import { homeForRole } from '@/lib/route-access'
 
 export interface NavItem { href: string; label: string; icon: IconName; badge?: number }
 export interface NavGroup { title?: string; items: NavItem[] }
@@ -33,10 +34,18 @@ export const navGroups: NavGroup[] = [
   { title: 'الإدارة', items: [{ href: '/settings', label: 'الإعدادات', icon: 'settings' }] },
 ]
 
-export const DASHBOARD_ALLOWED_NAV = ['/dashboard', '/orders', '/pos', '/tables', '/reports', '/products'] as const
+export const DASHBOARD_ALLOWED_NAV = ['/owner', '/manager', '/orders', '/pos', '/tables', '/reports', '/products'] as const
 
-export function navGroupsFor(_role: string, canSee: (pathname: string) => boolean): NavGroup[] {
-  return navGroups.map((group) => ({ ...group, items: group.items.filter((item) => canSee(item.href)) })).filter((group) => group.items.length > 0)
+export function navGroupsFor(role: string, canSee: (pathname: string) => boolean): NavGroup[] {
+  const home = homeForRole(role)
+  return navGroups
+    .map((group) => ({
+      ...group,
+      // The legacy dashboard route remains a compatibility endpoint only; the
+      // sidebar must always expose the canonical owner/manager workspace.
+      items: group.items.map((item) => item.href === '/dashboard' ? { ...item, href: home } : item).filter((item) => canSee(item.href)),
+    }))
+    .filter((group) => group.items.length > 0)
 }
 
 const ALL_ITEMS = navGroups.flatMap((group) => group.items)

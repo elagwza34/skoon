@@ -346,12 +346,12 @@ test('route-access: nested paths inherit their section permission', () => {
 })
 
 // --- Role home redirect + operational detection ---------------------------
-test('route-access: home per role routes operational staff to their board', () => {
+test('route-access: every role resolves to its canonical home', () => {
   assert.equal(homeForRole('waiter'), '/waiter')
   assert.equal(homeForRole('kitchen'), '/kitchen')
   assert.equal(homeForRole('cashier'), '/cashier')
-  assert.equal(homeForRole('owner'), '/dashboard')
-  assert.equal(homeForRole('manager'), '/dashboard')
+  assert.equal(homeForRole('owner'), '/owner')
+  assert.equal(homeForRole('manager'), '/manager')
 })
 
 test('route-access: operational roles are waiter/kitchen/cashier only', () => {
@@ -1154,8 +1154,8 @@ test('route-access: home for all roles', () => {
   assert.equal(homeForRole('waiter'), '/waiter')
   assert.equal(homeForRole('kitchen'), '/kitchen')
   assert.equal(homeForRole('cashier'), '/cashier')
-  assert.equal(homeForRole('manager'), '/dashboard')
-  assert.equal(homeForRole('owner'), '/dashboard')
+  assert.equal(homeForRole('manager'), '/manager')
+  assert.equal(homeForRole('owner'), '/owner')
 })
 
 test('route-access: cashier-only /cashier in ops shell', () => {
@@ -1356,12 +1356,12 @@ test('manager lifecycle: Manager is not an operational board role (stays in admi
   assert.equal(isOperationalRole(ROLE.KITCHEN), true)
 })
 
-test('manager lifecycle: Manager home is /dashboard (not an ops board)', () => {
-  assert.equal(homeForRole(ROLE.MANAGER), '/dashboard')
+test('manager lifecycle: Manager home is /manager (not an ops board)', () => {
+  assert.equal(homeForRole(ROLE.MANAGER), '/manager')
   assert.equal(homeForRole(ROLE.CASHIER), '/cashier')
   assert.equal(homeForRole(ROLE.WAITER), '/waiter')
   assert.equal(homeForRole(ROLE.KITCHEN), '/kitchen')
-  assert.equal(homeForRole(ROLE.OWNER), '/dashboard')
+  assert.equal(homeForRole(ROLE.OWNER), '/owner')
 })
 
 test('manager lifecycle: Manager can see /dashboard without an open shift', () => {
