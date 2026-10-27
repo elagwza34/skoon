@@ -128,16 +128,10 @@ export async function middleware(request: NextRequest) {
   requestHeaders.set('x-pathname', pathname)
   // Correlation only; handlers may log it but must never treat it as identity.
   requestHeaders.set('x-request-id', requestId)
-  // Keep the canonical owner/manager URL in the browser while reusing the
-  // legacy dashboard implementation until its modules are physically moved.
-  // The request header retains the original path, so AppLayout authorizes the
-  // canonical route before the compatibility implementation renders.
-  const internalUrl = request.nextUrl.clone()
-  const isCanonicalAdminHome = pathname === '/owner' || pathname === '/manager'
-  if (isCanonicalAdminHome) internalUrl.pathname = '/dashboard'
-  const responseWithPath = isCanonicalAdminHome
-    ? NextResponse.rewrite(internalUrl, { request: { headers: requestHeaders } })
-    : NextResponse.next({ request: { headers: requestHeaders } })
+  // Canonical role homes are real route pages. Rewriting `/owner` or
+  // `/manager` through the legacy `/dashboard` route creates a loop because
+  // `/dashboard` correctly redirects to the caller's canonical role home.
+  const responseWithPath = NextResponse.next({ request: { headers: requestHeaders } })
   // Preserve any refreshed auth cookies that were set on `response` above.
   response.cookies.getAll().forEach((c) => responseWithPath.cookies.set(c))
   response.headers.forEach((value, key) => responseWithPath.headers.set(key, value))
