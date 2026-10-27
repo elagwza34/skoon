@@ -1024,14 +1024,17 @@ test('shifts: durable open-shift unique-index conflicts are surfaced as 409 cand
   assert.equal(isOpenShiftUniquenessConflict(null), false)
 })
 
-test('route-access: /shifts requires orders.view (all operational roles)', () => {
+test('route-access: operational employees can always access /shifts', () => {
   assert.equal(permissionForPath('/shifts'), 'orders.view')
   const cashier = ['orders.view', 'orders.update', 'orders.cancel', 'orders.refund', 'orders.payment', 'tables.view']
   assert.equal(canSeeRoute('cashier', cashier, '/shifts'), true)
   assert.equal(canSeeRoute('manager', ['orders.view', 'settings.manage'], '/shifts'), true)
-  // Waiter and kitchen have orders.view → can open /shifts for their own shift
+  // Operational employees may always open/close their own required shift,
+  // even when their station-specific permissions do not include orders.view.
   assert.equal(canSeeRoute('waiter', ['orders.view', 'tables.view'], '/shifts'), true)
   assert.equal(canSeeRoute('kitchen', ['orders.view', 'orders.kitchen_status'], '/shifts'), true)
+  assert.equal(canSeeRoute('waiter', ['tables.view'], '/shifts'), true)
+  assert.equal(canSeeRoute('kitchen', ['orders.kitchen_status'], '/shifts'), true)
   assert.equal(canSeeRoute('owner', [], '/shifts'), true)
 })
 
@@ -1134,9 +1137,9 @@ test('route-access: all operational roles can access /shifts', () => {
   assert.equal(canSeeRoute('kitchen', ['orders.view', 'orders.kitchen_status'], '/shifts'), true)
   assert.equal(canSeeRoute('manager', ['orders.view'], '/shifts'), true)
   assert.equal(canSeeRoute('owner', [], '/shifts'), true)
-  // Without orders.view, cannot access /shifts
-  assert.equal(canSeeRoute('waiter', ['tables.view'], '/shifts'), false)
-  assert.equal(canSeeRoute('kitchen', ['orders.kitchen_status'], '/shifts'), false)
+  // Their mandatory operational shift must not depend on orders.view.
+  assert.equal(canSeeRoute('waiter', ['tables.view'], '/shifts'), true)
+  assert.equal(canSeeRoute('kitchen', ['orders.kitchen_status'], '/shifts'), true)
 })
 
 test('route-access: ops-shell allows all operational roles for /shifts', () => {

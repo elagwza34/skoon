@@ -95,6 +95,14 @@ export function permissionForPath(pathname: string): string | null {
 /** Pure check: may this role (with these granted permissions) open `pathname`? */
 export function canSeeRoute(role: string, permissions: readonly string[], pathname: string): boolean {
   if (isOwner(role)) return true
+  // An operational employee must always be able to open and close their own
+  // attendance/operational shift. Requiring orders.view here creates a redirect
+  // loop for a correctly provisioned kitchen user that only has kitchen access:
+  // /kitchen -> /shifts -> /kitchen. Financial mutations remain guarded by
+  // their own server-side permissions and kitchen shifts never handle cash.
+  if (pathname === '/shifts' || pathname.startsWith('/shifts/')) {
+    return isOperationalRole(role) || hasPermission(permissions, 'orders.view')
+  }
   // The cashier station is the Cashier role's home and is also where that role
   // opens a required operational shift. Requiring the mutable orders.payment
   // permission here can redirect a mis-provisioned cashier from /cashier to
