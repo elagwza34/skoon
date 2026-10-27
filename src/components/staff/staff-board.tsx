@@ -76,6 +76,12 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [invOpen, saving])
 
+  useEffect(() => {
+    if (!error && !success) return
+    const timer = window.setTimeout(() => { setError(null); setSuccess(null) }, 5_000)
+    return () => window.clearTimeout(timer)
+  }, [error, success])
+
   const rows = useMemo(() => {
     const q = query.trim()
     if (!q) return directory.rows
@@ -202,11 +208,6 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
           icon="search" value={query} onChange={(e) => setQuery(e.target.value)}
           placeholder="ابحث بالاسم أو البريد…" aria-label="بحث الموظفين" className="max-w-xs"
         />
-        {directory.canManage ? (
-          <Button variant="outline" onClick={openInvite}>
-            <Icon name="plus" size={16} /> إضافة موظف
-          </Button>
-        ) : null}
       </div>
 
       {directory.canManage && invOpen ? (
