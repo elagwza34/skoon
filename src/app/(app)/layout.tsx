@@ -4,7 +4,7 @@ import { headers } from 'next/headers'
 import { AppShell } from '@/components/layout/app-shell'
 import { getAuthUser, getStaffSession } from '@/lib/session'
 import { describeDbEnv, prisma } from '@/lib/prisma'
-import { canSeeRoute, isOperationalRole, isOpsPath, shouldRedirectOperationalUserToHome, homeForRole } from '@/lib/route-access'
+import { canSeeRoute, isOperationalRole, shouldRedirectOperationalUserToHome, homeForRole } from '@/lib/route-access'
 
 /** Read the resolved pathname (set by middleware). Falls back to ''. */
 async function currentPath(): Promise<{ pathname: string }> {
@@ -81,10 +81,10 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     }
   }
 
-  // Operational roles on their board (POS / kitchen / waiter) get a FULL-SCREEN
-  // view with no admin sidebar — those are work stations, not an admin console.
-  // Everything else is wrapped in the shared AppShell (sidebar + topbar).
-  if (isOperationalRole(session.role) && isOpsPath(pathname)) {
+  // Operational roles (cashier / kitchen / waiter) never get the admin sidebar
+  // on any page — only owner and manager see it. Those roles work full-screen
+  // on their dedicated boards.
+  if (isOperationalRole(session.role)) {
     return <>{children}</>
   }
 
