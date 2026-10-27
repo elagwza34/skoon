@@ -13,6 +13,11 @@ import type { InvoiceRow } from '@/lib/staff-invoices'
 type InvoiceTab = 'open' | 'paid' | 'cancelled'
 type PaymentResult = ThermalPaymentResult & { remaining: string; invoice: InvoiceRow }
 type ReceiptPreviewState = { invoice: InvoiceRow; autoPrint?: boolean; payment?: ThermalPaymentResult }
+type InvoiceEditInput =
+  | { action: 'add'; productId: string; quantity: number }
+  | { action: 'quantity'; orderItemId: string; quantity: number }
+  | { action: 'line_discount'; orderItemId: string; discountType: 'percentage' | 'amount' | 'none'; discountValue: string; eligibleForInvoiceDiscount: boolean }
+  | { action: 'financials'; discountType: 'percentage' | 'amount' | 'none'; discountValue: string | number; notes: string | null }
 
 const money = (value: number | string) => formatMoney(Number(value))
 const dateTime = (value: string) => { const date = new Date(value); const time = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).format(date); return `${formatDateShort(date)} ${time}` }
@@ -61,7 +66,7 @@ export function InvoiceBoard({ invoices, products, defaultTab = 'open', workspac
     setInvoiceNotes(invoice.notes ?? '')
   }
   function closeSettlement() { if (!pending) setSelectedId(null) }
-  function edit(input: { action: 'add'; productId: string; quantity: number } | { action: 'quantity'; orderItemId: string; quantity: number } | { action: 'financials'; discountType: 'percentage' | 'amount' | 'none'; discountValue: number; notes: string | null }) { if (!selected) return; startTransition(async () => { const response = await fetch(`/api/staff/invoices/${selected.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) }); const body = await response.json().catch(() => ({})); refresh(response.ok ? 'تم حفظ الفاتورة.' : body.error ?? 'تعذر حفظ الفاتورة.') }) }
+  function edit(input: InvoiceEditInput) { if (!selected) return; startTransition(async () => { const response = await fetch(`/api/staff/invoices/${selected.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) }); const body = await response.json().catch(() => ({})); refresh(response.ok ? 'تم حفظ الفاتورة.' : body.error ?? 'تعذر حفظ الفاتورة.') }) }
   function collect() { if (!selected) return; if (!received || Number(received) <= 0) { setNotice('يجب إدخال المبلغ المستلم قبل التحصيل'); return }
     const amount = Number(received)
     if (method !== 'cash' && amount < Number(selected.remaining)) { setNotice('لطرق الدفع غير النقدية يجب تحصيل المبلغ كاملاً'); return }; startTransition(async () => { const invoice = selected; const response = await fetch(`/api/staff/orders/${invoice.id}/pay`, { method: 'POST', headers: { 'content-type': 'application/json', 'Idempotency-Key': key() }, body: JSON.stringify({ action: 'pay', method, received: received || invoice.remaining }) }); const body = await response.json().catch(() => ({})); if (!response.ok) return setNotice(body.error ?? 'تعذر تحصيل الدفعة.'); setReceipt({ paid: body.amount ?? invoice.remaining, remaining: '0', change: body.changeAmount ?? '0', method: body.method ?? method, invoice }); setReceived(''); setSelectedId(null); refresh('تم تسجيل التحصيل.') }) }
@@ -82,19 +87,36 @@ function InvoiceList({ rows, tab, selectedId, onSelect, onPreview }: { rows: Inv
   return <div className={tab === 'open' ? 'space-y-2' : 'overflow-x-auto'}>{tab === 'open' ? rows.map((invoice) => <button key={invoice.id} onClick={() => onSelect?.(invoice)} className={`w-full rounded-xl border p-3 text-right ${selectedId === invoice.id ? 'border-primary bg-accent/40' : 'border-border bg-card'}`}><div className="flex justify-between gap-3"><strong>{invoice.number}</strong><span>{money(invoice.total)}</span></div><div className="mt-1 flex justify-between text-xs text-muted-foreground"><span>{invoice.creator ?? '—'} · {dateTime(invoice.createdAt)}</span><span>المتبقي {money(invoice.remaining)}</span></div></button>) : <table className="w-full min-w-[760px] text-right text-sm"><thead className="border-b text-muted-foreground"><tr><th className="p-3">الفاتورة</th><th>التاريخ</th><th>الطاولة</th><th>المنشئ</th><th>الإجمالي</th><th>الحالة</th><th>الإجراء</th></tr></thead><tbody>{rows.map((invoice) => <tr key={invoice.id} className="border-b border-border/60"><td className="p-3 font-medium">{invoice.number}</td><td>{dateTime(invoice.createdAt)}</td><td>{invoice.table}</td><td>{invoice.creator ?? '—'}</td><td>{money(invoice.total)}</td><td>{tab === 'paid' ? invoice.payments.map(p => p.method).join(' / ') || 'مدفوعة' : 'ملغاة'}</td><td><Button size="sm" variant="outline" onClick={() => onPreview?.(invoice)}>طباعة</Button></td></tr>)}</tbody></table>}</div>
 }
 
-function InvoiceSettlementModal({ invoice, products, editable, pending, received, method, reason, setReceived, setMethod, setReason, edit, collect, cancel, onPrint, onClose }: { invoice: InvoiceRow; products: { id: string; name: string; price: string }[]; editable: boolean; pending: boolean; received: string; method: string; reason: string; setReceived: (v: string) => void; setMethod: (v: string) => void; setReason: (v: string) => void; edit: (input: { action: 'add'; productId: string; quantity: number } | { action: 'quantity'; orderItemId: string; quantity: number } | { action: 'financials'; discountType: 'percentage' | 'amount' | 'none'; discountValue: number; notes: string | null }) => void; collect: () => void; cancel: () => void; onPrint: () => void; onClose: () => void }) {
+function InvoiceSettlementModal({ invoice, products, editable, pending, received, method, reason, setReceived, setMethod, setReason, edit, collect, cancel, onPrint, onClose }: { invoice: InvoiceRow; products: { id: string; name: string; price: string }[]; editable: boolean; pending: boolean; received: string; method: string; reason: string; setReceived: (v: string) => void; setMethod: (v: string) => void; setReason: (v: string) => void; edit: (input: InvoiceEditInput) => void; collect: () => void; cancel: () => void; onPrint: () => void; onClose: () => void }) {
   return <div role="dialog" aria-modal="true" aria-labelledby="invoice-settlement-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-2 sm:p-4" dir="rtl">
     <Card className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden shadow-2xl">
       <header className="sticky top-0 z-10 flex shrink-0 items-start justify-between gap-3 border-b bg-card px-4 py-3 sm:px-6">
         <div className="min-w-0"><h2 id="invoice-settlement-title" className="truncate text-lg font-bold">تقفيل الفاتورة {invoice.number}</h2><p className="truncate text-xs text-muted-foreground">{dateTime(invoice.createdAt)} · {invoice.creator ?? '—'} · {invoice.status}</p></div>
         <Button variant="ghost" disabled={pending} onClick={onClose}>إغلاق</Button>
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-5"><InvoiceEditor invoice={invoice} products={products} editable={editable} pending={pending} received={received} method={method} reason={reason} setReceived={setReceived} setMethod={setMethod} setReason={setReason} edit={edit} collect={collect} cancel={cancel} onPrint={onPrint} modal /></div>
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 sm:p-5"><InvoiceEditor invoice={invoice} products={products} editable={editable} pending={pending} received={received} method={method} reason={reason} setReceived={setReceived} setMethod={setMethod} setReason={setReason} edit={edit} collect={collect} cancel={cancel} onPrint={onPrint} modal />{editable && <ItemDiscountPanel items={invoice.items} pending={pending} edit={edit} />}</div>
     </Card>
   </div>
 }
 
-function InvoiceEditor({ invoice, products, editable, pending, received, method, reason, setReceived, setMethod, setReason, edit, collect, cancel, onPrint, modal = false }: { invoice: InvoiceRow; products: { id: string; name: string; price: string }[]; editable: boolean; pending: boolean; received: string; method: string; reason: string; setReceived: (v: string) => void; setMethod: (v: string) => void; setReason: (v: string) => void; edit: (input: { action: 'add'; productId: string; quantity: number } | { action: 'quantity'; orderItemId: string; quantity: number } | { action: 'financials'; discountType: 'percentage' | 'amount' | 'none'; discountValue: number; notes: string | null }) => void; collect: () => void; cancel: () => void; onPrint: () => void; modal?: boolean }) {
+function ItemDiscountPanel({ items, pending, edit }: { items: InvoiceRow['items']; pending: boolean; edit: (input: InvoiceEditInput) => void }) {
+  const [itemId, setItemId] = useState(items[0]?.id ?? '')
+  const item = items.find((candidate) => candidate.id === itemId) ?? items[0]
+  const [type, setType] = useState<'none' | 'percentage' | 'amount'>(item?.discountType ?? 'none')
+  const [value, setValue] = useState(item?.discountType ? item.discountValue : '')
+  const [eligible, setEligible] = useState(item?.eligibleForInvoiceDiscount ?? true)
+  const [error, setError] = useState<string | null>(null)
+  if (!item) return null
+  function save() {
+    if (type !== 'none' && !/^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/.test(value.trim())) { setError('أدخل قيمة خصم صحيحة'); return }
+    if (type === 'percentage' && !/^\d+$/.test(value.trim())) { setError('النسبة يجب أن تكون رقمًا صحيحًا'); return }
+    setError(null)
+    edit({ action: 'line_discount', orderItemId: item.id, discountType: type, discountValue: type === 'none' ? '0' : value.trim(), eligibleForInvoiceDiscount: eligible })
+  }
+  return <Card className="border border-amber-200/70 p-3" dir="rtl"><div className="mb-2 flex items-center justify-between"><h3 className="font-semibold">خصم صنف</h3><span className="text-xs text-muted-foreground">يُحسب قبل خصم الفاتورة</span></div><div className="grid gap-2 sm:grid-cols-4"><select value={item.id} onChange={(event) => { const next = items.find((candidate) => candidate.id === event.target.value); setItemId(event.target.value); setType(next?.discountType ?? 'none'); setValue(next?.discountType ? next.discountValue : ''); setEligible(next?.eligibleForInvoiceDiscount ?? true) }} className="rounded-lg border bg-background p-2 text-sm">{items.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}</select><select value={type} onChange={(event) => setType(event.target.value as 'none' | 'percentage' | 'amount')} className="rounded-lg border bg-background p-2 text-sm"><option value="none">بدون خصم</option><option value="percentage">نسبة مئوية (%)</option><option value="amount">مبلغ ثابت</option></select><Input value={value} disabled={type === 'none'} onChange={(event) => setValue(event.target.value)} inputMode="decimal" placeholder="قيمة الخصم" /><Button disabled={pending} onClick={save}>حفظ خصم الصنف</Button></div><label className="mt-2 flex items-center gap-2 text-sm"><input type="checkbox" checked={eligible} onChange={(event) => setEligible(event.target.checked)} />يشمله الخصم العام للفاتورة</label>{error && <p className="mt-1 text-xs text-destructive">{error}</p>}</Card>
+}
+
+function InvoiceEditor({ invoice, products, editable, pending, received, method, reason, setReceived, setMethod, setReason, edit, collect, cancel, onPrint, modal = false }: { invoice: InvoiceRow; products: { id: string; name: string; price: string }[]; editable: boolean; pending: boolean; received: string; method: string; reason: string; setReceived: (v: string) => void; setMethod: (v: string) => void; setReason: (v: string) => void; edit: (input: InvoiceEditInput) => void; collect: () => void; cancel: () => void; onPrint: () => void; modal?: boolean }) {
  const cancellable = (invoice.status === 'new' || invoice.status === 'preparing') && Number(invoice.paid) === 0
   const [discountType, setDiscountType] = useState<'none' | 'percentage' | 'amount'>('none')
   const [discountValue, setDiscountValue] = useState('')

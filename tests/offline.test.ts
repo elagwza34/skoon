@@ -16,6 +16,7 @@ import { clearLegacyLoginCredentials, LEGACY_LOGIN_CREDENTIAL_KEY } from '../src
 import { safeInternalRedirect } from '../src/lib/auth/safe-redirect'
 import { calculatePayrollPreview, INITIAL_PAYROLL_POLICY } from '../src/lib/payroll-preview-policy'
 import { calculatePayroll } from '../src/lib/hr-payroll-calculation'
+import { calculateInvoiceDiscounts } from '../src/lib/invoice-discounts'
 import { nextPayrollStatus, toCents as payrollToCents } from '../src/lib/staff-payroll-write'
 import { normalizeStaffUsername, staffLoginEmail, staffUsernameEmail, usernameFromStaffEmail } from '../src/lib/staff-username'
 import { isSameOriginStaffApiRequest } from '../src/components/auth/auth-expiry-guard'
@@ -1594,4 +1595,22 @@ test('payroll lifecycle only permits ordered immutable transitions', () => {
   assert.equal(nextPayrollStatus('paid', 'close'), 'closed')
   assert.throws(() => nextPayrollStatus('approved', 'review'))
   assert.equal(payrollToCents('12.5'), 1250)
+})
+
+test('invoice discounts apply fixed line amounts once and exclude lines from the general base', () => {
+  const result = calculateInvoiceDiscounts([
+    { unitCents: 10_000n, quantity: 2, discountType: 'percentage', discountValue: 10n, eligibleForInvoiceDiscount: true },
+    { unitCents: 5_000n, quantity: 3, discountType: 'amount', discountValue: 2_000n, eligibleForInvoiceDiscount: true },
+    { unitCents: 3_000n, quantity: 1, discountType: 'none', discountValue: 0n, eligibleForInvoiceDiscount: false },
+  ], 'percentage', 10n)
+  assert.equal(result.subtotalCents, 38_000n)
+  assert.equal(result.itemDiscountCents, 4_000n)
+  assert.equal(result.eligibleBaseCents, 31_000n)
+  assert.equal(result.invoiceDiscountCents, 3_100n)
+  assert.equal(result.finalCents, 30_900n)
+})
+
+test('invoice discounts reject discounts above their authoritative bases', () => {
+  assert.throws(() => calculateInvoiceDiscounts([{ unitCents: 100n, quantity: 1, discountType: 'amount', discountValue: 101n, eligibleForInvoiceDiscount: true }], 'none', 0n), /Line fixed/)
+  assert.throws(() => calculateInvoiceDiscounts([{ unitCents: 100n, quantity: 1, discountType: 'none', discountValue: 0n, eligibleForInvoiceDiscount: false }], 'amount', 1n), /Invoice fixed/)
 })
