@@ -46,7 +46,12 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
 
   if (!session) {
     const authUser = await getAuthUser()
-    redirect(authUser ? '/login?reason=unprovisioned' : '/login')
+    // Authenticated-but-unprovisioned is an authorization state, not an
+    // anonymous session. Rendering a terminal explanation avoids sending an
+    // authenticated browser through /login, which may route it straight back
+    // to its role home and create a redirect loop.
+    if (authUser) return <AccountConfigurationPanel />
+    redirect('/login')
   }
 
   // --- Server-side route guard (defense in depth) -------------------------
@@ -95,6 +100,19 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     >
       {children}
     </AppShell>
+  )
+}
+
+function AccountConfigurationPanel() {
+  return (
+    <div className="flex min-h-[60vh] items-center justify-center p-6" dir="rtl">
+      <div className="w-full max-w-lg rounded-2xl border border-warning/40 bg-card p-6 text-center shadow-sm">
+        <h1 className="mb-2 text-lg font-bold">الحساب غير مهيأ للوصول</h1>
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          تم التحقق من تسجيل الدخول، لكن لا توجد صلاحية تطبيق نشطة مرتبطة بهذا الحساب.
+        </p>
+      </div>
+    </div>
   )
 }
 

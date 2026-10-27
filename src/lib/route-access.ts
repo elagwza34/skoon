@@ -120,6 +120,15 @@ export function canSeeRoute(role: string, permissions: readonly string[], pathna
   if (isOwner(role)) return true
   if (pathname === '/owner' || pathname.startsWith('/owner/')) return false
   if (pathname === '/manager' || pathname.startsWith('/manager/')) return role === ROLE.MANAGER
+  // A role's canonical home must never depend on a mutable permission. If a
+  // role was provisioned without one of its operational permissions, sending
+  // it away from its own home would produce a same-URL redirect loop. The
+  // workspace/API still enforce each mutation's specific permission.
+  if (pathname === '/cashier' || pathname.startsWith('/cashier/')) {
+    return role === ROLE.CASHIER || hasPermission(permissions, 'orders.payment')
+  }
+  if (pathname === '/kitchen' || pathname.startsWith('/kitchen/')) return role === ROLE.KITCHEN
+  if (pathname === '/waiter' || pathname.startsWith('/waiter/')) return role === ROLE.WAITER
   // An operational employee must always be able to open and close their own
   // attendance/operational shift. Requiring orders.view here creates a redirect
   // loop for a correctly provisioned kitchen user that only has kitchen access:
@@ -133,9 +142,6 @@ export function canSeeRoute(role: string, permissions: readonly string[], pathna
   // permission here can redirect a mis-provisioned cashier from /cashier to
   // their own /cashier home forever. Financial mutations remain separately
   // authorized by their server-side services and still require an open shift.
-  if (pathname === '/cashier' || pathname.startsWith('/cashier/')) {
-    return role === ROLE.CASHIER || hasPermission(permissions, 'orders.payment')
-  }
   if (pathname === '/products' || pathname.startsWith('/products/')) {
     return role === ROLE.MANAGER || role === ROLE.CASHIER
   }
