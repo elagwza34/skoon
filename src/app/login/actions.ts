@@ -57,12 +57,44 @@ export async function loginAction(
     await supabase.auth.signOut()
     return { error: 'تعذر التحقق من جلسة تسجيل الدخول. حاول مرة أخرى.' }
   }
+  const requested = safeInternalRedirect(formData.get('next'))
 
-  const employee = await prisma.user.findUnique({
-    where: { id: currentUser.data.user.id },
-    select: { isActive: true, deletedAt: true, branchId: true, role: { select: { slug: true } } },
-  })
+  let employee: {
+    isActive: boolean
+    deletedAt: Date | null
+    branchId: bigint | null
+    role: { slug: string }
+  } | null
+  try {
+    employee = await prisma.user.findUnique({
+      where: { id: currentUser.data.user.id },
+      select: { isActive: true, deletedAt: true, branchId: true, role: { select: { slug: true } } },
+    })
+  } catch (error) {
+    // This is an infrastructure failure, not an unprovisioned account. Keep the
+    // diagnostic server-side and return a distinct, non-sensitive message.
+    console.error('[auth] staff authorization lookup failed', {
+      code: error instanceof Error && 'code' in error ? error.code : undefined,
+    })
+    await supabase.auth.signOut()
+    return { error: 'تعذر التحقق من صلاحيات الحساب بسبب خطأ مؤقت. حاول مرة أخرى أو راجع مدير النظام.' }
+  }
   if (!employee) {
+    // Preserve the original, self-closing first-owner bootstrap. It is only
+    // eligible while public.users is empty; all later unassociated Auth users
+    // remain denied below.
+    try {
+      const bootstrapSession = await getStaffSession()
+      if (bootstrapSession) {
+        redirect(requested ?? resolveRoleHome(bootstrapSession.role) ?? homeForRole(bootstrapSession.role))
+      }
+    } catch (error) {
+      console.error('[auth] first-owner bootstrap lookup failed', {
+        code: error instanceof Error && 'code' in error ? error.code : undefined,
+      })
+      await supabase.auth.signOut()
+      return { error: 'تعذر التحقق من صلاحيات الحساب بسبب خطأ مؤقت. حاول مرة أخرى أو راجع مدير النظام.' }
+    }
     await supabase.auth.signOut()
     return { error: 'تم التحقق من بيانات الدخول، لكن الحساب غير مرتبط بموظف في النظام. راجع مدير النظام.' }
   }
@@ -80,14 +112,21 @@ export async function loginAction(
     return { error: 'حساب الكاشير غير مرتبط بفرع. راجع مدير النظام.' }
   }
 
-  const requested = safeInternalRedirect(formData.get('next'))
-
   // If the user came here to reach a specific page (the middleware set ?next),
   // honour it; the (app) layout's route guard will bounce them if it's outside
   // their role. Otherwise land them on the screen for their role (operational
   // staff go straight to their board, owner/manager to the dashboard).
   // Operational staff without an open shift are sent to /shifts first.
-  const session = await getStaffSession()
+  let session
+  try {
+    session = await getStaffSession()
+  } catch (error) {
+    console.error('[auth] staff session resolution failed', {
+      code: error instanceof Error && 'code' in error ? error.code : undefined,
+    })
+    await supabase.auth.signOut()
+    return { error: 'تعذر تجهيز صلاحيات الحساب بسبب خطأ مؤقت. حاول مرة أخرى أو راجع مدير النظام.' }
+  }
   // This is defense in depth after the explicit employee status messages above.
   if (!session) {
     await supabase.auth.signOut()
