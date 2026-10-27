@@ -48,6 +48,8 @@ export type IconName =
   | 'cart'
   | 'phone'
   | 'copy'
+  | 'eye'
+  | 'eye-off'
 
 export const ICON_PATHS: Record<IconName, React.ReactNode> = {
   dashboard: (
@@ -237,6 +239,19 @@ export const ICON_PATHS: Record<IconName, React.ReactNode> = {
     <>
       <rect x="9" y="9" width="12" height="12" rx="2" />
       <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </>
+  ),
+  eye: (
+    <>
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+      <circle cx="12" cy="12" r="3" />
+    </>
+  ),
+  'eye-off': (
+    <>
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+      <circle cx="12" cy="12" r="3" />
+      <line x1="1" y1="1" x2="23" y2="23" />
     </>
   ),
 }

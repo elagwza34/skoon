@@ -17,6 +17,7 @@ export function LoginForm({ next, reason }: { next?: string; reason?: string }) 
   const [state, formAction, pending] = useActionState<LoginState, FormData>(loginAction, {})
   const [identifier, setIdentifier] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
 
   useEffect(() => {
     try {
@@ -54,16 +55,27 @@ export function LoginForm({ next, reason }: { next?: string; reason?: string }) 
 
             <label className="flex flex-col gap-1.5 text-sm">
               <span className="font-medium">كلمة المرور</span>
-              <Input
-                type="password"
-                name="password"
-                placeholder="••••••••"
-                required
-                dir="ltr"
-                autoComplete="current-password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-              />
+              <div className="relative">
+                <Input
+                  type={showPassword ? 'text' : 'password'}
+                  name="password"
+                  placeholder="••••••••"
+                  required
+                  dir="ltr"
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  className="pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  aria-label={showPassword ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'}
+                >
+                  <Icon name={showPassword ? 'eye-off' : 'eye'} size={16} />
+                </button>
+              </div>
             </label>
 
             {reason === 'unprovisioned' ? (
