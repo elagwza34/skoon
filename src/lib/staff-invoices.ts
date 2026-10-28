@@ -8,7 +8,7 @@ import { calculateInvoiceDiscounts, type DiscountKind } from '@/lib/invoice-disc
 export class InvoiceError extends Error { constructor(message: string, readonly status = 400) { super(message); this.name = 'InvoiceError' } }
 
 export type InvoiceRow = {
-  id: string; number: string; createdAt: string; branch: string; table: string; creator: string | null
+  id: string; number: string; createdAt: string; branch: string; table: string; creator: string | null; cashier: string | null
   status: string; paymentStatus: string; orderType?: string; notes?: string | null; discountType?: 'percentage' | 'amount' | null; discountValue?: string; subtotal: string; itemDiscount?: string; discountEligibleBase?: string; discount: string; tax: string; total: string; paid: string; remaining: string
   cancelledAt: string | null; cancelReason: string | null
   items: { id: string; productId: string; name: string; quantity: number; unitPrice: string; lineTotal: string; discountType: 'percentage' | 'amount' | null; discountValue: string; discountAmount: string; eligibleForInvoiceDiscount: boolean; notes?: string | null; details?: string[] }[]
@@ -63,7 +63,7 @@ export async function getCashierInvoices(session: StaffSession, range: { from?: 
   })
   return orders.map((o) => {
     const paid = o.payments.reduce((sum, p) => sum + Number(p.amount), 0)
-    return { id: o.id.toString(), number: o.orderNumber, createdAt: o.createdAt.toISOString(), branch: o.branch.name, table: o.cafeTable.number, creator: o.createdBy?.name ?? null, orderType: o.orderType, notes: o.notes, discountType: o.discountType === 'percentage' || o.discountType === 'amount' ? o.discountType : null, discountValue: Number(o.discountValue).toFixed(2),
+    return { id: o.id.toString(), number: o.orderNumber, createdAt: o.createdAt.toISOString(), branch: o.branch.name, table: o.cafeTable.number, creator: o.createdBy?.name ?? null, cashier: o.payments.length > 0 ? o.payments[o.payments.length - 1]?.paidBy?.name ?? null : null, orderType: o.orderType, notes: o.notes, discountType: o.discountType === 'percentage' || o.discountType === 'amount' ? o.discountType : null, discountValue: Number(o.discountValue).toFixed(2),
       status: o.status, paymentStatus: settled(Number(o.total), paid) ? 'paid' : o.paymentStatus, subtotal: Number(o.itemsSubtotal).toFixed(2), itemDiscount: Number(o.itemDiscountAmount).toFixed(2), discountEligibleBase: Number(o.discountEligibleBase).toFixed(2), discount: Number(o.discountAmount).toFixed(2), tax: Number(o.taxAmount).toFixed(2), total: Number(o.total).toFixed(2), paid: paid.toFixed(2), remaining: Math.max(0, Number(o.total) - paid).toFixed(2), cancelledAt: o.cancelledAt?.toISOString() ?? null, cancelReason: o.cancelReason ?? null,
       items: o.items.map((i) => ({ id: i.id.toString(), productId: i.productId.toString(), name: i.productName, quantity: i.quantity, unitPrice: Number(i.unitPrice).toFixed(2), lineTotal: Number(i.lineTotal).toFixed(2), discountType: i.discountType === 'percentage' || i.discountType === 'amount' ? i.discountType : null, discountValue: Number(i.discountValue).toFixed(2), discountAmount: Number(i.discountAmount).toFixed(2), eligibleForInvoiceDiscount: i.eligibleForInvoiceDiscount, notes: i.notes, details: snapshotLabels(i.productVariantSnapshot, i.optionsSnapshot) })),
       payments: o.payments.map((p) => ({ id: p.id.toString(), method: p.method, amount: Number(p.amount).toFixed(2), createdAt: p.createdAt.toISOString(), collector: p.paidBy?.name ?? null })),

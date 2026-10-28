@@ -128,7 +128,7 @@ export function ThermalReceiptPreview({ invoice, payment, autoPrint = false, onC
             <MetadataRow label="الوقت" value={invoiceTime(createdAt)} ltr />
             <MetadataRow label="نوع الطلب" value={orderTypeLabel(orderType)} />
             {isDineIn && invoice.table ? <MetadataRow label="الطاولة" value={invoice.table} /> : null}
-            {invoice.creator ? <MetadataRow label="الكاشير" value={invoice.creator} /> : null}
+            {invoice.cashier ? <MetadataRow label="الكاشير" value={invoice.cashier} /> : null}
             {settlement.method ? <MetadataRow label="طريقة الدفع" value={settlement.method} /> : null}
           </section>
           {invoice.status === 'cancelled' && invoice.cancelReason ? <p className="receipt-cancellation mt-3 border-t border-black pt-2 text-xs">سبب الإلغاء: {invoice.cancelReason}</p> : null}

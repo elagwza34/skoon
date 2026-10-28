@@ -1012,7 +1012,7 @@ test('pos order input contains only item identity, quantity, table, and customer
 })
 
 test('invoices: open and paid sections derive from persisted remaining balance', () => {
-  const base = { id: '1', number: 'INV-1', createdAt: '', branch: 'A', table: '1', creator: null, status: 'served', paymentStatus: 'unpaid', subtotal: '10.00', discount: '0.00', tax: '0.00', total: '10.00', paid: '0.00', cancelledAt: null, cancelReason: null, items: [], payments: [] }
+  const base = { id: '1', number: 'INV-1', createdAt: '', branch: 'A', table: '1', creator: null, cashier: null, status: 'served', paymentStatus: 'unpaid', subtotal: '10.00', discount: '0.00', tax: '0.00', total: '10.00', paid: '0.00', cancelledAt: null, cancelReason: null, items: [], payments: [] }
   const result = splitInvoices([{ ...base, remaining: '10.00' }, { ...base, id: '2', number: 'INV-2', remaining: '0.00', paid: '10.00', paymentStatus: 'paid' }, { ...base, id: '3', number: 'INV-3', status: 'cancelled', cancelledAt: '2026-10-18T00:00:00.000Z', cancelReason: 'customer request', remaining: '0.00' }] as InvoiceRow[])
   assert.equal(result.open.length, 1); assert.equal(result.paid.length, 1)
 })
@@ -1885,7 +1885,7 @@ test('initial branch bootstrap validates a bounded code and does not accept arbi
 
 test('receipt settlement uses the persisted discounted invoice, never a pre-payment snapshot', () => {
   const before: InvoiceRow = {
-    id: '77', number: 'INV-77', createdAt: '2026-10-28T10:00:00.000Z', branch: 'Main', table: '1', creator: 'Cashier', status: 'new', paymentStatus: 'unpaid',
+    id: '77', number: 'INV-77', createdAt: '2026-10-28T10:00:00.000Z', branch: 'Main', table: '1', creator: 'Cashier', cashier: null, status: 'new', paymentStatus: 'unpaid',
     subtotal: '100.00', itemDiscount: '10.00', discountEligibleBase: '90.00', discountType: 'percentage', discountValue: '10', discount: '19.00', tax: '0.00', total: '81.00', paid: '0.00', remaining: '81.00', cancelledAt: null, cancelReason: null,
     items: [], payments: [],
   }
