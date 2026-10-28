@@ -113,11 +113,9 @@ export function ThermalReceiptPreview({ invoice, payment, autoPrint = false, onC
             </div>)}
           </div>
           <div className="receipt-summary space-y-1 border-t border-black pt-2 text-xs">
-            {Number(invoice.itemDiscount ?? 0) > 0 ? <div className="flex justify-between gap-3"><span>خصم الأصناف</span><span dir="ltr">-{money(invoice.itemDiscount ?? 0)}</span></div> : null}
-            {Number(invoice.discountEligibleBase ?? invoice.subtotal) !== Number(invoice.subtotal) ? <div className="flex justify-between gap-3"><span>قاعدة خصم الفاتورة</span><span dir="ltr">{money(invoice.discountEligibleBase ?? invoice.subtotal)}</span></div> : null}
-            {Number(invoice.discount) > Number(invoice.itemDiscount ?? 0) ? <div className="flex justify-between gap-3"><span>خصم الفاتورة</span><span dir="ltr">-{money(Number(invoice.discount) - Number(invoice.itemDiscount ?? 0))}</span></div> : null}
             <div className="flex justify-between gap-3 text-sm font-bold"><span>الإجمالي</span><strong dir="ltr">{money(invoice.subtotal)}</strong></div>
-            <div className="flex justify-between gap-3"><span>الخصم</span><span dir="ltr">{Number(invoice.discount) > 0 ? `-${money(invoice.discount)}` : money(0)}</span></div>
+            {Number(invoice.itemDiscount ?? 0) > 0 ? <div className="flex justify-between gap-3"><span>خصم الأصناف</span><span dir="ltr">-{money(invoice.itemDiscount ?? 0)}</span></div> : null}
+            {Number(invoice.discount) > Number(invoice.itemDiscount ?? 0) ? <div className="flex justify-between gap-3"><span>خصم عام</span><span dir="ltr">-{money(Number(invoice.discount) - Number(invoice.itemDiscount ?? 0))}</span></div> : null}
             <div className="flex justify-between gap-3 border-t border-black pt-1 text-sm font-bold"><span>المدفوع</span><strong dir="ltr">{money(paid)}</strong></div>
           </div>
           {notes ? <section className="receipt-notes mt-3 border-t border-black pt-2 text-xs"><h3 className="mb-1 font-bold">ملاحظات</h3><p className="whitespace-pre-wrap break-words leading-5">{notes}</p></section> : null}
