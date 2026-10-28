@@ -22,13 +22,14 @@ export function PosCheckout({ catalog, initialTableId }: { catalog: PosCatalog; 
   const router = useRouter()
   const [category, setCategory] = useState('all')
   const [query, setQuery] = useState('')
-  const [cart, setCart] = useState<{ id: string; qty: number; note?: string }[]>([])
+  const [cart, setCart] = useState<{ id: string; variantId?: string; qty: number; note?: string }[]>([])
   const [tableId, setTableId] = useState(initialTableId ?? catalog.tables[0]?.id ?? '')
   const [customerName, setCustomerName] = useState('')
   const [customerPhone, setCustomerPhone] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [placed, setPlaced] = useState<{ orderNumber: string; total: string } | null>(null)
+  const [variantModal, setVariantModal] = useState<{ product: NonNullable<typeof catalog.products>[number]; onConfirm: (variantId: string, qty: number) => void } | null>(null)
   const submissionKey = useRef<string | null>(null)
   const skipDraftPersist = useRef(false)
   const [draftReady, setDraftReady] = useState(false)
@@ -64,6 +65,7 @@ export function PosCheckout({ catalog, initialTableId }: { catalog: PosCatalog; 
   }, [cart, customerName, customerPhone, draftKey, draftReady, tableId])
 
   const priceById = useMemo(() => new Map(catalog.products.map((p) => [p.id, Number(p.price)])), [catalog.products])
+  const variantPriceById = useMemo(() => new Map(catalog.products.flatMap((p) => p.variants.map((v) => [`${p.id}:${v.id}`, Number(v.price)]))), [catalog.products])
 
   const visible = useMemo(() => {
     const q = query.trim()
@@ -74,25 +76,41 @@ export function PosCheckout({ catalog, initialTableId }: { catalog: PosCatalog; 
     )
   }, [catalog.products, category, query])
 
-  const subtotal = cart.reduce((s, l) => s + (priceById.get(l.id) ?? 0) * l.qty, 0)
+  const subtotal = cart.reduce((s, l) => s + (variantPriceById.get(`${l.id}:${l.variantId}`) ?? priceById.get(l.id) ?? 0) * l.qty, 0)
   const itemCount = cart.reduce((s, l) => s + l.qty, 0)
 
   function add(id: string) {
+    const product = catalog.products.find((p) => p.id === id)
+    if (!product) return
+    if (product.variants.length > 0) {
+      setVariantModal({
+        product,
+        onConfirm: (variantId, qty) => {
+          setCart((prev) => {
+            const ex = prev.find((l) => l.id === id && l.variantId === variantId)
+            if (ex) return prev.map((l) => (l.id === id && l.variantId === variantId ? { ...l, qty: Math.min(20, l.qty + qty) } : l))
+            return [...prev, { id, variantId, qty }]
+          })
+          setVariantModal(null)
+        },
+      })
+      return
+    }
     setPlaced(null)
     setCart((prev) => {
-      const ex = prev.find((l) => l.id === id)
-      if (ex) return prev.map((l) => (l.id === id ? { ...l, qty: Math.min(20, l.qty + 1) } : l))
+      const ex = prev.find((l) => l.id === id && !l.variantId)
+      if (ex) return prev.map((l) => (l.id === id && !l.variantId ? { ...l, qty: Math.min(20, l.qty + 1) } : l))
       return [...prev, { id, qty: 1 }]
     })
   }
-  function inc(id: string) {
-    setCart((prev) => prev.map((l) => (l.id === id ? { ...l, qty: Math.min(20, l.qty + 1) } : l)))
+  function inc(id: string, variantId?: string) {
+    setCart((prev) => prev.map((l) => (l.id === id && l.variantId === variantId ? { ...l, qty: Math.min(20, l.qty + 1) } : l)))
   }
-  function dec(id: string) {
-    setCart((prev) => prev.map((l) => (l.id === id ? { ...l, qty: l.qty - 1 } : l)).filter((l) => l.qty > 0))
+  function dec(id: string, variantId?: string) {
+    setCart((prev) => prev.map((l) => (l.id === id && l.variantId === variantId ? { ...l, qty: l.qty - 1 } : l)).filter((l) => l.qty > 0))
   }
-  function setNote(id: string, note: string) {
-    setCart((prev) => prev.map((line) => (line.id === id ? { ...line, note } : line)))
+  function setNote(id: string, variantId: string | undefined, note: string) {
+    setCart((prev) => prev.map((line) => (line.id === id && line.variantId === variantId ? { ...line, note } : line)))
   }
   function removeDraft() {
     try { window.localStorage.removeItem(draftKey) } catch { /* browser storage may be unavailable */ }
@@ -106,8 +124,8 @@ export function PosCheckout({ catalog, initialTableId }: { catalog: PosCatalog; 
     setPlaced(null)
     setError(null)
   }
-  function remove(id: string) {
-    setCart((previous) => previous.filter((line) => line.id !== id))
+  function remove(id: string, variantId?: string) {
+    setCart((previous) => previous.filter((l) => l.id !== id || l.variantId !== variantId))
   }
 
   async function checkout() {
@@ -128,7 +146,7 @@ export function PosCheckout({ catalog, initialTableId }: { catalog: PosCatalog; 
           tableId,
           customerName: customerName.trim() || undefined,
           customerPhone: customerPhone.trim() || undefined,
-          items: cart.map((l) => ({ productId: l.id, qty: l.qty, note: l.note?.trim() || undefined })),
+          items: cart.map((l) => ({ productId: l.id, variantId: l.variantId, qty: l.qty, note: l.note?.trim() || undefined })),
         }),
       })
       const data = await res.json().catch(() => ({}))
@@ -178,20 +196,27 @@ export function PosCheckout({ catalog, initialTableId }: { catalog: PosCatalog; 
           <EmptyState icon="products" title="لا توجد منتجات مطابقة" description="جرّب بحثاً أو تصنيفاً آخر." />
         ) : (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
-            {visible.map((p) => (
-              <button
-                key={p.id} type="button" disabled={!p.isAvailable} onClick={() => add(p.id)}
-                className={cn(
-                  'flex flex-col items-center gap-1.5 rounded-lg border border-border bg-card p-4 text-center',
-                  p.isAvailable ? 'hover:border-primary/50 hover:bg-accent/40' : 'cursor-not-allowed opacity-50',
-                )}
-              >
-                <span className="text-sm font-medium text-foreground">{p.name}</span>
-                <span className="text-xs text-muted-foreground">{p.categoryName}</span>
-                <span className="text-sm font-semibold text-primary">{formatCurrency(Number(p.price))}</span>
-                {!p.isAvailable ? <Badge tone="muted">غير متوفر</Badge> : null}
-              </button>
-            ))}
+            {visible.map((p) => {
+              const variantPrice = p.variants.length > 0 ? Math.min(...p.variants.map((v) => Number(v.price))) : Number(p.price)
+              return (
+                <button
+                  key={p.id} type="button" disabled={!p.isAvailable} onClick={() => add(p.id)}
+                  className={cn(
+                    'flex flex-col items-center gap-1.5 rounded-lg border border-border bg-card p-4 text-center',
+                    p.isAvailable ? 'hover:border-primary/50 hover:bg-accent/40' : 'cursor-not-allowed opacity-50',
+                  )}
+                >
+                  <span className="text-sm font-medium text-foreground">{p.name}</span>
+                  {p.variants.length > 0 ? (
+                    <span className="text-xs text-muted-foreground">اختر متغير</span>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">{p.categoryName}</span>
+                  )}
+                  <span className="text-sm font-semibold text-primary">{formatCurrency(variantPrice)}</span>
+                  {!p.isAvailable ? <Badge tone="muted">غير متوفر</Badge> : null}
+                </button>
+              )
+            })}
           </div>
         )}
       </div>
@@ -223,22 +248,25 @@ export function PosCheckout({ catalog, initialTableId }: { catalog: PosCatalog; 
             <ul className="flex flex-col gap-2">
               {cart.map((l) => {
                 const p = catalog.products.find((x) => x.id === l.id)!
+                const v = l.variantId ? p.variants.find((x) => x.id === l.variantId) : null
+                const unitPrice = v ? Number(v.price) : Number(p.price)
+                const label = v ? `${p.name} — ${v.combinationKey}` : p.name
                 return (
-                  <li key={l.id} className="flex items-center gap-2 rounded-md border border-border p-2">
+                  <li key={`${l.id}:${l.variantId ?? 'base'}`} className="flex items-center gap-2 rounded-md border border-border p-2">
                     <div className="flex min-w-0 flex-1 flex-col gap-1 leading-tight">
-                      <span className="truncate text-sm font-medium text-foreground">{p.name}</span>
-                      <span className="text-xs text-muted-foreground">{formatCurrency(Number(p.price) * l.qty)}</span>
-                      <Input value={l.note ?? ''} onChange={(e) => setNote(l.id, e.target.value)} maxLength={255} placeholder="ملاحظة للصنف (اختياري)" aria-label={`ملاحظة ${p.name}`} className="h-8 text-xs" />
+                      <span className="truncate text-sm font-medium text-foreground">{label}</span>
+                      <span className="text-xs text-muted-foreground">{formatCurrency(unitPrice * l.qty)}</span>
+                      <Input value={l.note ?? ''} onChange={(e) => setNote(l.id, l.variantId, e.target.value)} maxLength={255} placeholder="ملاحظة للصنف (اختياري)" aria-label={`ملاحظة ${label}`} className="h-8 text-xs" />
                     </div>
                     <div className="flex items-center gap-1">
-                      <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => dec(l.id)} aria-label="إنقاص">
+                      <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => dec(l.id, l.variantId)} aria-label="إنقاص">
                         <Icon name="minus" size={14} />
                       </Button>
                       <span className="w-6 text-center text-sm font-semibold">{l.qty}</span>
-                      <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => inc(l.id)} aria-label="زيادة">
+                      <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => inc(l.id, l.variantId)} aria-label="زيادة">
                         <Icon name="plus" size={14} />
                       </Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => remove(l.id)} aria-label={`إزالة ${p.name} من السلة`}>
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => remove(l.id, l.variantId)} aria-label={`إزالة ${label} من السلة`}>
                         <Icon name="trash" size={14} />
                       </Button>
                     </div>
@@ -260,6 +288,48 @@ export function PosCheckout({ catalog, initialTableId }: { catalog: PosCatalog; 
           </p>
         </CardContent>
       </Card>
+      {variantModal && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4">
+          <Card className="w-full max-w-md">
+            <CardHeader>
+              <CardTitle>اختر متغير لـ {variantModal.product.name}</CardTitle>
+            </CardHeader>
+            <CardContent className="p-4">
+              <div className="space-y-3">
+                {variantModal.product.variants.map((v) => (
+                  <div key={v.id} className="border rounded-lg p-3">
+                    <div className="flex justify-between items-start gap-2 mb-2">
+                      <span className="text-sm font-medium">{v.combinationKey}</span>
+                      <span className="text-sm font-semibold text-primary">{formatCurrency(Number(v.price))}</span>
+                    </div>
+                    <Input
+                      type="number"
+                      inputMode="numeric"
+                      min="1"
+                      max="20"
+                      value="1"
+                      onChange={() => {}}
+                      className="w-20 h-8 text-sm"
+                      aria-label={`كمية ${v.combinationKey}`}
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-auto mt-2"
+                      onClick={() => variantModal.onConfirm(v.id, 1)}
+                    >
+                      إضافة
+                    </Button>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-4 flex justify-end">
+                <Button variant="outline" onClick={() => setVariantModal(null)}>إلغاء</Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   )
 }

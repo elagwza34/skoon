@@ -36,7 +36,7 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
   const catalog = useMemo(() => ({
     draftScope: { userId: workspace.currentUserId, branchId: workspace.branchId },
     categories: workspace.categories,
-    products: workspace.products.map((product) => ({ ...product, categoryName: workspace.categories.find((category) => category.id === product.categoryId)?.name ?? '—' })),
+    products: workspace.products.map((product) => ({ ...product, categoryName: workspace.categories.find((category) => category.id === product.categoryId)?.name ?? '—', variants: [] })),
     tables: workspace.tables.map(({ id, number, name }) => ({ id, number, name })),
   }), [workspace])
   const selectedTable = workspace.tables.find((table) => table.id === selectedTableId) ?? null

@@ -8,6 +8,14 @@ import type { StaffSession } from '@/lib/session'
  * Branch-scoped. Server-only.
  */
 
+export interface PosCatalogVariant {
+  id: string
+  combinationKey: string
+  price: string
+  priceAdjustment: string
+  isAvailable: boolean
+}
+
 export interface PosCatalogProduct {
   id: string
   name: string
@@ -15,6 +23,7 @@ export interface PosCatalogProduct {
   categoryId: string
   categoryName: string
   isAvailable: boolean
+  variants: PosCatalogVariant[]
 }
 
 export interface PosCatalog {
@@ -51,6 +60,11 @@ export async function getPosCatalog(session: StaffSession): Promise<PosCatalog> 
       select: {
         id: true, name: true, price: true, categoryId: true, isAvailable: true,
         category: { select: { name: true } },
+        variants: {
+          where: { isActive: true, isAvailable: true, archivedAt: null },
+          orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+          select: { id: true, combinationKey: true, price: true, isAvailable: true },
+        },
       },
     }),
     prisma.cafeTable.findMany({
@@ -66,6 +80,13 @@ export async function getPosCatalog(session: StaffSession): Promise<PosCatalog> 
       id: p.id.toString(), name: p.name, price: p.price.toString(),
       categoryId: p.categoryId.toString(), categoryName: p.category.name,
       isAvailable: p.isAvailable,
+      variants: p.variants.map((v) => ({
+        id: v.id.toString(),
+        combinationKey: v.combinationKey,
+        price: v.price.toString(),
+        priceAdjustment: (Number(v.price) - Number(p.price)).toFixed(2),
+        isAvailable: v.isAvailable,
+      })),
     })),
     tables: tables.map((t) => ({ id: t.id.toString(), number: t.number, name: t.name })),
   }
@@ -73,6 +94,7 @@ export async function getPosCatalog(session: StaffSession): Promise<PosCatalog> 
 
 export const posItemSchema = z.object({
   productId: z.string().regex(/^\d+$/, 'Invalid product id'),
+  variantId: z.string().regex(/^\d+$/, 'Invalid variant id').optional(),
   qty: z.number().int().min(1).max(20),
   note: z.string().max(255).optional(),
 })

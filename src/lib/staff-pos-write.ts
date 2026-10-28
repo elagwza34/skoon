@@ -65,22 +65,31 @@ export async function createPosOrder(session: StaffSession, input: unknown, idem
   }
 
   const productIds = [...new Set(parsed.data.items.map((i) => BigInt(i.productId)))]
+  const variantIds = [...new Set(parsed.data.items.map((i) => i.variantId).filter(Boolean) as string[])].map(BigInt)
   const products = await prisma.product.findMany({
     where: { id: { in: productIds }, branchId, isActive: true, deletedAt: null, isAvailable: true },
     select: { id: true, name: true, price: true },
   })
+  const variants = variantIds.length
+    ? await prisma.productVariant.findMany({
+        where: { id: { in: variantIds }, productId: { in: productIds }, isActive: true, isAvailable: true, archivedAt: null },
+        select: { id: true, productId: true, price: true },
+      })
+    : []
   const priceById = new Map(products.map((p) => [p.id.toString(), p]))
+  const variantPriceById = new Map(variants.map((v) => [v.id.toString(), v.price]))
   for (const item of parsed.data.items) {
     if (!priceById.has(item.productId)) throw new PosError('تغيّرت القائمة — حدّث الصفحة', 400)
+    if (item.variantId && !variantPriceById.has(item.variantId)) throw new PosError('المتغير غير متوفر', 400)
   }
 
   let total = 0
   const lines = parsed.data.items.map((item) => {
     const p = priceById.get(item.productId)!
-    const unit = Number(p.price)
+    const unit = item.variantId ? Number(variantPriceById.get(item.variantId)!) : Number(p.price)
     total += unit * item.qty
     return {
-      productId: p.id, productName: p.name, unitPrice: p.price,
+      productId: p.id, productVariantId: item.variantId ? BigInt(item.variantId) : null, productName: p.name, unitPrice: p.price,
       quantity: item.qty, lineTotal: unit * item.qty,
       notes: item.note?.trim() || null,
     }
