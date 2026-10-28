@@ -7,6 +7,10 @@
 const required = ['DATABASE_URL', 'DIRECT_URL', 'SKOON_STAGING_DATABASE_URL', 'SKOON_STAGING_PROJECT_REF']
 const missing = required.filter((key) => !process.env[key]?.trim())
 if (missing.length) throw new Error(`Staging guard: missing ${missing.join(', ')}`)
+const templateValues = required.filter((key) => /(?:same-value-as-database-url|your-separate-staging-project-ref|<[^>]+>)/i.test(process.env[key]))
+if (templateValues.length) {
+  throw new Error(`Staging guard: replace template placeholders in ${templateValues.join(', ')} with values from a separate staging project`)
+}
 if (process.env.SKOON_STAGING_ACKNOWLEDGEMENT !== 'isolated-staging-only') {
   throw new Error('Staging guard: set SKOON_STAGING_ACKNOWLEDGEMENT=isolated-staging-only after verifying the separate project')
 }

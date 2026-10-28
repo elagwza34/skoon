@@ -4,8 +4,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
-import { navGroups, navGroupsFor } from "@/lib/navigation";
-import { isOwner } from "@/lib/authz";
+import { navGroupsFor } from "@/lib/navigation";
 import { canSeeRoute } from "@/lib/route-access";
 
 /**
@@ -51,7 +50,6 @@ export function AppShell({
     const role = user?.role ?? "";
     const perms = user?.permissions ?? [];
     if (!role) return [];
-    if (isOwner(role)) return navGroups;
     return navGroupsFor(role, (href) => canSeeRoute(role, perms, href));
   }, [user?.role, user?.permissions]);
 

@@ -3,6 +3,7 @@ import { getStaffSession } from '@/lib/session'
 import { finalizeOrderPayment, refundOrderPayment, PaymentError } from '@/lib/staff-payments-write'
 import { FinancialShiftLockError } from '@/lib/financial-shift-lock'
 import { getCashierInvoices } from '@/lib/staff-invoices'
+import { paymentServiceInputFromRequest } from '@/lib/payment-request'
 
 /**
  * Staff payments — POST /api/staff/orders/[id]/pay
@@ -25,9 +26,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   }
 
   try {
-    const idempotencyKey = req.headers.get('idempotency-key') ?? body.idempotencyKey
+    const bodyIdempotencyKey = typeof body.idempotencyKey === 'string' ? body.idempotencyKey : null
+    const idempotencyKey = req.headers.get('idempotency-key') ?? bodyIdempotencyKey
     if (body.action === 'pay') {
-      const result = await finalizeOrderPayment(session, id, { method: body.method, received: body.received, idempotencyKey })
+      const result = await finalizeOrderPayment(session, id, paymentServiceInputFromRequest(body, idempotencyKey))
       // Print only a post-settlement, persisted invoice. The client must never
       // render a receipt from its pre-payment editing snapshot.
       const invoice = (await getCashierInvoices(session)).find((row) => row.id === result.orderId)

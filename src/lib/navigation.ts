@@ -1,5 +1,6 @@
 import type { IconName } from '@/components/ui/icon'
 import { homeForRole } from '@/lib/route-access'
+import { isOwner } from '@/lib/authz'
 
 export interface NavItem { href: string; label: string; icon: IconName; badge?: number }
 export interface NavGroup { title?: string; items: NavItem[] }
@@ -43,7 +44,10 @@ export function navGroupsFor(role: string, canSee: (pathname: string) => boolean
       ...group,
       // The legacy dashboard route remains a compatibility endpoint only; the
       // sidebar must always expose the canonical owner/manager workspace.
-      items: group.items.map((item) => item.href === '/dashboard' ? { ...item, href: home } : item).filter((item) => canSee(item.href)),
+      items: group.items
+        .map((item) => item.href === '/dashboard' ? { ...item, href: home } : item)
+        .filter((item) => item.href !== '/cashier' || !isOwner(role))
+        .filter((item) => canSee(item.href)),
     }))
     .filter((group) => group.items.length > 0)
 }

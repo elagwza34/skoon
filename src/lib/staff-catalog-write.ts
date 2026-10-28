@@ -28,7 +28,9 @@ const attributeAssignmentSchema = z.object({
 const productSchema = z.object({
   name: z.string().trim().min(1, 'اسم المنتج مطلوب').max(150),
   description: z.string().trim().max(500).optional(),
-  price: z.coerce.number().positive('السعر يجب أن يكون موجباً').max(999999.99),
+  // Variant products persist a zero base only because the existing database
+  // column is NOT NULL; it is never used as a sellable variant price.
+  price: z.preprocess((value) => value === '' || value === null ? undefined : value, z.coerce.number().positive('السعر يجب أن يكون موجباً').max(999999.99).optional()),
   categoryId: z.string().regex(/^\d+$/, 'تصنيف غير صالح'),
   isAvailable: z.boolean().optional(),
   taxRate: z.coerce.number().min(0).max(100).optional(),
@@ -232,6 +234,10 @@ export async function createStaffProduct(session: StaffSession, branchIdRaw: str
   })
   if (!category) throw new CatalogError('التصنيف غير موجود في هذا الفرع', 404)
 
+  const attributeIds = parsed.data.attributes?.map((a) => a.attributeId) ?? []
+  const variants = parsed.data.variants ?? []
+  if (!variants.length && parsed.data.price === undefined) throw new CatalogError('السعر مطلوب للمنتج بدون متغيرات', 400)
+
   // Resolve base fields
   const inventoryItemId = await resolveInventoryItem(branchId, parsed.data.inventoryItemId)
 
@@ -240,7 +246,7 @@ export async function createStaffProduct(session: StaffSession, branchIdRaw: str
     categoryId: category.id,
     name: parsed.data.name.trim(),
     description: parsed.data.description?.trim() || null,
-    price: parsed.data.price,
+    price: parsed.data.price ?? 0,
     inventoryItemId: inventoryItemId !== undefined ? inventoryItemId : undefined,
     isActive: true,
     isAvailable: parsed.data.isAvailable ?? true,
@@ -248,9 +254,6 @@ export async function createStaffProduct(session: StaffSession, branchIdRaw: str
   if (parsed.data.taxRate !== undefined) baseData.taxRate = parsed.data.taxRate
 
   // Resolve attribute/variant payload
-  const attributeIds = parsed.data.attributes?.map((a) => a.attributeId) ?? []
-  const variants = parsed.data.variants ?? []
-
   if (attributeIds.length > 0 || variants.length > 0) {
     // Product is variable (or at least has attribute/variant payload)
     await validateAttributeIds(branchId, attributeIds)

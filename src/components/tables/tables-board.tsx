@@ -12,6 +12,7 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { formatNumber } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import type { StaffTable } from '@/lib/staff-tables'
+import { TableQrPrintButton } from '@/components/tables/table-qr-print-button'
 
 /**
  * Tables board — real branch tables + live occupancy.
@@ -98,6 +99,7 @@ export function TablesBoard({ tables, canEditLayout = false, branches = [] }: { 
                     فتح المنيو
                   </Button>
                 </Link>
+                {canEditLayout ? <TableQrPrintButton tableNumber={t.number} publicToken={t.publicToken} /> : null}
                 {canEditLayout ? <div className="grid grid-cols-2 gap-2"><Button size="sm" variant="outline" onClick={() => openEdit(t)}>تعديل</Button><Button size="sm" variant="destructive" disabled={saving || t.openOrders > 0} onClick={() => void archive(t)}>أرشفة</Button></div> : null}
               </CardContent>
             </Card>

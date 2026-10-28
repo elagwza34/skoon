@@ -146,10 +146,15 @@ export function ProductsBoard({
 
   async function saveProduct() {
     if (saving) return
+    const hasVariantPrices = draft.variants.length > 0
     const priceNum = Number(draft.price)
     const taxRate = Number(draft.taxRate || '0')
-    if (!Number.isFinite(priceNum) || priceNum <= 0) {
+    if (!hasVariantPrices && (!Number.isFinite(priceNum) || priceNum <= 0)) {
       setError('السعر يجب أن يكون رقماً موجباً')
+      return
+    }
+    if (hasVariantPrices && draft.variants.some((variant) => !Number.isFinite(Number(variant.price)) || Number(variant.price) <= 0)) {
+      setError('سعر كل متغير مطلوب ويجب أن يكون موجباً')
       return
     }
     if (!Number.isFinite(taxRate) || taxRate < 0 || taxRate > 100) {
@@ -176,7 +181,7 @@ export function ProductsBoard({
       const body = {
         name: draft.name.trim(),
         description: draft.description.trim() || undefined,
-        price: priceNum,
+        ...(hasVariantPrices ? {} : { price: priceNum }),
         categoryId: draft.categoryId,
         isAvailable: draft.isAvailable,
         taxRate,
@@ -347,7 +352,7 @@ export function ProductsBoard({
               <span className="text-muted-foreground">السعر (ج.م)</span>
               <Input
                 type="number" inputMode="decimal" step="0.01" min="0"
-                value={draft.price} onChange={(e) => setDraft({ ...draft, price: e.target.value })}
+                value={draft.price} disabled={draft.variants.length > 0} onChange={(e) => setDraft({ ...draft, price: e.target.value })}
                 placeholder="0.00" aria-label="سعر المنتج"
               />
             </label>

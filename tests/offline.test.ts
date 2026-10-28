@@ -38,6 +38,7 @@ import {
   PIN_MAX_LENGTH,
 } from '../src/lib/security/pin'
 import { PAYMENT_METHODS, paymentCollectionSchema, PaymentError, refundOrderPayment, refundSchema } from '../src/lib/staff-payments-write'
+import { buildPaymentRequestPayload, paymentServiceInputFromRequest } from '../src/lib/payment-request'
 import {
   avgPerPaidOrder,
   centsToAmount,
@@ -630,6 +631,19 @@ test('payments: cash and supported electronic methods use explicit validation', 
   assert.equal(paymentCollectionSchema.safeParse({ method: 'mobile_wallet', electronicPaymentConfirmed: true }).success, true)
   assert.equal(paymentCollectionSchema.safeParse({ method: 'instapay', electronicPaymentConfirmed: true }).success, true)
   assert.equal(paymentCollectionSchema.safeParse({ method: 'invalid', electronicPaymentConfirmed: true }).success, false)
+})
+
+test('payments: settlement payload preserves the checked confirmation as a boolean', () => {
+  const wallet = buildPaymentRequestPayload('mobile_wallet', '99.00', true)
+  const instapay = buildPaymentRequestPayload('instapay', '99.00', true)
+  assert.deepEqual(wallet, { action: 'pay', method: 'mobile_wallet', electronicPaymentConfirmed: true })
+  assert.deepEqual(instapay, { action: 'pay', method: 'instapay', electronicPaymentConfirmed: true })
+  assert.equal(paymentCollectionSchema.safeParse(wallet).success, true)
+  assert.equal(paymentCollectionSchema.safeParse(instapay).success, true)
+  assert.equal(paymentCollectionSchema.safeParse(buildPaymentRequestPayload('mobile_wallet', '99.00', false)).success, false)
+  assert.equal(paymentCollectionSchema.safeParse(buildPaymentRequestPayload('instapay', '99.00', false)).success, false)
+  assert.deepEqual(buildPaymentRequestPayload('cash', '120.00', false), { action: 'pay', method: 'cash', received: '120.00' })
+  assert.deepEqual(paymentServiceInputFromRequest(wallet, 'request-key'), { method: 'mobile_wallet', received: undefined, electronicPaymentConfirmed: true, idempotencyKey: 'request-key' })
 })
 
 // --- staff-settings-write (allowlisted key validation) ----------------------
