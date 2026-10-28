@@ -1,2 +1,5 @@
-/** Canonical Manager home. */
-export { default } from '../admin-home'
+import { CanonicalDashboardPage } from '../admin-home'
+
+export default async function ManagerPage() {
+  return <CanonicalDashboardPage pathname="/manager" />
+}

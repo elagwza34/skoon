@@ -27,7 +27,7 @@ function pctDelta(now: number, before: number): { delta: string; dir: "up" | "do
   return { delta: formatPercent(Math.abs(change)), dir: change >= 0 ? "up" : "down" };
 }
 
-async function CanonicalDashboardPage({ pathname }: { pathname: '/owner' | '/manager' }) {
+export async function CanonicalDashboardPage({ pathname }: { pathname: '/owner' | '/manager' }) {
   const session = await requirePageAccess(pathname);
 
   const stats = await getDashboardStats(session);

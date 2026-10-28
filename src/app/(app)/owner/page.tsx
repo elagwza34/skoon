@@ -1,2 +1,5 @@
-/** Canonical Owner home. */
-export { default } from '../admin-home'
+import { CanonicalDashboardPage } from '../admin-home'
+
+export default async function OwnerPage() {
+  return <CanonicalDashboardPage pathname="/owner" />
+}
