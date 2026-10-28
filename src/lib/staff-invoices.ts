@@ -115,7 +115,7 @@ export async function editOpenInvoice(session: StaffSession, orderIdRaw: string,
         if (!variant) throw new InvoiceError('Product variant is unavailable', 422)
         unitPrice = variant.price
         productVariantId = variant.id.toString()
-        await tx.orderItem.create({ data: { orderId, productId: product.id, productVariantId: BigInt(productVariantId), productName: `${product.name} — ${variant.values[0]?.value.label ?? variant.combinationKey}`, unitPrice: variant.price, quantity: parsed.data.quantity, lineTotal: (Number(variant.price) * parsed.data.quantity).toFixed(2) } })
+        await tx.orderItem.create({ data: { orderId, productId: product.id, productVariantId: BigInt(productVariantId), productName: product.name, unitPrice: variant.price, quantity: parsed.data.quantity, lineTotal: (Number(variant.price) * parsed.data.quantity).toFixed(2) } })
       } else {
         await tx.orderItem.create({ data: { orderId, productId: product.id, productName: product.name, unitPrice: product.price, quantity: parsed.data.quantity, lineTotal: (Number(product.price) * parsed.data.quantity).toFixed(2) } })
       }
