@@ -5,7 +5,9 @@ import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { getStaffSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
+import { normalizeStaffUsername, staffLoginEmail } from '@/lib/staff-username'
 
+/** Login schema for staff authentication. */
 const loginSchema = z.object({
   identifier: z.string().trim().min(3).max(150),
   password: z.string().min(1),
@@ -15,6 +17,7 @@ export interface LoginState {
   error?: string
 }
 
+/** Staff sign-in — Supabase Auth (legacy email or staff username + password). */
 export async function loginAction(
   _prev: LoginState,
   formData: FormData,
@@ -28,9 +31,26 @@ export async function loginAction(
   }
 
   const identifier = parsed.data.identifier
+  
+  // Step 1: Try as email
   let email = identifier.includes('@') ? identifier : null
+  
+  // Step 2: If no email, try as username
   if (!email) {
-    email = identifier
+    const username = normalizeStaffUsername(identifier)
+    if (username) {
+      // Look up the user by username to get their internal email
+      const user = await prisma.user.findFirst({
+        where: { username: { equals: username, mode: 'insensitive' }, isActive: true, deletedAt: null },
+        select: { email: true },
+      })
+      email = user?.email ?? null
+    }
+  }
+  
+  // Step 3: Fallback - use staffLoginEmail (creates opaque internal identity)
+  if (!email) {
+    email = staffLoginEmail(identifier)
   }
   if (!email) return { error: 'Identifier required' }
 
