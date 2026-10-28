@@ -90,7 +90,10 @@ export async function editOpenInvoice(session: StaffSession, orderIdRaw: string,
   if (!hasAtLeast(session.role, ROLE.CASHIER)) throw new InvoiceError('Forbidden', 403)
   if (!/^\d+$/.test(orderIdRaw)) throw new InvoiceError('Invoice not found', 404)
   const parsed = editSchema.safeParse(input)
-  if (!parsed.success) throw new InvoiceError('Invalid invoice edit')
+  if (!parsed.success) {
+    const issues = parsed.error.issues.map((i) => `${String(i.path.join('.'))}: ${i.message}`).join(', ')
+    throw new InvoiceError(`Invalid invoice edit: ${issues}`, 400)
+  }
   const orderId = BigInt(orderIdRaw)
   const order = await prisma.order.findUnique({ where: { id: orderId }, select: { branchId: true } })
   if (!order || !staffCanAccessBranch(session, order.branchId)) throw new InvoiceError('Invoice not found', 404)
