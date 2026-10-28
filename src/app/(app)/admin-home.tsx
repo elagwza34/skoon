@@ -20,7 +20,6 @@ import { isOwner } from '@/lib/authz'
 import { OwnerCommandCenter } from '@/components/owner/owner-command-center'
 import { redirect } from 'next/navigation'
 import { headers } from 'next/headers'
-import { homeForRole } from '@/lib/route-access'
 
 /** Signed percent change between two numbers. */
 function pctDelta(now: number, before: number): { delta: string; dir: "up" | "down" } {
@@ -150,12 +149,14 @@ async function CanonicalDashboardPage({ pathname }: { pathname: '/owner' | '/man
   );
 }
 
-/** Legacy compatibility endpoint: it is never a canonical role home. */
-export default async function DashboardPage() {
+/** Shared implementation for the canonical Owner and Manager pages. */
+export default async function AdminHomePage() {
   const pathname = (await headers()).get('x-pathname')
   if (pathname === '/owner' || pathname === '/manager') {
     return <CanonicalDashboardPage pathname={pathname} />
   }
-  const session = await requirePageAccess('/dashboard')
-  redirect(homeForRole(session.role))
+  // This module is imported by the canonical pages only. A direct invocation
+  // without one of those paths is intentionally rejected instead of routing
+  // through a legacy dashboard redirect.
+  redirect('/login')
 }

@@ -125,7 +125,7 @@ export function canSeeRoute(role: string, permissions: readonly string[], pathna
   // it away from its own home would produce a same-URL redirect loop. The
   // workspace/API still enforce each mutation's specific permission.
   if (pathname === '/cashier' || pathname.startsWith('/cashier/')) {
-    return role === ROLE.CASHIER || hasPermission(permissions, 'orders.payment')
+    return role === ROLE.CASHIER || (role === ROLE.MANAGER && hasPermission(permissions, 'orders.payment'))
   }
   if (pathname === '/kitchen' || pathname.startsWith('/kitchen/')) return role === ROLE.KITCHEN
   if (pathname === '/waiter' || pathname.startsWith('/waiter/')) return role === ROLE.WAITER

@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation'
 import { headers } from 'next/headers'
 import { AppShell } from '@/components/layout/app-shell'
 import { getAuthUser, getStaffSession } from '@/lib/session'
-import { describeDbEnv, prisma } from '@/lib/prisma'
+import { prisma } from '@/lib/prisma'
 import { canSeeRoute, isOperationalRole, shouldRedirectOperationalUserToHome, homeForRole } from '@/lib/route-access'
 
 /** Read the resolved pathname (set by middleware). Falls back to ''. */
@@ -39,9 +39,8 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     // propagate — swallowing it would break static/dynamic detection. Only
     // genuine failures are rendered as a panel.
     if (isDynamicBailout(err)) throw err
-    const detail = (err as Error).message || 'Unknown error'
-    console.error('[skoon] getStaffSession failed:', detail)
-    return <ConfigErrorPanel detail={detail} />
+    console.error('[skoon] getStaffSession failed:', (err as Error).message ?? err)
+    return <ConfigErrorPanel />
   }
 
   if (!session) {
@@ -58,14 +57,17 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   // This is the REAL gate. Hiding a sidebar link is only a UX nicety; typing
   // the URL directly is blocked here from the trusted DB role/permissions.
   const pathname = (await currentPath()).pathname
-  if (!canSeeRoute(session.role, session.permissions, pathname)) {
-    redirect(homeForRole(session.role))
+  const home = homeForRole(session.role)
+  // Never redirect a user to their own canonical home — that would be a
+  // redirect-to-self loop. canonicalHome is always allowed by canSeeRoute, so
+  // this is defense-in-depth only.
+  if (!canSeeRoute(session.role, session.permissions, pathname) && pathname !== home) {
+    redirect(home)
   }
 
   // Operational roles (waiter/kitchen/cashier) live on a full-screen board
   // without the admin sidebar. Send them straight to their board when they
   // land on an admin page they happen to be allowed to open.
-  const home = homeForRole(session.role)
   // An operational role on a non-board page is bounced home — EXCEPT the
   // narrow ops-shell exceptions (e.g. /shifts for the cashier, whose whole
   // station is blocked while no till is open).
@@ -126,27 +128,14 @@ function isDynamicBailout(err: unknown): boolean {
 }
 
 /** Rendered when session resolution itself failed (usually env/DB config). */
-function ConfigErrorPanel({ detail }: { detail: string }) {
+function ConfigErrorPanel() {
   return (
     <div className="flex min-h-[60vh] items-center justify-center p-6" dir="rtl">
       <div className="w-full max-w-lg rounded-2xl border border-destructive/30 bg-card p-6 text-center shadow-sm">
         <div className="mb-3 text-3xl" aria-hidden>⚠️</div>
         <h1 className="mb-2 text-lg font-bold">تعذّر الاتصال بقاعدة البيانات</h1>
         <p className="mb-4 text-sm leading-relaxed text-muted-foreground">
-          تم تسجيل الدخول، لكن قراءة صلاحيات الموظف فشلت. غالباً سبب ذلك متغيرات
-          بيئة ناقصة أو غير صحيحة على السيرفر.
-        </p>
-        <div className="mb-4 rounded-lg border border-warning/40 bg-warning/10 p-3 text-start text-xs text-warning" dir="ltr">
-          {describeDbEnv()}
-        </div>
-        <div className="mb-5 rounded-lg border border-destructive/25 bg-destructive/5 p-3 text-start" dir="ltr">
-          <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words text-xs text-destructive">{detail}</pre>
-        </div>
-        <p className="mb-5 text-xs leading-relaxed text-muted-foreground" dir="rtl">
-          السبب الأرجح: متغيّر <code className="rounded bg-muted px-1 py-0.5" dir="ltr">DATABASE_URL</code>{' '}
-          غير مضبوط على السيرفر (لازم يبدأ بـ <code className="rounded bg-muted px-1 py-0.5" dir="ltr">postgresql://</code>).
-          ملاحظة: ملف <code className="rounded bg-muted px-1 py-0.5" dir="ltr">.env</code> المحلي لا يُرفع مع الكود —
-          لازم تحط المتغيّرات في إعدادات البيئة على الاستضافة.
+          تم تسجيل الدخول، لكن قراءة صلاحيات الموظف فشلت. يرجى مراجعة مدير النظام أو المحاولة مرة أخرى لاحقاً.
         </p>
         <a
           href="/login"

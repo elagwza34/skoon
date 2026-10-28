@@ -18,7 +18,8 @@ import { calculatePayrollPreview, INITIAL_PAYROLL_POLICY } from '../src/lib/payr
 import { calculatePayroll } from '../src/lib/hr-payroll-calculation'
 import { calculateInvoiceDiscounts } from '../src/lib/invoice-discounts'
 import { nextPayrollStatus, toCents as payrollToCents } from '../src/lib/staff-payroll-write'
-import { normalizeStaffUsername, staffLoginEmail, staffUsernameEmail, usernameFromStaffEmail } from '../src/lib/staff-username'
+import { normalizeStaffUsername, staffIdentityEmail, staffLoginEmail, staffUsernameEmail, usernameFromStaffEmail } from '../src/lib/staff-username'
+import { initialBranchSchema } from '../src/lib/branch-bootstrap'
 import { isSameOriginStaffApiRequest } from '../src/components/auth/auth-expiry-guard'
 import {
   ROLE,
@@ -80,6 +81,7 @@ import {
   shouldRedirectOperationalUserToHome,
   permissionForPath,
   canSeeRoute,
+  resolveRoleHome,
 } from '../src/lib/route-access'
 import { canManageEmployeeLifecycle, canReadEmployeeDirectory, canReadSensitiveEmployeeData, canResetEmployeePassword, employeeDeactivationBlocker } from '../src/lib/hr-authz'
 import { canManageProducts, CatalogError, targetBranch } from '../src/lib/staff-catalog-write'
@@ -101,6 +103,7 @@ import {
   isLegacySnapshotCurrent,
   validateLegacyReconciliationProposal,
 } from '../src/lib/waiter-reconciliation-policy'
+import { RECONCILE_SCHEMA, validateOwnerAuthority } from '../src/lib/staff-reconcile'
 
 test('waiter lifecycle: only dispatched new tickets enter the kitchen queue', () => {
   assert.equal(isKitchenTicketVisible('new', false), false)
@@ -1263,11 +1266,12 @@ test('employee deactivation never removes the current or last active Owner and p
   assert.equal(employeeDeactivationBlocker({ ...base, hasOpenShift: true }), 'OPEN_SHIFT')
 })
 
-test('staff username identities are normalized, non-routable, and preserve legacy email login', () => {
+test('staff username identities are normalized, opaque for new accounts, and preserve legacy email login', () => {
   assert.equal(normalizeStaffUsername(' Ahmed.Saleh '), 'ahmed.saleh')
   assert.equal(normalizeStaffUsername('ahmed@cafe'), null)
   assert.equal(normalizeStaffUsername('a'), null)
   assert.equal(staffUsernameEmail('ahmed.saleh'), 'ahmed.saleh@accounts.skoon.invalid')
+  assert.equal(staffIdentityEmail('A0B1C2D3-E4F5-6789-ABCD-0123456789AB'), 'staff.a0b1c2d3-e4f5-6789-abcd-0123456789ab@accounts.skoon.invalid')
   assert.equal(staffLoginEmail('AHMED.SALEH'), 'ahmed.saleh@accounts.skoon.invalid')
   assert.equal(staffLoginEmail('Owner@SkoonCafe.com'), 'owner@skooncafe.com')
   assert.equal(usernameFromStaffEmail('ahmed.saleh@accounts.skoon.invalid'), 'ahmed.saleh')
@@ -1619,3 +1623,112 @@ test('invoice discounts reject discounts above their authoritative bases', () =>
   assert.throws(() => calculateInvoiceDiscounts([{ unitCents: 100n, quantity: 1, discountType: 'amount', discountValue: 101n, eligibleForInvoiceDiscount: true }], 'none', 0n), /Line fixed/)
   assert.throws(() => calculateInvoiceDiscounts([{ unitCents: 100n, quantity: 1, discountType: 'none', discountValue: 0n, eligibleForInvoiceDiscount: false }], 'amount', 1n), /Invoice fixed/)
 })
+
+
+// --- Task C regression tests: canonical homes + redirect-to-self prevention ----
+
+test('regression: every canonical home is reachable with empty permissions', () => {
+  const cases: [string, string][] = [
+    [ROLE.OWNER, '/owner'],
+    [ROLE.MANAGER, '/manager'],
+    [ROLE.CASHIER, '/cashier'],
+    [ROLE.KITCHEN, '/kitchen'],
+    [ROLE.WAITER, '/waiter'],
+  ]
+  for (const [role, path] of cases) {
+    assert.equal(canSeeRoute(role, [], path), true, `${role} must reach ${path} with no permissions`)
+  }
+})
+
+test('regression: canonical home is never blocked by missing mutable permission', () => {
+  // Cashier without orders.payment must still reach /cashier (their canonical home)
+  assert.equal(canSeeRoute(ROLE.CASHIER, [], '/cashier'), true)
+  // Cashier with orders.payment can also reach /cashier
+  assert.equal(canSeeRoute(ROLE.CASHIER, ['orders.payment'], '/cashier'), true)
+  // Manager with orders.payment can reach /cashier (supervisory)
+  assert.equal(canSeeRoute(ROLE.MANAGER, ['orders.payment'], '/cashier'), true)
+  // Manager without orders.payment cannot reach /cashier
+  assert.equal(canSeeRoute(ROLE.MANAGER, [], '/cashier'), false)
+  // Non-cashier roles cannot reach /cashier
+  assert.equal(canSeeRoute(ROLE.WAITER, [], '/cashier'), false)
+  assert.equal(canSeeRoute(ROLE.KITCHEN, [], '/cashier'), false)
+})
+
+test('regression: requiresOperationalShift boundary cases', () => {
+  assert.equal(requiresOperationalShift(ROLE.CASHIER), true)
+  assert.equal(requiresOperationalShift(ROLE.WAITER), true)
+  assert.equal(requiresOperationalShift(ROLE.KITCHEN), true)
+  assert.equal(requiresOperationalShift(ROLE.MANAGER), true)
+  assert.equal(requiresOperationalShift(ROLE.OWNER), false)
+  assert.equal(requiresOperationalShift('invalid-role'), false)
+})
+
+test('regression: safeInternalRedirect rejects login and dashboard', () => {
+  assert.equal(safeInternalRedirect('/login' as any), null)
+  assert.equal(safeInternalRedirect('/dashboard' as any), null)
+  assert.equal(safeInternalRedirect('/cashier'), '/cashier')
+  assert.equal(safeInternalRedirect('/owner'), '/owner')
+  assert.equal(safeInternalRedirect(null), null)
+})
+
+test('regression: homeForRole returns canonical home for all 5 roles', () => {
+  assert.equal(homeForRole(ROLE.OWNER), '/owner')
+  assert.equal(homeForRole(ROLE.MANAGER), '/manager')
+  assert.equal(homeForRole(ROLE.CASHIER), '/cashier')
+  assert.equal(homeForRole(ROLE.KITCHEN), '/kitchen')
+  assert.equal(homeForRole(ROLE.WAITER), '/waiter')
+  assert.equal(homeForRole('invalid-role'), '/login?reason=unprovisioned')
+})
+
+test('regression: resolveRoleHome returns null for unknown roles', () => {
+  assert.equal(resolveRoleHome(ROLE.OWNER), '/owner')
+  assert.equal(resolveRoleHome(ROLE.MANAGER), '/manager')
+  assert.equal(resolveRoleHome(ROLE.CASHIER), '/cashier')
+  assert.equal(resolveRoleHome(ROLE.KITCHEN), '/kitchen')
+  assert.equal(resolveRoleHome(ROLE.WAITER), '/waiter')
+  assert.equal(resolveRoleHome('unknown'), null)
+})
+
+test('regression: operational roles are exactly waiter/kitchen/cashier', () => {
+  assert.equal(isOperationalRole(ROLE.WAITER), true)
+  assert.equal(isOperationalRole(ROLE.KITCHEN), true)
+  assert.equal(isOperationalRole(ROLE.CASHIER), true)
+  assert.equal(isOperationalRole(ROLE.MANAGER), false)
+  assert.equal(isOperationalRole(ROLE.OWNER), false)
+})
+
+test('staff reconciliation: only an Owner can authorize a non-owner employee mapping', () => {
+  assert.equal(validateOwnerAuthority(ROLE.OWNER, null, ROLE.CASHIER, '1'), null)
+  assert.notEqual(validateOwnerAuthority(ROLE.MANAGER, '1', ROLE.CASHIER, '1'), null)
+  assert.notEqual(validateOwnerAuthority(ROLE.OWNER, null, ROLE.OWNER, undefined), null)
+})
+
+test('staff reconciliation: requires an explicit confirmed non-owner assignment', () => {
+  assert.equal(RECONCILE_SCHEMA.safeParse({
+    authUserId: '550e8400-e29b-41d4-a716-446655440000',
+    name: 'Verified Cashier',
+    role: ROLE.CASHIER,
+    branchId: '1',
+    confirmOwnership: true,
+  }).success, true)
+  assert.equal(RECONCILE_SCHEMA.safeParse({
+    authUserId: '550e8400-e29b-41d4-a716-446655440000',
+    name: 'Owner Attempt',
+    role: ROLE.OWNER,
+    confirmOwnership: true,
+  }).success, false)
+  assert.equal(RECONCILE_SCHEMA.safeParse({
+    authUserId: '550e8400-e29b-41d4-a716-446655440000',
+    name: 'Unconfirmed Cashier',
+    role: ROLE.CASHIER,
+    branchId: '1',
+    confirmOwnership: false,
+  }).success, false)
+})
+
+test('initial branch bootstrap validates a bounded code and does not accept arbitrary identifiers', () => {
+  assert.equal(initialBranchSchema.safeParse({ name: 'Sokoon Main', code: 'main_01' }).success, true)
+  assert.equal(initialBranchSchema.safeParse({ name: 'S', code: 'MAIN' }).success, false)
+  assert.equal(initialBranchSchema.safeParse({ name: 'Sokoon Main', code: 'main branch' }).success, false)
+})
+

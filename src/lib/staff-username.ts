@@ -1,8 +1,8 @@
 /**
- * Employee usernames are represented as verified, non-routable Supabase email
- * identities.  Supabase password authentication is email-based, while the
- * application deliberately accepts either a legacy email address or a staff
- * username.  No user-controlled metadata participates in this conversion.
+ * Supabase password authentication is email-based, while the application
+ * accepts either a legacy email address or a staff username. New username
+ * accounts use an opaque, immutable internal email generated at provisioning;
+ * usernames are never used to derive an Auth identity.
  */
 const USERNAME_PATTERN = /^[a-z0-9][a-z0-9._-]{1,30}[a-z0-9]$/
 const USERNAME_DOMAIN = 'accounts.skoon.invalid'
@@ -24,11 +24,19 @@ export function usernameFromStaffEmail(email: string | null | undefined): string
   return username && staffUsernameEmail(username) === email.toLowerCase() ? username : null
 }
 
-/** Maps a login identifier to Supabase's email-password provider input. */
+/**
+ * Legacy-only mapping for identities provisioned before opaque staff emails.
+ * New credentials must resolve the username through public.users first.
+ */
 export function staffLoginEmail(identifier: string): string | null {
   const value = identifier.trim()
   if (!value) return null
   if (value.includes('@')) return value.toLowerCase()
   const username = normalizeStaffUsername(value)
   return username ? staffUsernameEmail(username) : null
+}
+
+/** Opaque, non-routable and immutable email used only by new staff accounts. */
+export function staffIdentityEmail(identityToken: string): string {
+  return `staff.${identityToken.toLowerCase()}@${USERNAME_DOMAIN}`
 }

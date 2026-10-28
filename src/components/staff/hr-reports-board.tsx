@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -23,9 +23,9 @@ export function HrReportsBoard({ employees = [] }: { employees?: Array<{ id: str
   const [result, setResult] = useState<Record<string, unknown> | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const query = () => `/api/staff/hr/reports?startsOn=${encodeURIComponent(startsOn)}&endsOn=${encodeURIComponent(endsOn)}${employeeId ? `&employeeId=${encodeURIComponent(employeeId)}` : ''}`
-  const load = async () => { setLoading(true); setError(''); try { setResult(await read(query())) } catch (err) { setError(err instanceof Error ? err.message : 'Unable to load HR report') } finally { setLoading(false) } }
-  useEffect(() => { void load() }, [])
+  const query = useCallback(() => `/api/staff/hr/reports?startsOn=${encodeURIComponent(startsOn)}&endsOn=${encodeURIComponent(endsOn)}${employeeId ? `&employeeId=${encodeURIComponent(employeeId)}` : ''}`, [employeeId, endsOn, startsOn])
+  const load = useCallback(async () => { setLoading(true); setError(''); try { setResult(await read(query())) } catch (err) { setError(err instanceof Error ? err.message : 'Unable to load HR report') } finally { setLoading(false) } }, [query])
+  useEffect(() => { void load() }, [load])
   const from = (group: string, field: string) => String((result?.[group] as Record<string, unknown> | undefined)?.[field] ?? 0)
   const metrics = result ? [
     ['Employees', result.employees], ['Approved leave days', from('leave', 'approvedDays')], ['Paid leave days', from('leave', 'paidDays')], ['Approved overtime minutes', from('overtime', 'approvedMinutes')], ['Bonuses', from('adjustments', 'bonuses')], ['Deductions', from('adjustments', 'deductions')], ['Advance outstanding', from('advances', 'outstanding')], ['Net payroll', from('payroll', 'net')], ['Paid payroll', from('payroll', 'paid')], ['Outstanding payroll', from('payroll', 'outstanding')],

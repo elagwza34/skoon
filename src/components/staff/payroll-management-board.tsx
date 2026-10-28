@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -26,15 +26,15 @@ export function PayrollManagementBoard({ employees, canManage }: { employees: Em
   const [reason, setReason] = useState('')
   const [periodStart, setPeriodStart] = useState('')
   const [periodEnd, setPeriodEnd] = useState('')
-  const load = async () => {
+  const load = useCallback(async () => {
     if (!canManage) return
     const [a, p] = await Promise.all([fetch('/api/staff/hr/financials'), fetch('/api/staff/hr/payroll')])
     const ad = await a.json(); const pd = await p.json()
     if (!a.ok) throw new Error(ad.error ?? 'تعذر تحميل سجلات HR المالية')
     if (!p.ok) throw new Error(pd.error ?? 'تعذر تحميل مسير الرواتب')
     setFinancials({ adjustments: ad.adjustments ?? [], advances: ad.advances ?? [] }); setRuns(pd.runs ?? [])
-  }
-  useEffect(() => { void load().catch((e) => setMessage(e instanceof Error ? e.message : 'تعذر التحميل')) }, [canManage])
+  }, [canManage])
+  useEffect(() => { void load().catch((e) => setMessage(e instanceof Error ? e.message : 'تعذر التحميل')) }, [load])
   const submit = async (url: string, body: unknown) => { setBusy(true); setMessage(''); try { const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }); const d = await r.json(); if (!r.ok) throw new Error(d.error ?? 'تعذر الحفظ'); await load(); setMessage('تم الحفظ بنجاح.') } catch (e) { setMessage(e instanceof Error ? e.message : 'تعذر الحفظ') } finally { setBusy(false) } }
   const createPeriodAndRun = async () => { const branchId = employees.find((employee) => employee.branchId)?.branchId; if (!branchId) { setMessage('لا يوجد موظف تابع لفرع لإنشاء مسير الرواتب.'); return } setBusy(true); setMessage(''); try { const periodResponse = await fetch('/api/staff/hr/payroll', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'period', startsOn: periodStart, endsOn: periodEnd }) }); const periodData = await periodResponse.json(); if (!periodResponse.ok) throw new Error(periodData.error ?? 'تعذر إنشاء فترة الرواتب'); const runResponse = await fetch('/api/staff/hr/payroll', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'run', periodId: String(periodData.period.id), branchId }) }); const runData = await runResponse.json(); if (!runResponse.ok) throw new Error(runData.error ?? 'تم إنشاء الفترة لكن تعذر إنشاء المسير'); await load(); setMessage('تم إنشاء فترة ومسودة رواتب للفرع.') } catch (e) { setMessage(e instanceof Error ? e.message : 'تعذر إنشاء مسير الرواتب') } finally { setBusy(false) } }
   if (!canManage) return null

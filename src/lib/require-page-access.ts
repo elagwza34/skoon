@@ -25,8 +25,12 @@ import { canSeeRoute, homeForRole } from '@/lib/route-access'
 export async function requirePageAccess(pathname: string): Promise<StaffSession> {
   const session = await getStaffSession()
   if (!session) redirect('/login')
-  if (!canSeeRoute(session.role, session.permissions, pathname)) {
-    redirect(homeForRole(session.role))
+  const home = homeForRole(session.role)
+  // Never redirect a user to their own canonical home — that would be a
+  // redirect-to-self loop. canonicalHome is always allowed by canSeeRoute, so
+  // this is defense-in-depth only.
+  if (!canSeeRoute(session.role, session.permissions, pathname) && pathname !== home) {
+    redirect(home)
   }
   return session
 }

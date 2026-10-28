@@ -81,10 +81,14 @@ export async function middleware(request: NextRequest) {
 
   let user: { id: string } | null = null
   if (supabase) {
-    // Refresh the session (validates/rotates JWT and updates cookies).
+    // Refresh and validate the session (rotates cookies when necessary).
+    // `getClaims()` validates the JWT signature against the project's published
+    // keys. Do not use `getSession()` here: server-side session cookies alone
+    // are not an authorization proof.
     try {
-      const { data } = await supabase.auth.getUser()
-      user = data.user
+      const { data } = await supabase.auth.getClaims()
+      const subject = data?.claims?.sub
+      user = typeof subject === 'string' ? { id: subject } : null
     } catch {
       diagnostic('SESSION_INVALID', 401)
       user = null

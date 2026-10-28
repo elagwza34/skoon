@@ -1,5 +1,6 @@
 'use client'
 
+import Image from 'next/image'
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -102,7 +103,7 @@ export function ThermalReceiptPreview({ invoice, payment, autoPrint = false, onC
           dir="rtl"
         >
           <header className="receipt-brand border-b border-black pb-2 text-center">
-            <img ref={logo} src="/receipt-logo.png" alt="شعار سكون" className="receipt-logo mx-auto h-auto w-[30mm] max-w-full object-contain" />
+            <Image ref={logo} src="/receipt-logo.png" alt="شعار سكون" width={1311} height={1200} priority className="receipt-logo mx-auto h-auto w-[30mm] max-w-full object-contain" />
             <p className="mt-1 text-sm font-bold">سكون - 01500379339</p>
           </header>
           <div className="py-2 text-xs">

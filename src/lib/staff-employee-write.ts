@@ -96,7 +96,7 @@ export async function listEmployees(session: StaffSession, filter: EmployeeFilte
   const owner = session.role === ROLE.OWNER
   const where = {
     ...(owner ? {} : { branchId: BigInt(session.branchId ?? '0') }),
-    ...(query ? { OR: [{ name: { contains: query, mode: 'insensitive' as const } }, { email: { contains: query, mode: 'insensitive' as const } }] } : {}),
+    ...(query ? { OR: [{ name: { contains: query, mode: 'insensitive' as const } }, { username: { contains: query, mode: 'insensitive' as const } }, { email: { contains: query, mode: 'insensitive' as const } }] } : {}),
   }
   try {
     const rows = await prisma.user.findMany({
@@ -104,7 +104,7 @@ export async function listEmployees(session: StaffSession, filter: EmployeeFilte
       orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
       take: 200,
       select: {
-        id: true, name: true, email: true, phone: true, isActive: true, branchId: true,
+        id: true, name: true, email: true, username: true, phone: true, isActive: true, branchId: true,
         role: { select: { slug: true, name: true } },
         employeeProfile: { select: { id: true, employmentStatus: true, hireDate: true, probationStatus: true, archivedAt: true } },
       },
@@ -115,8 +115,8 @@ export async function listEmployees(session: StaffSession, filter: EmployeeFilte
         id: row.id, name: row.name,
         // Direct staff usernames are represented by non-routable Auth emails;
         // never expose that implementation detail as an employee contact.
-        email: usernameFromStaffEmail(row.email) ? null : row.email,
-        username: usernameFromStaffEmail(row.email), phone: owner ? row.phone : null,
+        email: (row.username || usernameFromStaffEmail(row.email)) ? null : row.email,
+        username: row.username ?? usernameFromStaffEmail(row.email), phone: owner ? row.phone : null,
         role: row.role.slug, roleName: row.role.name, branchId: row.branchId?.toString() ?? null,
         active: row.isActive, status: row.employeeProfile?.employmentStatus ?? (row.isActive ? 'active' : 'inactive'),
         hireDate: owner ? row.employeeProfile?.hireDate?.toISOString().slice(0, 10) ?? null : null,
@@ -134,7 +134,7 @@ export async function getEmployee(session: StaffSession, id: string) {
     const employee = await prisma.user.findFirst({
       where: { id, deletedAt: null, ...(owner ? {} : { branchId: BigInt(session.branchId ?? '0') }) },
       select: {
-        id: true, name: true, email: true, phone: true, isActive: true, branchId: true,
+        id: true, name: true, email: true, username: true, phone: true, isActive: true, branchId: true,
         role: { select: { slug: true, name: true } },
         employeeProfile: {
           select: {
@@ -154,8 +154,8 @@ export async function getEmployee(session: StaffSession, id: string) {
     }
     return {
       ...employee,
-      email: usernameFromStaffEmail(employee.email) ? null : employee.email,
-      username: usernameFromStaffEmail(employee.email),
+      email: (employee.username || usernameFromStaffEmail(employee.email)) ? null : employee.email,
+      username: employee.username ?? usernameFromStaffEmail(employee.email),
     }
   } catch (error) {
     return hrSchemaError(error)

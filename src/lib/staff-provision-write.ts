@@ -1,11 +1,12 @@
 import { z } from 'zod'
 import { createClient } from '@supabase/supabase-js'
+import { randomUUID } from 'crypto'
 import { prisma } from '@/lib/prisma'
 import { ROLE, isKnownRole, type RoleSlug } from '@/lib/authz'
 import { staffCanAccessBranch, type StaffSession } from '@/lib/session'
 import { canManageEmployeeLifecycle, canResetEmployeePassword } from '@/lib/hr-authz'
 import { employeeDeactivationBlocker } from '@/lib/hr-authz'
-import { normalizeStaffUsername, staffUsernameEmail, usernameFromStaffEmail } from '@/lib/staff-username'
+import { normalizeStaffUsername, staffIdentityEmail, staffUsernameEmail } from '@/lib/staff-username'
 
 /**
  * Staff provisioning — server-only, trusted path (docs/OWNER-PROVISIONING.md).
@@ -146,8 +147,14 @@ async function resolveAssignment(
   return { roleId: role.id, branchId }
 }
 
-/** Invite a staff member: Supabase Auth invitation + trusted profile row. */
-export async function inviteStaff(session: StaffSession, input: unknown): Promise<ProvisionedStaff> {
+/** Invite a staff member: Supabase Auth invitation + trusted profile row. *
+ * @param _supabase Test-only injected Supabase admin client (production uses adminClient()). */
+export async function inviteStaff(
+  session: StaffSession,
+  input: unknown,
+  _supabase?: any,
+  _identityToken?: string,
+): Promise<ProvisionedStaff> {
   if (!canManageEmployeeLifecycle(session.role))
     throw new StaffProvisionError('غير مصرح', 403)
 
@@ -155,40 +162,95 @@ export async function inviteStaff(session: StaffSession, input: unknown): Promis
   if (!parsed.success) throw new StaffProvisionError(parsed.error.issues[0]?.message ?? 'بيانات غير صالحة', 400)
   const { name, accountMode, permanentPassword } = parsed.data
   const username = parsed.data.username ? normalizeStaffUsername(parsed.data.username) : null
-  const email = username ? staffUsernameEmail(username) : parsed.data.email!
+  // Auth requires an email/password identity. For username accounts this is an
+  // opaque immutable address, not a transformation of a mutable username.
+  const email = username ? staffIdentityEmail(_identityToken ?? randomUUID()) : parsed.data.email!
   const roleSlug = parsed.data.role as RoleSlug
 
   const assignment = await resolveAssignment(session, roleSlug, parsed.data.branchId)
 
   const existing = await prisma.user.findFirst({
-    where: { email, deletedAt: null },
-    select: { id: true },
+    where: username
+      ? { OR: [{ username: { equals: username, mode: 'insensitive' } }, { email: staffUsernameEmail(username) }] }
+      : { email },
+    select: { id: true, deletedAt: true, isActive: true },
   })
-  if (existing) throw new StaffProvisionError('يوجد حساب مسجل بهذا البريد بالفعل', 409)
-
-  const supabase = adminClient()
-  const directPasswordAccount = Boolean(username) || accountMode === 'password'
-  const { data, error } = !directPasswordAccount
-    ? await supabase.auth.admin.inviteUserByEmail(email, { data: { full_name: name } })
-    : await supabase.auth.admin.createUser({
-      email,
-      password: permanentPassword as string,
-      email_confirm: true,
-      user_metadata: { full_name: name },
-    })
-  if (error || !data.user) {
-    // Never return an Auth provider error: it may expose account state or
-    // provider internals. The authenticated Owner gets a deterministic result.
-    throw new StaffProvisionError(username ? 'اسم المستخدم مستخدم بالفعل أو تعذر إنشاء الحساب' : 'تعذر إنشاء الحساب', 409)
+  if (existing) {
+    if (existing.deletedAt) {
+      throw new StaffProvisionError('هذا الحساب موجود مسبقاً وموقوف. راجع مدير النظام لإعادة التفعيل.', 409)
+    }
+    throw new StaffProvisionError('يوجد حساب مسجل بهذا البريد بالفعل', 409)
   }
+
+  // Username uniqueness — case-insensitive check before Auth provisioning.
+  // This prevents two employees from having the same username (only the
+  // case differs), which would break login resolution.
+  if (username) {
+    const duplicateUsername = await prisma.user.findFirst({
+      where: { username: { equals: username, mode: 'insensitive' } },
+      select: { id: true },
+    })
+    if (duplicateUsername) {
+      throw new StaffProvisionError('اسم المستخدم مستخدم بالفعل', 409)
+    }
+  }
+
+  const supabase = _supabase ?? adminClient()
+  const directPasswordAccount = Boolean(username) || accountMode === 'password'
+
+  // Pre-check: does an Auth identity already exist with this email?
+  // This prevents creating a duplicate Auth identity when re-provisioning
+  // after a partial failure left an orphaned Auth user without a public.users row.
+  // Only the Owner-controlled provisioning flow may adopt an existing identity;
+  // login never does this.
+  const { data: listed, error: listError } = await supabase.auth.admin.listUsers({ perPage: 1000 })
+  const existingAuth = listed?.users.find((user: { email?: string | null | undefined }) => user.email?.toLowerCase() === email.toLowerCase())
+
+  let authUser: { id: string; email?: string | null | undefined } | null = null
+  if (existingAuth) {
+    // Auth identity already exists — verify it is not already linked to a profile.
+    const linkedUser = await prisma.user.findUnique({ where: { id: existingAuth.id }, select: { id: true } })
+    if (linkedUser) {
+      throw new StaffProvisionError('يوجد حساب موظف موجود بهذه الهوية بالفعل', 409)
+    }
+    // SECURITY — Automatic adoption of unlinked Auth identities is DISABLED.
+    // Matching by email alone does not establish that the identity belongs to the
+    // intended employee. This orphaned identity must go through an explicit,
+    // separately-authorized reconciliation workflow (see
+    // docs/SKOON_ACCOUNT_RECONCILIATION_PLAN.md) with per-identity Owner approval
+    // before any profile row is created. Do NOT auto-link unverified identities.
+    throw new StaffProvisionError('هوية الدخول غير مرتبطة — يرجى إجراء الموافقة الضمنية لإعادة المطابقة', 409)
+  } else if (!listError) {
+    // No existing Auth identity — create a new one.
+    const { data, error } = !directPasswordAccount
+      ? await supabase.auth.admin.inviteUserByEmail(email, { data: { full_name: name } })
+      : await supabase.auth.admin.createUser({
+        email,
+        password: permanentPassword as string,
+        email_confirm: true,
+        user_metadata: { full_name: name },
+      })
+
+    if (error || !data?.user) {
+      // Never return an Auth provider error: it may expose account state or
+      // provider internals. The authenticated Owner gets a deterministic result.
+      throw new StaffProvisionError(username ? 'اسم المستخدم مستخدم بالفعل أو تعذر إنشاء الحساب' : 'تعذر إنشاء الحساب', 409)
+    }
+    authUser = data.user
+  } else {
+    throw new StaffProvisionError('تعذر التحقق من حسابات الدخول الحالية', 502)
+  }
+
+  if (!authUser) throw new StaffProvisionError('تعذر إنشاء الحساب', 502)
 
   try {
     const created = await prisma.$transaction(async (tx) => {
       const user = await tx.user.create({
         data: {
-          id: data.user.id,
+          id: authUser.id,
           name,
           email,
+          username,
           roleId: assignment.roleId,
           branchId: assignment.branchId,
           isActive: true,
@@ -239,9 +301,19 @@ export async function inviteStaff(session: StaffSession, input: unknown): Promis
     // If the profile was created but a later step (audit) failed, deleting the
     // auth user would orphan the profile and wedge the email for future invites.
     const row = await prisma.user
-      .findUnique({ where: { id: data.user.id }, select: { id: true } })
+      .findUnique({ where: { id: authUser.id }, select: { id: true } })
       .catch(() => null)
-    if (!row) await supabase.auth.admin.deleteUser(data.user.id).catch(() => undefined)
+    // Never delete an identity that existed before this Owner action. Doing so
+    // could revoke an unrelated, legitimate legacy account.
+    if (!row) {
+      const deleteError = await supabase.auth.admin.deleteUser(authUser.id).catch((e: unknown) => e)
+      if (deleteError) {
+        // Rollback failed — do not claim the invitation was rolled back.
+        // The Auth identity may remain orphaned; the Owner should retry, which
+        // will adopt the existing identity via the pre-check above.
+        throw new StaffProvisionError('تعذر إنشاء الحساب وفشل التراجع عن حساب الدخول. راجع مدير النظام.', 500)
+      }
+    }
     throw new StaffProvisionError('تعذر إنشاء الحساب — تم التراجع عن الدعوة', 500)
   }
 }

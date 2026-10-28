@@ -56,6 +56,11 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+  const [branchName, setBranchName] = useState('')
+  const [branchCode, setBranchCode] = useState('')
+  const [branchPhone, setBranchPhone] = useState('')
+  const [branchAddress, setBranchAddress] = useState('')
+  const [bootstrappingBranch, setBootstrappingBranch] = useState(false)
 
   function openInvite() {
     setError(null)
@@ -65,6 +70,28 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
 
   function closeInvite() {
     if (!saving) setInvOpen(false)
+  }
+
+  async function createInitialBranch() {
+    if (bootstrappingBranch) return
+    setError(null)
+    setSuccess(null)
+    setBootstrappingBranch(true)
+    try {
+      const response = await fetch('/api/staff/branches/bootstrap', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: branchName, code: branchCode, phone: branchPhone || undefined, address: branchAddress || undefined }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.error ?? 'تعذر إنشاء الفرع الأول')
+      setSuccess(`تم إنشاء الفرع النشط ${data.branch.name} (${data.branch.code}). يمكنك الآن إنشاء حساب موظف.`)
+      startTransition(() => router.refresh())
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'تعذر إنشاء الفرع الأول')
+    } finally {
+      setBootstrappingBranch(false)
+    }
   }
 
   useEffect(() => {
@@ -138,7 +165,7 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data?.error ?? 'تعذر إنشاء الحساب')
-      setSuccess(`تم إنشاء حساب الموظف ${data.username ?? username.trim()}`)
+      setSuccess(`تم إنشاء وتفعيل حساب الموظف ${data.username ?? username.trim()} مباشرةً.`)
       setUsername('')
       setName('')
       setPermanentPassword('')
@@ -181,11 +208,32 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
     }
   }
 
+  async function archiveEmployee(id: string, name: string) {
+    const reason = window.prompt(`سبب الحذف الآمن للموظف ${name} (إلزامي):`)
+    if (!reason?.trim()) return
+
+    setError(null)
+    setSuccess(null)
+    try {
+      const res = await fetch(`/api/staff/employees/${id}/archive`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ reason: reason.trim() }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error ?? 'تعذر حذف الموظف')
+      setSuccess(`تم حذف الموظف ${name} بأمان وإيقاف دخوله مع الاحتفاظ بسجلاته.`)
+      startTransition(() => router.refresh())
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'تعذر حذف الموظف')
+    }
+  }
+
   return (
     <div dir="rtl" className="flex min-h-0 flex-col gap-4">
       <header className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card/70 px-4 py-3">
         <div><h1 className="text-xl font-bold">إدارة الموارد البشرية</h1><p className="text-sm text-muted-foreground">ملفات الموظفين، الحضور، الاستحقاقات والرواتب في مساحة عمل واحدة.</p></div>
-        {activeTab === 'employees' && directory.canManage ? <Button onClick={openInvite}><Icon name="plus" size={16} /> إضافة موظف</Button> : null}
+        {activeTab === 'employees' && directory.canManage && directory.branches.length > 0 ? <Button onClick={openInvite}><Icon name="plus" size={16} /> إضافة موظف</Button> : null}
       </header>
       <HrKpiCards />
       <nav aria-label="أقسام الموارد البشرية" className="flex gap-1 overflow-x-auto rounded-xl border border-border bg-card p-1">
@@ -203,6 +251,18 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
       ) : null}
 
       {activeTab === 'employees' ? <>
+      {directory.canManage && directory.branches.length === 0 ? (
+        <Card className="border-warning/50">
+          <CardHeader><CardTitle>تهيئة الفرع الرئيسي</CardTitle><CardDescription>لا يمكن إنشاء موظف تشغيلي قبل وجود فرع نشط. هذه العملية متاحة مرة واحدة فقط عند عدم وجود أي فرع، وتُسجل في سجل التدقيق.</CardDescription></CardHeader>
+          <CardContent className="grid gap-3 sm:grid-cols-2">
+            <label className="flex flex-col gap-1.5 text-sm"><span className="text-muted-foreground">اسم الفرع</span><Input value={branchName} onChange={(event) => setBranchName(event.target.value)} maxLength={100} /></label>
+            <label className="flex flex-col gap-1.5 text-sm"><span className="text-muted-foreground">رمز الفرع</span><Input value={branchCode} onChange={(event) => setBranchCode(event.target.value)} dir="ltr" maxLength={20} placeholder="MAIN" /></label>
+            <label className="flex flex-col gap-1.5 text-sm"><span className="text-muted-foreground">هاتف الفرع (اختياري)</span><Input value={branchPhone} onChange={(event) => setBranchPhone(event.target.value)} inputMode="tel" maxLength={20} /></label>
+            <label className="flex flex-col gap-1.5 text-sm"><span className="text-muted-foreground">العنوان (اختياري)</span><Input value={branchAddress} onChange={(event) => setBranchAddress(event.target.value)} maxLength={255} /></label>
+            <div className="sm:col-span-2"><p className="mb-2 text-xs text-muted-foreground">سيُنشأ الفرع نشطًا بالمنطقة الزمنية Africa/Cairo. راجع الاسم والرمز قبل التأكيد.</p><Button disabled={bootstrappingBranch || !branchName.trim() || !branchCode.trim()} onClick={() => void createInitialBranch()}>{bootstrappingBranch ? 'جارٍ التهيئة…' : 'إنشاء الفرع الرئيسي'}</Button></div>
+          </CardContent>
+        </Card>
+      ) : null}
       <div className="flex flex-wrap items-center gap-3">
         <Input
           icon="search" value={query} onChange={(e) => setQuery(e.target.value)}
@@ -340,6 +400,12 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
                                   onClick={() => patch(r.id, { isActive: !r.isActive })}
                                 >
                                   {r.isActive ? 'إيقاف' : 'تفعيل'}
+                                </Button>
+                                <Button
+                                  size="sm" variant="destructive"
+                                  onClick={() => void archiveEmployee(r.id, r.name)}
+                                >
+                                  حذف آمن
                                 </Button>
                               </>
                             ) : (

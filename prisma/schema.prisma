@@ -122,6 +122,7 @@ model User {
   roleId       BigInt    @map("role_id")
   name         String    @db.VarChar(100)
   email        String?   @unique @db.VarChar(150)
+  username     String?   @unique @db.VarChar(40)
   phone        String?   @db.VarChar(20)
   // Monthly salary — stored using monetary precision; editable only by owner/manager.
   salary       Decimal   @default(0) @map("salary") @db.Decimal(10, 2)

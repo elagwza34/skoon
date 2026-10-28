@@ -6,9 +6,10 @@ import { createClient } from '@/lib/supabase/server'
 import { getStaffSession } from '@/lib/session'
 import { homeForRole, resolveRoleHome } from '@/lib/route-access'
 import { safeInternalRedirect } from '@/lib/auth/safe-redirect'
-import { staffLoginEmail } from '@/lib/staff-username'
-import { getLogoutEligibility } from '@/lib/logout-eligibility'
+import { normalizeStaffUsername, staffLoginEmail } from '@/lib/staff-username'
 import { prisma } from '@/lib/prisma'
+import { ROLE, isOwner, requiresOperationalShift } from '@/lib/authz'
+import { getOpenShift } from '@/lib/staff-shifts'
 
 /**
  * Staff sign-in — Supabase Auth (legacy email or staff username + password).
@@ -40,7 +41,23 @@ export async function loginAction(
     return { error: parsed.error.issues[0]?.message ?? 'بيانات غير صالحة' }
   }
 
-  const email = staffLoginEmail(parsed.data.identifier)
+  const identifier = parsed.data.identifier
+  let email = identifier.includes('@') ? staffLoginEmail(identifier) : null
+  if (!email) {
+    const username = normalizeStaffUsername(identifier)
+    if (username) {
+      // Username is only a login alias. The password is still verified by
+      // Supabase against the opaque internal Auth identity; no client metadata
+      // or role information is trusted here.
+      const user = await prisma.user.findFirst({
+        where: { username: { equals: username, mode: 'insensitive' }, isActive: true, deletedAt: null },
+        select: { email: true },
+      })
+      email = user?.email ?? null
+    }
+    // Backward-compatible login for old username-derived internal identities.
+    email ??= staffLoginEmail(identifier)
+  }
   if (!email) return { error: 'اسم المستخدم أو البريد الإلكتروني أو كلمة المرور غير صحيحة' }
   const supabase = await createClient()
   const { error } = await supabase.auth.signInWithPassword({ email, password: parsed.data.password })
@@ -143,10 +160,21 @@ export async function loginAction(
 export async function logoutAction(): Promise<void> {
   const session = await getStaffSession()
   if (session) {
-    const eligibility = await getLogoutEligibility(session)
-    if (!eligibility.allowed) redirect('/logout-blocked')
+    // Owner does not operate mandatory shifts and must never be blocked by staff operations
+    if (isOwner(session.role) || session.branchId === null) {
+      // Owner or no branch - proceed with normal logout flow below
+    } else if (requiresOperationalShift(session.role)) {
+      // Operational role (cashier, waiter, kitchen) - check if there's an open shift
+      const branchId = BigInt(session.branchId ?? '')
+      const shift = await getOpenShift(session.id, branchId)
+      if (shift) {
+        // Has open shift - block logout and show message via /logout-blocked
+        redirect('/logout-blocked')
+      }
+    }
   }
 
+  // Destroy the Supabase session cookies to fully end the browser session.
   const supabase = await createClient()
   await supabase.auth.signOut()
   redirect('/login')

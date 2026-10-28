@@ -40,7 +40,7 @@ export async function getStaffDirectory(session: StaffSession): Promise<StaffDir
       orderBy: { createdAt: 'desc' },
       take: 200,
       select: {
-        id: true, name: true, email: true, branchId: true, isActive: true, createdAt: true,
+        id: true, name: true, email: true, username: true, branchId: true, isActive: true, createdAt: true,
         role: { select: { slug: true, name: true } },
         branch: { select: { name: true } },
       },
@@ -56,7 +56,7 @@ export async function getStaffDirectory(session: StaffSession): Promise<StaffDir
 
   return {
     rows: users.map((u) => ({
-      id: u.id, name: u.name, email: usernameFromStaffEmail(u.email) ? null : u.email, username: usernameFromStaffEmail(u.email),
+      id: u.id, name: u.name, email: (u.username || usernameFromStaffEmail(u.email)) ? null : u.email, username: u.username ?? usernameFromStaffEmail(u.email),
       role: u.role.slug, roleName: u.role.name,
       branchId: u.branchId?.toString() ?? null,
       branchName: u.branch?.name ?? null,

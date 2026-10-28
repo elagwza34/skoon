@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useTransition } from 'react'
+import { useCallback, useEffect, useState, useTransition } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -176,8 +176,8 @@ function HistoryPanels({ employee, post, onChanged, setError }: { employee: Empl
 
 function EmployeeDocumentsPanel({ employeeId }: { employeeId: string }) {
   const [rows, setRows] = useState<Array<{ id: string; kind: string }>>([]); const [file, setFile] = useState<File | null>(null); const [kind, setKind] = useState('other'); const [error, setError] = useState(''); const [busy, setBusy] = useState(false)
-  const load = async () => { try { const response = await fetch(`/api/staff/hr/documents?employeeId=${encodeURIComponent(employeeId)}`); const data = await response.json(); if (!response.ok) throw new Error(data.error); setRows(data.documents ?? []) } catch (cause) { setError(cause instanceof Error ? cause.message : 'تعذر تحميل المستندات') } }
-  useEffect(() => { void load() }, [employeeId])
+  const load = useCallback(async () => { try { const response = await fetch(`/api/staff/hr/documents?employeeId=${encodeURIComponent(employeeId)}`); const data = await response.json(); if (!response.ok) throw new Error(data.error); setRows(data.documents ?? []) } catch (cause) { setError(cause instanceof Error ? cause.message : 'تعذر تحميل المستندات') } }, [employeeId])
+  useEffect(() => { void load() }, [load])
   const upload = async () => { if (!file) return; setBusy(true); setError(''); try { const form = new FormData(); form.set('employeeId', employeeId); form.set('kind', kind); form.set('file', file); const response = await fetch('/api/staff/hr/documents', { method: 'POST', body: form }); const data = await response.json(); if (!response.ok) throw new Error(data.error); setFile(null); await load() } catch (cause) { setError(cause instanceof Error ? cause.message : 'تعذر رفع المستند') } finally { setBusy(false) } }
   const open = async (id: string) => { try { const response = await fetch(`/api/staff/hr/documents/${id}/signed-url`); const data = await response.json(); if (!response.ok) throw new Error(data.error); window.open(data.url, '_blank', 'noopener,noreferrer') } catch (cause) { setError(cause instanceof Error ? cause.message : 'تعذر فتح المستند') } }
   return <div className="rounded-lg border bg-background p-3 lg:col-span-2"><b>المستندات الخاصة</b><p className="mt-1 text-xs text-muted-foreground">PDF أو صور حتى 8 MB؛ روابط التحميل مؤقتة ومخوّلة للمالك فقط.</p>{error ? <p className="mt-2 text-xs text-destructive">{error}</p> : null}<div className="mt-3 flex flex-wrap gap-2"><select value={kind} onChange={(event) => setKind(event.target.value)} className="h-10 rounded border bg-background px-2 text-sm"><option value="national_id_front">الرقم القومي — أمامي</option><option value="national_id_back">الرقم القومي — خلفي</option><option value="signed_contract">عقد موقّع</option><option value="other">مستند آخر</option></select><Input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" onChange={(event) => setFile(event.target.files?.[0] ?? null)} className="max-w-xs"/><Button size="sm" disabled={!file || busy} onClick={() => void upload()}>رفع</Button></div><div className="mt-3 flex flex-wrap gap-2">{rows.map((row) => <Button key={row.id} size="sm" variant="outline" onClick={() => void open(row.id)}>{row.kind}</Button>)}</div></div>
