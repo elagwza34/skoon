@@ -5,10 +5,18 @@ import { test } from 'node:test'
 const allowed = process.env.SKOON_TEST_DATABASE_AUTHORIZED === 'test-data-only' && process.env.SKOON_TEST_DATABASE_PROJECT_REF === 'bkgxjutnfkslpgshufhb'
 const skip = allowed ? false : 'Requires explicitly authorised Skoon test database; no fixtures were created.'
 
-test('Service requests PostgreSQL: QR cooldown, complaint limit, atomic claims, reassignment and branch scope', { skip, timeout: 60_000 }, async () => {
+test('Service requests PostgreSQL: QR cooldown, complaint limit, atomic claims, reassignment and branch scope', { skip, timeout: 60_000 }, async (t) => {
   const { prisma } = await import('../src/lib/prisma')
+  const [serviceRequestsRelation] = await prisma.$queryRaw<{ table_name: string | null }[]>`SELECT to_regclass('public.service_requests')::text AS table_name`
+  if (!serviceRequestsRelation?.table_name) {
+    await prisma.$disconnect()
+    t.skip('The authorised test database is missing public.service_requests; apply the reviewed additive schema there before running this suite.')
+    return
+  }
   const { ROLE } = await import('../src/lib/authz')
   const { createPublicServiceRequest, actOnServiceRequest, listServiceRequests } = await import('../src/lib/staff-service-requests')
+  const { getWaiterWorkspace } = await import('../src/lib/staff-waiter')
+  const { ShiftError } = await import('../src/lib/staff-shifts')
   type Session = import('../src/lib/session').StaffSession
   const suffix = randomUUID().replaceAll('-', '').slice(0, 10)
   const ids = {
@@ -52,6 +60,17 @@ test('Service requests PostgreSQL: QR cooldown, complaint limit, atomic claims, 
     const outsider: Session = { id: ids.outsider, email: null, name: 'SR Outsider', role: ROLE.WAITER, branchId: other.id.toString(), permissions: [] }
     const noShiftWaiter: Session = { id: ids.noShiftWaiter, email: null, name: 'SR No Shift', role: ROLE.WAITER, branchId: branch.id.toString(), permissions: [] }
     const owner: Session = { id: ids.owner, email: null, name: 'SR Owner', role: ROLE.OWNER, branchId: null, permissions: [] }
+
+    // The board's data loader is its server-side authorization boundary too:
+    // it must neither cross branches nor render a waiter without an open shift.
+    const waiterWorkspace = await getWaiterWorkspace(waiterA)
+    assert.equal(waiterWorkspace.branchName, branch.name)
+    assert.equal(waiterWorkspace.tables.some((row) => row.id === table.id.toString()), true)
+    assert.equal(waiterWorkspace.tables.some((row) => row.id === otherTable.id.toString()), false)
+    await assert.rejects(
+      () => getWaiterWorkspace(noShiftWaiter),
+      (error: unknown) => error instanceof ShiftError && error.status === 409,
+    )
 
     const first = await createPublicServiceRequest({ token: table.publicToken, type: 'water' })
     const dup = await Promise.allSettled([createPublicServiceRequest({ token: table.publicToken, type: 'water' }), createPublicServiceRequest({ token: table.publicToken, type: 'water' })])

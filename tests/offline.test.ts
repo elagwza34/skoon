@@ -61,6 +61,8 @@ import { floatMovementSchema } from '../src/lib/staff-float'
 import { financialShiftLockName } from '../src/lib/financial-shift-lock'
 import { assertRefundAmount, assertRefundReservation, refundAffectsTill, remainingRefundableCents, remainingReservableRefundCents } from '../src/lib/refund-accounting'
 import { recalculateInvoiceTotals, splitInvoices, type InvoiceRow } from '../src/lib/staff-invoices'
+import { receiptInvoiceForSettlement, receiptSettlementBreakdown } from '../src/lib/receipt-settlement'
+import { posDraftKey, restorePosDraft } from '../src/lib/pos-draft'
 import { posOrderSchema } from '../src/lib/staff-pos'
 import { isKitchenTicketVisible, itemPreparationState, OrderError, transitionOrderStatus } from '../src/lib/staff-orders'
 import { canTransitionOrder } from '../src/lib/staff-orders'
@@ -1730,5 +1732,25 @@ test('initial branch bootstrap validates a bounded code and does not accept arbi
   assert.equal(initialBranchSchema.safeParse({ name: 'Sokoon Main', code: 'main_01' }).success, true)
   assert.equal(initialBranchSchema.safeParse({ name: 'S', code: 'MAIN' }).success, false)
   assert.equal(initialBranchSchema.safeParse({ name: 'Sokoon Main', code: 'main branch' }).success, false)
+})
+
+test('receipt settlement uses the persisted discounted invoice, never a pre-payment snapshot', () => {
+  const before: InvoiceRow = {
+    id: '77', number: 'INV-77', createdAt: '2026-10-28T10:00:00.000Z', branch: 'Main', table: '1', creator: 'Cashier', status: 'new', paymentStatus: 'unpaid',
+    subtotal: '100.00', itemDiscount: '10.00', discountEligibleBase: '90.00', discountType: 'percentage', discountValue: '10', discount: '19.00', tax: '0.00', total: '81.00', paid: '0.00', remaining: '81.00', cancelledAt: null, cancelReason: null,
+    items: [], payments: [],
+  }
+  const persisted: InvoiceRow = { ...before, paymentStatus: 'paid', paid: '81.00', remaining: '0.00', payments: [{ id: '9', method: 'cash', amount: '81.00', createdAt: '2026-10-28T10:01:00.000Z', collector: 'Cashier' }] }
+  assert.equal(receiptInvoiceForSettlement('77', before), null)
+  assert.equal(receiptInvoiceForSettlement('77', persisted), persisted)
+  const breakdown = receiptSettlementBreakdown(persisted, { paid: '81.00', change: '19.00', method: 'cash' })
+  assert.deepEqual(breakdown, { subtotal: '100.00', itemDiscount: '10.00', generalDiscount: '9.00', generalDiscountPercent: 10, finalTotal: '81.00', paid: '81.00', method: 'cash', change: '19.00' })
+})
+
+test('POS drafts are isolated by cashier and branch and discard stale catalog lines', () => {
+  assert.notEqual(posDraftKey('cashier-a', '1'), posDraftKey('cashier-b', '1'))
+  assert.notEqual(posDraftKey('cashier-a', '1'), posDraftKey('cashier-a', '2'))
+  const draft = restorePosDraft(JSON.stringify({ cart: [{ id: 'product-a', qty: 2, note: 'no sugar' }, { id: 'removed-product', qty: 1 }], tableId: 'table-1', customerName: 'Customer' }), new Set(['product-a']), new Set(['table-1']))
+  assert.deepEqual(draft, { cart: [{ id: 'product-a', qty: 2, note: 'no sugar' }], tableId: 'table-1', customerName: 'Customer' })
 })
 

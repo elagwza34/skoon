@@ -29,17 +29,17 @@ export function PosCheckout({ catalog, initialTableId }: { catalog: PosCatalog; 
   const [error, setError] = useState<string | null>(null)
   const [placed, setPlaced] = useState<{ orderNumber: string; total: string } | null>(null)
   const submissionKey = useRef<string | null>(null)
+  const skipDraftPersist = useRef(false)
   const [draftReady, setDraftReady] = useState(false)
   const draftKey = posDraftKey(catalog.draftScope.userId, catalog.draftScope.branchId)
 
   // Drafts are convenience state only. They are isolated per user and branch,
-  // deliberately exclude customer details, and are always re-priced and
-  // re-validated by the server at checkout.
+  // and are always re-priced and re-validated by the server at checkout.
   useEffect(() => {
     try {
       const raw = window.localStorage.getItem(draftKey)
       const draft = restorePosDraft(raw, new Set(catalog.products.map((product) => product.id)), new Set(catalog.tables.map((table) => table.id)))
-      if (draft) { setCart(draft.cart); if (draft.tableId) setTableId(draft.tableId) }
+      if (draft) { setCart(draft.cart); if (draft.tableId) setTableId(draft.tableId); setCustomerName(draft.customerName) }
     } catch {
       window.localStorage.removeItem(draftKey)
     } finally {
@@ -52,12 +52,15 @@ export function PosCheckout({ catalog, initialTableId }: { catalog: PosCatalog; 
   useEffect(() => {
     if (!draftReady) return
     try {
-      if (cart.length === 0) window.localStorage.removeItem(draftKey)
-      else window.localStorage.setItem(draftKey, JSON.stringify({ cart, tableId }))
+      if (skipDraftPersist.current) {
+        skipDraftPersist.current = false
+        return
+      }
+      window.localStorage.setItem(draftKey, JSON.stringify({ cart, tableId, customerName }))
     } catch {
       // Storage may be unavailable or full; the in-memory draft still works.
     }
-  }, [cart, draftKey, draftReady, tableId])
+  }, [cart, customerName, draftKey, draftReady, tableId])
 
   const priceById = useMemo(() => new Map(catalog.products.map((p) => [p.id, Number(p.price)])), [catalog.products])
 
@@ -90,8 +93,14 @@ export function PosCheckout({ catalog, initialTableId }: { catalog: PosCatalog; 
   function setNote(id: string, note: string) {
     setCart((prev) => prev.map((line) => (line.id === id ? { ...line, note } : line)))
   }
+  function removeDraft() {
+    try { window.localStorage.removeItem(draftKey) } catch { /* browser storage may be unavailable */ }
+  }
   function clear() {
+    skipDraftPersist.current = true
+    removeDraft()
     setCart([])
+    setCustomerName('')
     setPlaced(null)
     setError(null)
   }
@@ -122,8 +131,10 @@ export function PosCheckout({ catalog, initialTableId }: { catalog: PosCatalog; 
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data?.error ?? 'فشل إنشاء الطلب')
       setPlaced({ orderNumber: data.orderNumber, total: data.total })
+      skipDraftPersist.current = true
       setCart([])
-      window.localStorage.removeItem(draftKey)
+      setCustomerName('')
+      removeDraft()
       submissionKey.current = null
       router.refresh()
     } catch (e) {
