@@ -47,6 +47,16 @@ export async function loginAction(
       })
       email = user?.email ?? null
     }
+    // Step 2b: Username not set (null) — fall back to email lookup by local part.
+    // Covers legacy users provisioned before username existed (e.g. owner abokamel
+    // with email abokamel@gmail.com but no username yet).
+    if (!email) {
+      const userByEmailLocal = await prisma.user.findFirst({
+        where: { email: { startsWith: `${identifier}@`, mode: 'insensitive' }, isActive: true, deletedAt: null },
+        select: { email: true },
+      })
+      email = userByEmailLocal?.email ?? null
+    }
   }
   
   // Step 3: Fallback - use staffLoginEmail (creates opaque internal identity)
