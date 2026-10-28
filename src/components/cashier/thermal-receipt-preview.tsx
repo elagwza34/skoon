@@ -1,10 +1,12 @@
 'use client'
 
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import Image from 'next/image'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { formatCurrency, formatDateShort } from '@/lib/format'
 import type { InvoiceRow } from '@/lib/staff-invoices'
+import { receiptSettlementBreakdown } from '@/lib/receipt-settlement'
 
 export type ThermalPaymentResult = {
   paid: string
@@ -74,8 +76,7 @@ export function ThermalReceiptPreview({ invoice, payment, autoPrint = false, onC
     }
   }, [autoPrint])
 
-  const paid = payment?.paid ?? invoice.paid
-  const method = payment?.method ?? invoice.payments.map((item) => item.method).join(' / ')
+  const settlement = receiptSettlementBreakdown(invoice, payment)
   const createdAt = new Date(invoice.createdAt)
   const notes = invoice.notes?.trim()
   const orderType = invoice.orderType ?? 'dine_in'
@@ -102,7 +103,7 @@ export function ThermalReceiptPreview({ invoice, payment, autoPrint = false, onC
           dir="rtl"
         >
           <header className="receipt-brand border-b border-black pb-2 text-center">
-            <img ref={logo} src="/receipt-logo.png" alt="شعار سكون" width={1311} height={1200} className="receipt-logo mx-auto h-auto w-[30mm] max-w-full object-contain" />
+            <Image ref={logo} src="/receipt-logo.png" alt="شعار سكون" width={1311} height={1200} priority className="receipt-logo mx-auto h-auto w-[30mm] max-w-full object-contain" />
             <p className="mt-1 text-sm font-bold">سكون - 01500379339</p>
           </header>
           <div className="py-2 text-xs">
@@ -112,10 +113,12 @@ export function ThermalReceiptPreview({ invoice, payment, autoPrint = false, onC
             </div>)}
           </div>
           <div className="receipt-summary space-y-1 border-t border-black pt-2 text-xs">
-            <div className="flex justify-between gap-3 text-sm font-bold"><span>الإجمالي</span><strong dir="ltr">{money(invoice.subtotal)}</strong></div>
-            {Number(invoice.itemDiscount ?? 0) > 0 ? <div className="flex justify-between gap-3"><span>خصم الأصناف</span><span dir="ltr">-{money(invoice.itemDiscount ?? 0)}</span></div> : null}
-            {Number(invoice.discount) > Number(invoice.itemDiscount ?? 0) ? <div className="flex justify-between gap-3"><span>خصم عام</span><span dir="ltr">-{money(Number(invoice.discount) - Number(invoice.itemDiscount ?? 0))}</span></div> : null}
-            <div className="flex justify-between gap-3 border-t border-black pt-1 text-sm font-bold"><span>المدفوع</span><strong dir="ltr">{money(paid)}</strong></div>
+            <div className="flex justify-between gap-3"><span>الإجمالي قبل الخصم</span><strong dir="ltr">{money(settlement.subtotal)}</strong></div>
+            {Number(settlement.itemDiscount) > 0 ? <div className="flex justify-between gap-3"><span>خصم الأصناف</span><span dir="ltr">-{money(settlement.itemDiscount)}</span></div> : null}
+            {Number(settlement.generalDiscount) > 0 ? <div className="flex justify-between gap-3"><span>خصم عام{settlement.generalDiscountPercent !== null ? ` (${settlement.generalDiscountPercent}%)` : ''}</span><span dir="ltr">-{money(settlement.generalDiscount)}</span></div> : null}
+            <div className="flex justify-between gap-3 border-t border-black pt-1 text-sm font-bold"><span>الإجمالي النهائي</span><strong dir="ltr">{money(settlement.finalTotal)}</strong></div>
+            <div className="flex justify-between gap-3"><span>المدفوع</span><strong dir="ltr">{money(settlement.paid)}</strong></div>
+            {Number(settlement.change) > 0 ? <div className="flex justify-between gap-3"><span>الباقي</span><strong dir="ltr">{money(settlement.change)}</strong></div> : null}
           </div>
           {notes ? <section className="receipt-notes mt-3 border-t border-black pt-2 text-xs"><h3 className="mb-1 font-bold">ملاحظات</h3><p className="whitespace-pre-wrap break-words leading-5">{notes}</p></section> : null}
           <section className="receipt-metadata mt-3 border-t border-black pt-2 text-xs" aria-label="بيانات الفاتورة">
@@ -126,7 +129,7 @@ export function ThermalReceiptPreview({ invoice, payment, autoPrint = false, onC
             <MetadataRow label="نوع الطلب" value={orderTypeLabel(orderType)} />
             {isDineIn && invoice.table ? <MetadataRow label="الطاولة" value={invoice.table} /> : null}
             {invoice.creator ? <MetadataRow label="الكاشير" value={invoice.creator} /> : null}
-            {method ? <MetadataRow label="طريقة الدفع" value={method} /> : null}
+            {settlement.method ? <MetadataRow label="طريقة الدفع" value={settlement.method} /> : null}
           </section>
           {invoice.status === 'cancelled' && invoice.cancelReason ? <p className="receipt-cancellation mt-3 border-t border-black pt-2 text-xs">سبب الإلغاء: {invoice.cancelReason}</p> : null}
           <footer className="mt-3 border-t border-black pt-2 text-center text-[11px]">شكرًا لزيارتكم</footer>

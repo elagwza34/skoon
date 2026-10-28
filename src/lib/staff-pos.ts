@@ -18,6 +18,8 @@ export interface PosCatalogProduct {
 }
 
 export interface PosCatalog {
+  /** Browser-only draft isolation key; never used as server-side authority. */
+  draftScope: { userId: string; branchId: string | null }
   categories: { id: string; name: string }[]
   products: PosCatalogProduct[]
   tables: { id: string; number: string; name: string | null }[]
@@ -58,6 +60,7 @@ export async function getPosCatalog(session: StaffSession): Promise<PosCatalog> 
     }),
   ])
   return {
+    draftScope: { userId: session.id, branchId: session.branchId },
     categories: categories.map((c) => ({ id: c.id.toString(), name: c.name })),
     products: products.map((p) => ({
       id: p.id.toString(), name: p.name, price: p.price.toString(),

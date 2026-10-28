@@ -25,6 +25,7 @@ export interface IncomingWaiterHandover {
 
 export interface WaiterWorkspace {
   currentUserId: string
+  branchId: string
   branchName: string
   employeeName: string
   shift: { id: string; openedAt: string } | null
@@ -136,6 +137,7 @@ export async function getWaiterWorkspace(session: StaffSession): Promise<WaiterW
 
   return {
     currentUserId: session.id,
+    branchId: session.branchId,
     branchName: branch?.name ?? '—',
     employeeName: session.name,
     shift: shift ? { id: shift.id.toString(), openedAt: shift.openedAt.toISOString() } : null,

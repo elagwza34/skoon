@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getStaffSession } from '@/lib/session'
 import { finalizeOrderPayment, refundOrderPayment, PaymentError } from '@/lib/staff-payments-write'
 import { FinancialShiftLockError } from '@/lib/financial-shift-lock'
+import { getCashierInvoices } from '@/lib/staff-invoices'
 
 /**
  * Staff payments — POST /api/staff/orders/[id]/pay
@@ -27,7 +28,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const idempotencyKey = req.headers.get('idempotency-key') ?? body.idempotencyKey
     if (body.action === 'pay') {
       const result = await finalizeOrderPayment(session, id, { method: body.method, received: body.received, idempotencyKey })
-      return NextResponse.json(result, { status: 201 })
+      // Print only a post-settlement, persisted invoice. The client must never
+      // render a receipt from its pre-payment editing snapshot.
+      const invoice = (await getCashierInvoices(session)).find((row) => row.id === result.orderId)
+      if (!invoice) return NextResponse.json({ error: 'Payment recorded but the updated invoice could not be loaded.' }, { status: 503 })
+      return NextResponse.json({ ...result, invoice }, { status: 201 })
     }
     if (body.action === 'refund') {
       const result = await refundOrderPayment(session, id, { reason: body.reason, idempotencyKey })

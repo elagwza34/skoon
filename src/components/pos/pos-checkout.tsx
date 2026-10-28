@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -12,6 +12,7 @@ import { Icon } from '@/components/ui/icon'
 import { formatCurrency, formatNumber } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import type { PosCatalog } from '@/lib/staff-pos'
+import { posDraftKey, restorePosDraft } from '@/lib/pos-draft'
 
 /**
  * POS checkout — real branch catalog + tables from the DB.
@@ -28,6 +29,35 @@ export function PosCheckout({ catalog, initialTableId }: { catalog: PosCatalog; 
   const [error, setError] = useState<string | null>(null)
   const [placed, setPlaced] = useState<{ orderNumber: string; total: string } | null>(null)
   const submissionKey = useRef<string | null>(null)
+  const [draftReady, setDraftReady] = useState(false)
+  const draftKey = posDraftKey(catalog.draftScope.userId, catalog.draftScope.branchId)
+
+  // Drafts are convenience state only. They are isolated per user and branch,
+  // deliberately exclude customer details, and are always re-priced and
+  // re-validated by the server at checkout.
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(draftKey)
+      const draft = restorePosDraft(raw, new Set(catalog.products.map((product) => product.id)), new Set(catalog.tables.map((table) => table.id)))
+      if (draft) { setCart(draft.cart); if (draft.tableId) setTableId(draft.tableId) }
+    } catch {
+      window.localStorage.removeItem(draftKey)
+    } finally {
+      // State, rather than a ref, prevents the initial empty-cart persistence
+      // effect from deleting storage before the restored cart is rendered.
+      setDraftReady(true)
+    }
+  }, [catalog.products, catalog.tables, draftKey])
+
+  useEffect(() => {
+    if (!draftReady) return
+    try {
+      if (cart.length === 0) window.localStorage.removeItem(draftKey)
+      else window.localStorage.setItem(draftKey, JSON.stringify({ cart, tableId }))
+    } catch {
+      // Storage may be unavailable or full; the in-memory draft still works.
+    }
+  }, [cart, draftKey, draftReady, tableId])
 
   const priceById = useMemo(() => new Map(catalog.products.map((p) => [p.id, Number(p.price)])), [catalog.products])
 
@@ -65,6 +95,9 @@ export function PosCheckout({ catalog, initialTableId }: { catalog: PosCatalog; 
     setPlaced(null)
     setError(null)
   }
+  function remove(id: string) {
+    setCart((previous) => previous.filter((line) => line.id !== id))
+  }
 
   async function checkout() {
     if (cart.length === 0 || busy) return
@@ -90,6 +123,7 @@ export function PosCheckout({ catalog, initialTableId }: { catalog: PosCatalog; 
       if (!res.ok) throw new Error(data?.error ?? 'فشل إنشاء الطلب')
       setPlaced({ orderNumber: data.orderNumber, total: data.total })
       setCart([])
+      window.localStorage.removeItem(draftKey)
       submissionKey.current = null
       router.refresh()
     } catch (e) {
@@ -187,6 +221,9 @@ export function PosCheckout({ catalog, initialTableId }: { catalog: PosCatalog; 
                       <span className="w-6 text-center text-sm font-semibold">{l.qty}</span>
                       <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => inc(l.id)} aria-label="زيادة">
                         <Icon name="plus" size={14} />
+                      </Button>
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => remove(l.id)} aria-label={`إزالة ${p.name} من السلة`}>
+                        <Icon name="trash" size={14} />
                       </Button>
                     </div>
                   </li>

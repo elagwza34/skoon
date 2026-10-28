@@ -34,6 +34,7 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
   const [editing, setEditing] = useState<WaiterWorkspace['openOrders'][number] | null>(null)
 
   const catalog = useMemo(() => ({
+    draftScope: { userId: workspace.currentUserId, branchId: workspace.branchId },
     categories: workspace.categories,
     products: workspace.products.map((product) => ({ ...product, categoryName: workspace.categories.find((category) => category.id === product.categoryId)?.name ?? '—' })),
     tables: workspace.tables.map(({ id, number, name }) => ({ id, number, name })),
