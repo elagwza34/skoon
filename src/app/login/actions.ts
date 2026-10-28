@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getStaffSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { normalizeStaffUsername, staffLoginEmail } from '@/lib/staff-username'
+import { resolveRoleHome } from '@/lib/route-access'
 
 /** Login schema for staff authentication. */
 const loginSchema = z.object({
@@ -75,7 +76,12 @@ export async function loginAction(
     await supabase.auth.signOut()
     return { error: 'Session resolution failed' }
   }
-  redirect(requested ?? '/dashboard')
+  if (!session) {
+    await supabase.auth.signOut()
+    return { error: 'Session resolution failed' }
+  }
+  const home = resolveRoleHome(session.role)
+  redirect(requested ?? home ?? '/login')
 }
 
 export async function logoutAction(): Promise<void> {

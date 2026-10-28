@@ -67,6 +67,8 @@ import { posOrderSchema } from '../src/lib/staff-pos'
 import { isKitchenTicketVisible, itemPreparationState, OrderError, transitionOrderStatus } from '../src/lib/staff-orders'
 import { canTransitionOrder } from '../src/lib/staff-orders'
 import { canViewOwnerWaiterMonitor, isWaiterTableOrderActive } from '../src/lib/staff-waiter'
+import { isMissingWaiterHandoverTableError } from '../src/lib/staff-waiter'
+import { isPublicPath } from '../src/middleware'
 import { isTransferEligible, requiresEmergencyServing } from '../src/lib/staff-waiter-operations'
 import { canMutateServiceRequest, serviceRequestMonitorGroup } from '../src/lib/service-request-policy'
 import { actOnServiceRequest, ServiceRequestError } from '../src/lib/staff-service-requests'
@@ -139,6 +141,18 @@ test('waiter lifecycle: cancelled and served orders do not occupy a table', () =
   assert.equal(isWaiterTableOrderActive('ready'), true)
   assert.equal(isWaiterTableOrderActive('served'), false)
   assert.equal(isWaiterTableOrderActive('cancelled'), false)
+})
+
+test('waiter schema fault is explicit only for the missing handover relation', () => {
+  assert.equal(isMissingWaiterHandoverTableError({ code: 'P2021', meta: { table: 'public.waiter_shift_handovers' } }), true)
+  assert.equal(isMissingWaiterHandoverTableError({ code: 'P2021', meta: { table: 'public.orders' } }), false)
+  assert.equal(isMissingWaiterHandoverTableError({ code: 'P2002', meta: { table: 'public.waiter_shift_handovers' } }), false)
+})
+
+test('receipt logo is public while waiter routes remain protected', () => {
+  assert.equal(isPublicPath('/receipt-logo.png'), true)
+  assert.equal(isPublicPath('/waiter'), false)
+  assert.equal(isPublicPath('/api/staff/waiter/handovers'), false)
 })
 
 test('owner waiter monitor is read-only while the waiter service workflow remains available', () => {
