@@ -250,7 +250,7 @@ export function PosCheckout({ catalog, initialTableId }: { catalog: PosCatalog; 
                 const p = catalog.products.find((x) => x.id === l.id)!
                 const v = l.variantId ? p.variants.find((x) => x.id === l.variantId) : null
                 const unitPrice = v ? Number(v.price) : Number(p.price)
-                const label = v ? `${p.name} — ${v.combinationKey}` : p.name
+                const label = v ? `${p.name} — ${v.label}` : p.name
                 return (
                   <li key={`${l.id}:${l.variantId ?? 'base'}`} className="flex items-center gap-2 rounded-md border border-border p-2">
                     <div className="flex min-w-0 flex-1 flex-col gap-1 leading-tight">
@@ -299,7 +299,7 @@ export function PosCheckout({ catalog, initialTableId }: { catalog: PosCatalog; 
                 {variantModal.product.variants.map((v) => (
                   <div key={v.id} className="border rounded-lg p-3">
                     <div className="flex justify-between items-start gap-2 mb-2">
-                      <span className="text-sm font-medium">{v.combinationKey}</span>
+                      <span className="text-sm font-medium">{v.label}</span>
                       <span className="text-sm font-semibold text-primary">{formatCurrency(Number(v.price))}</span>
                     </div>
                     <Input
@@ -310,8 +310,8 @@ export function PosCheckout({ catalog, initialTableId }: { catalog: PosCatalog; 
                       value="1"
                       onChange={() => {}}
                       className="w-20 h-8 text-sm"
-                      aria-label={`كمية ${v.combinationKey}`}
-                    />
+                      aria-label={`كمية ${v.label}`}
+/>
                     <Button
                       variant="outline"
                       size="sm"

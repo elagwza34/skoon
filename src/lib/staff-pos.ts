@@ -10,7 +10,7 @@ import type { StaffSession } from '@/lib/session'
 
 export interface PosCatalogVariant {
   id: string
-  combinationKey: string
+  label: string
   price: string
   priceAdjustment: string
   isAvailable: boolean
@@ -63,7 +63,7 @@ export async function getPosCatalog(session: StaffSession): Promise<PosCatalog> 
         variants: {
           where: { isActive: true, isAvailable: true, archivedAt: null },
           orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-          select: { id: true, combinationKey: true, price: true, isAvailable: true },
+          select: { id: true, combinationKey: true, price: true, isAvailable: true, values: { select: { value: { select: { label: true } } } } },
         },
       },
     }),
@@ -82,7 +82,7 @@ export async function getPosCatalog(session: StaffSession): Promise<PosCatalog> 
       isAvailable: p.isAvailable,
       variants: p.variants.map((v) => ({
         id: v.id.toString(),
-        combinationKey: v.combinationKey,
+        label: v.values[0]?.value.label ?? v.combinationKey,
         price: v.price.toString(),
         priceAdjustment: (Number(v.price) - Number(p.price)).toFixed(2),
         isAvailable: v.isAvailable,
