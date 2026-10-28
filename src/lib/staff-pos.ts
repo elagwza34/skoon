@@ -80,5 +80,6 @@ export const posItemSchema = z.object({
 export const posOrderSchema = z.object({
   tableId: z.string().regex(/^\d+$/, 'اختر الطاولة').optional(),
   customerName: z.string().trim().max(60).optional(),
+  customerPhone: z.string().trim().regex(/^[0-9+()\-\s]{6,30}$/).optional(),
   items: z.array(posItemSchema).min(1, 'السلة فارغة').max(30),
 })

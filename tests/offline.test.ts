@@ -37,7 +37,7 @@ import {
   PIN_MIN_LENGTH,
   PIN_MAX_LENGTH,
 } from '../src/lib/security/pin'
-import { PAYMENT_METHODS, PaymentError, refundOrderPayment, refundSchema } from '../src/lib/staff-payments-write'
+import { PAYMENT_METHODS, paymentCollectionSchema, PaymentError, refundOrderPayment, refundSchema } from '../src/lib/staff-payments-write'
 import {
   avgPerPaidOrder,
   centsToAmount,
@@ -622,10 +622,14 @@ test('HR attendance: derives lateness and reviewed overtime from actual Shift ti
 })
 
 // --- staff-payments-write (pure constants) ----------------------------------
-test('payments: PAYMENT_METHODS are the three supported methods', () => {
-  assert.deepEqual([...PAYMENT_METHODS], ['cash', 'card', 'online'])
-  // V1 rule: no partial payments, so methods stay minimal and server-priced.
-  assert.equal(PAYMENT_METHODS.length, 3)
+test('payments: cash and supported electronic methods use explicit validation', () => {
+  assert.deepEqual([...PAYMENT_METHODS], ['cash', 'mobile_wallet', 'instapay', 'card', 'online'])
+  assert.equal(paymentCollectionSchema.safeParse({ method: 'cash' }).success, false)
+  assert.equal(paymentCollectionSchema.safeParse({ method: 'cash', received: '10' }).success, true)
+  assert.equal(paymentCollectionSchema.safeParse({ method: 'mobile_wallet' }).success, false)
+  assert.equal(paymentCollectionSchema.safeParse({ method: 'mobile_wallet', electronicPaymentConfirmed: true }).success, true)
+  assert.equal(paymentCollectionSchema.safeParse({ method: 'instapay', electronicPaymentConfirmed: true }).success, true)
+  assert.equal(paymentCollectionSchema.safeParse({ method: 'invalid', electronicPaymentConfirmed: true }).success, false)
 })
 
 // --- staff-settings-write (allowlisted key validation) ----------------------
@@ -1764,7 +1768,7 @@ test('receipt settlement uses the persisted discounted invoice, never a pre-paym
 test('POS drafts are isolated by cashier and branch and discard stale catalog lines', () => {
   assert.notEqual(posDraftKey('cashier-a', '1'), posDraftKey('cashier-b', '1'))
   assert.notEqual(posDraftKey('cashier-a', '1'), posDraftKey('cashier-a', '2'))
-  const draft = restorePosDraft(JSON.stringify({ cart: [{ id: 'product-a', qty: 2, note: 'no sugar' }, { id: 'removed-product', qty: 1 }], tableId: 'table-1', customerName: 'Customer' }), new Set(['product-a']), new Set(['table-1']))
-  assert.deepEqual(draft, { cart: [{ id: 'product-a', qty: 2, note: 'no sugar' }], tableId: 'table-1', customerName: 'Customer' })
+  const draft = restorePosDraft(JSON.stringify({ cart: [{ id: 'product-a', qty: 2, note: 'no sugar' }, { id: 'removed-product', qty: 1 }], tableId: 'table-1', customerName: 'Customer', customerPhone: '+20 100 000 0000' }), new Set(['product-a']), new Set(['table-1']))
+  assert.deepEqual(draft, { cart: [{ id: 'product-a', qty: 2, note: 'no sugar' }], tableId: 'table-1', customerName: 'Customer', customerPhone: '+20 100 000 0000' })
 })
 

@@ -51,13 +51,13 @@ export function TablesBoard({ tables, canEditLayout = false, branches = [] }: { 
           <span className="text-warning">مشغولة</span>
         </span>
         {canEditLayout ? <Button size="sm" className="ms-auto" onClick={openCreate}><Icon name="plus" size={14} />إضافة طاولة</Button> : null}
-        <Link href="/tables/print" className={!canEditLayout ? 'ms-auto' : undefined}>
+        {false && <Link href="/tables/print" className={!canEditLayout ? 'ms-auto' : undefined}>
           <Button size="sm" variant="outline">
             <Icon name="orders" size={14} />
             طباعة QR
           </Button>
-        </Link>
-        <div className="flex rounded-md border border-border p-0.5"><Button size="sm" variant={view === 'grid' ? 'primary' : 'ghost'} onClick={() => setView('grid')}>شبكة</Button><Button size="sm" variant={view === 'floor' ? 'primary' : 'ghost'} onClick={() => setView('floor')}>مخطط القاعة</Button></div>
+        </Link>}
+        <div className="hidden"><Button size="sm" variant={view === 'grid' ? 'primary' : 'ghost'} onClick={() => setView('grid')}>شبكة</Button><Button size="sm" variant={view === 'floor' ? 'primary' : 'ghost'} onClick={() => setView('floor')}>مخطط القاعة</Button></div>
       </div>
       {notice ? <p className="rounded-md bg-success/10 px-3 py-2 text-sm text-success">{notice}</p> : null}
       {error ? <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}

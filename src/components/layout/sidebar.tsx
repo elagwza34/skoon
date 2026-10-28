@@ -26,9 +26,11 @@ export interface SidebarProps {
   branchName?: string | null;
   /** Permission-filtered nav groups from the AppShell. Defaults to all. */
   groups?: NavGroup[];
+  /** Canonical role home supplied by the permission-filtered navigation. */
+  homeHref?: string;
 }
 
-export function Sidebar({ open, onClose, branchName, groups = DEFAULT_GROUPS }: SidebarProps) {
+export function Sidebar({ open, onClose, branchName, groups = DEFAULT_GROUPS, homeHref = "/dashboard" }: SidebarProps) {
   const pathname = usePathname();
 
   return (
@@ -52,7 +54,7 @@ export function Sidebar({ open, onClose, branchName, groups = DEFAULT_GROUPS }: 
         )}
       >
         {/* Brand */}
-        <div className="flex items-center gap-2.5 px-4 py-4">
+        <Link href={homeHref} onClick={onClose} className="flex items-center gap-2.5 px-4 py-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <Image
             src="/logo.png"
             alt="شعار سكون"
@@ -65,7 +67,7 @@ export function Sidebar({ open, onClose, branchName, groups = DEFAULT_GROUPS }: 
             <span className="text-base font-bold text-foreground">سكون</span>
             <span className="text-[11px] text-muted-foreground">نظام إدارة الكافيه</span>
           </div>
-        </div>
+        </Link>
 
         {/* Navigation */}
         <nav className="flex-1 overflow-y-auto no-scrollbar px-3 pb-4" aria-label="التنقل الرئيسي">

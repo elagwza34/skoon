@@ -25,6 +25,7 @@ export function PosCheckout({ catalog, initialTableId }: { catalog: PosCatalog; 
   const [cart, setCart] = useState<{ id: string; qty: number; note?: string }[]>([])
   const [tableId, setTableId] = useState(initialTableId ?? catalog.tables[0]?.id ?? '')
   const [customerName, setCustomerName] = useState('')
+  const [customerPhone, setCustomerPhone] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [placed, setPlaced] = useState<{ orderNumber: string; total: string } | null>(null)
@@ -39,7 +40,7 @@ export function PosCheckout({ catalog, initialTableId }: { catalog: PosCatalog; 
     try {
       const raw = window.localStorage.getItem(draftKey)
       const draft = restorePosDraft(raw, new Set(catalog.products.map((product) => product.id)), new Set(catalog.tables.map((table) => table.id)))
-      if (draft) { setCart(draft.cart); if (draft.tableId) setTableId(draft.tableId); setCustomerName(draft.customerName) }
+      if (draft) { setCart(draft.cart); if (draft.tableId) setTableId(draft.tableId); setCustomerName(draft.customerName); setCustomerPhone(draft.customerPhone) }
     } catch {
       window.localStorage.removeItem(draftKey)
     } finally {
@@ -56,11 +57,11 @@ export function PosCheckout({ catalog, initialTableId }: { catalog: PosCatalog; 
         skipDraftPersist.current = false
         return
       }
-      window.localStorage.setItem(draftKey, JSON.stringify({ cart, tableId, customerName }))
+      window.localStorage.setItem(draftKey, JSON.stringify({ cart, tableId, customerName, customerPhone }))
     } catch {
       // Storage may be unavailable or full; the in-memory draft still works.
     }
-  }, [cart, customerName, draftKey, draftReady, tableId])
+  }, [cart, customerName, customerPhone, draftKey, draftReady, tableId])
 
   const priceById = useMemo(() => new Map(catalog.products.map((p) => [p.id, Number(p.price)])), [catalog.products])
 
@@ -101,6 +102,7 @@ export function PosCheckout({ catalog, initialTableId }: { catalog: PosCatalog; 
     removeDraft()
     setCart([])
     setCustomerName('')
+    setCustomerPhone('')
     setPlaced(null)
     setError(null)
   }
@@ -125,6 +127,7 @@ export function PosCheckout({ catalog, initialTableId }: { catalog: PosCatalog; 
         body: JSON.stringify({
           tableId,
           customerName: customerName.trim() || undefined,
+          customerPhone: customerPhone.trim() || undefined,
           items: cart.map((l) => ({ productId: l.id, qty: l.qty, note: l.note?.trim() || undefined })),
         }),
       })
@@ -134,6 +137,7 @@ export function PosCheckout({ catalog, initialTableId }: { catalog: PosCatalog; 
       skipDraftPersist.current = true
       setCart([])
       setCustomerName('')
+      setCustomerPhone('')
       removeDraft()
       submissionKey.current = null
       router.refresh()
@@ -204,6 +208,7 @@ export function PosCheckout({ catalog, initialTableId }: { catalog: PosCatalog; 
         <CardContent className="flex flex-col gap-3">
           <Dropdown label="الطاولة" options={tableOptions} value={tableId} onChange={setTableId} className="w-full" />
           <Input icon="customers" value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="اسم العميل (اختياري)" aria-label="اسم العميل" />
+          <Input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} inputMode="tel" autoComplete="tel" maxLength={30} placeholder="رقم الهاتف (اختياري)" aria-label="رقم الهاتف (اختياري)" />
           {placed ? (
             <p className="rounded-md bg-success/10 px-3 py-2 text-sm text-success">
               تم إنشاء الطلب {placed.orderNumber} · {formatCurrency(Number(placed.total))}

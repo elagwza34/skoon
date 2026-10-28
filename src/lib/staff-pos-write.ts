@@ -52,7 +52,7 @@ export async function createPosOrder(session: StaffSession, input: unknown, idem
   }
 
   const fingerprint = createHash('sha256').update(JSON.stringify({
-    branchId: branchId.toString(), tableId: tableId.toString(), customerName: parsed.data.customerName?.trim() || null,
+    branchId: branchId.toString(), tableId: tableId.toString(), customerName: parsed.data.customerName?.trim() || null, customerPhone: parsed.data.customerPhone?.trim() || null,
     items: parsed.data.items.map((item) => ({ productId: item.productId, qty: item.qty, note: item.note?.trim() || null })),
   })).digest('hex')
   // A completed retry remains retrievable even if a product was later disabled.
@@ -106,6 +106,7 @@ export async function createPosOrder(session: StaffSession, input: unknown, idem
         branchId, cafeTableId: tableId,
         orderNumber, orderRef, orderType: 'dine_in', status: 'new', source: session.role === ROLE.WAITER ? 'waiter' : 'pos',
         customerName: parsed.data.customerName?.trim() || null,
+        customerPhone: parsed.data.customerPhone?.trim() || null,
         createdById: session.id,
         // A waiter-created ticket is immediately their responsibility. The
         // immutable creator remains separate for audit and historical reports.

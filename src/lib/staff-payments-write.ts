@@ -39,22 +39,35 @@ export class PaymentError extends Error {
   }
 }
 
-export const PAYMENT_METHODS = ['cash', 'card', 'online'] as const
+/** Canonical persisted values. `card`/`online` remain valid for legacy rows. */
+export const PAYMENT_METHODS = ['cash', 'mobile_wallet', 'instapay', 'card', 'online'] as const
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number]
 
 export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   cash: 'نقدي',
+  mobile_wallet: 'محفظة إلكترونية',
+  instapay: 'إنستا باي',
   card: 'بطاقة',
   online: 'أونلاين',
 }
 
-const paySchema = z.object({
-  method: z.enum(['cash', 'card', 'online'], {
+/** Input contract shared by the payment API and regression tests. */
+export const paymentCollectionSchema = z.object({
+  method: z.enum(PAYMENT_METHODS, {
     errorMap: () => ({ message: 'طريقة الدفع غير صالحة' }),
   }),
-  // Cash only: tendered amount (>= outstanding). Optional for card/online.
+  // Cash only: tendered amount (>= outstanding). Non-cash methods settle the
+  // server-calculated outstanding balance after an explicit cashier attestation.
   received: z.coerce.number().positive('المبلغ المستلم يجب أن يكون أكبر من صفر').max(9_999_999).optional(),
+  electronicPaymentConfirmed: z.boolean().optional(),
   idempotencyKey: z.string().trim().min(8).max(100).optional(),
+}).superRefine((value, context) => {
+  if (value.method === 'cash' && value.received === undefined) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['received'], message: 'المبلغ المستلم مطلوب للدفع النقدي' })
+  }
+  if (value.method !== 'cash' && value.electronicPaymentConfirmed !== true) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['electronicPaymentConfirmed'], message: 'يجب تأكيد استلام الدفع الإلكتروني' })
+  }
 })
 
 export const refundSchema = z.object({
@@ -81,7 +94,7 @@ export async function finalizeOrderPayment(
   if (!hasAtLeast(session.role, ROLE.CASHIER)) throw new PaymentError('غير مصرح', 403)
   if (!/^\d+$/.test(orderIdRaw)) throw new PaymentError('الطلب غير موجود', 404)
 
-  const parsed = paySchema.safeParse(input)
+  const parsed = paymentCollectionSchema.safeParse(input)
   if (!parsed.success) throw new PaymentError(parsed.error.issues[0]?.message ?? 'بيانات غير صالحة', 400)
   const { method } = parsed.data
 
@@ -132,11 +145,11 @@ export async function finalizeOrderPayment(
     if (outstanding <= 0) throw new PaymentError('الطلب مدفوع بالفعل', 409)
 
     let received = outstanding
-    if (method === 'cash' && parsed.data.received !== undefined) {
-      received = parsed.data.received
+    if (method === 'cash') {
+      received = parsed.data.received!
       if (received < outstanding) throw new PaymentError('المبلغ المستلم أقل من المطلوب', 400)
     }
-    const change = round2(received - outstanding)
+    const change = method === 'cash' ? round2(received - outstanding) : 0
 
     const payment = await tx.payment.create({
       data: {

@@ -1,5 +1,5 @@
 export type PosDraftLine = { id: string; qty: number; note?: string }
-export type PosDraft = { cart: PosDraftLine[]; tableId: string; customerName: string }
+export type PosDraft = { cart: PosDraftLine[]; tableId: string; customerName: string; customerPhone: string }
 
 export function posDraftKey(userId: string, branchId: string | null) {
   return `skoon.pos.draft:${userId}:${branchId ?? 'owner'}`
@@ -9,7 +9,7 @@ export function posDraftKey(userId: string, branchId: string | null) {
 export function restorePosDraft(raw: string | null, productIds: ReadonlySet<string>, tableIds: ReadonlySet<string>): PosDraft | null {
   if (!raw) return null
   try {
-    const value = JSON.parse(raw) as { cart?: unknown; tableId?: unknown; customerName?: unknown }
+    const value = JSON.parse(raw) as { cart?: unknown; tableId?: unknown; customerName?: unknown; customerPhone?: unknown }
     if (!Array.isArray(value.cart)) return null
     const cart = value.cart
       .filter((line): line is { id: string; qty: number; note?: string } => Boolean(line) && typeof line === 'object' && typeof (line as { id?: unknown }).id === 'string' && productIds.has((line as { id: string }).id) && Number.isInteger((line as { qty?: unknown }).qty) && (line as { qty: number }).qty > 0 && (line as { qty: number }).qty <= 20)
@@ -18,6 +18,7 @@ export function restorePosDraft(raw: string | null, productIds: ReadonlySet<stri
       cart,
       tableId: typeof value.tableId === 'string' && tableIds.has(value.tableId) ? value.tableId : '',
       customerName: typeof value.customerName === 'string' ? value.customerName.slice(0, 120) : '',
+      customerPhone: typeof value.customerPhone === 'string' ? value.customerPhone.slice(0, 30) : '',
     }
   } catch {
     return null

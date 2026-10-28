@@ -4,6 +4,7 @@ import { ROLE } from '@/lib/authz'
 import { canManageProducts } from '@/lib/staff-catalog-write'
 import { ProductsBoard } from '@/components/products/products-board'
 import { ProductConfigurationBoard } from '@/components/products/product-configuration-board'
+import { OwnerProductsTabs } from '@/components/products/owner-products-tabs'
 import { prisma } from '@/lib/prisma'
 
 export const dynamic = 'force-dynamic'
@@ -24,8 +25,7 @@ export default async function ProductsPage() {
       select: { id: true, name: true },
     })
     : []
-  return <div className="space-y-5">
-    <ProductsBoard
+  const products = <ProductsBoard
       catalog={catalog}
       canEdit={canEdit}
       canToggle={canEdit}
@@ -33,6 +33,8 @@ export default async function ProductsPage() {
       canManageCategories={session.role === ROLE.OWNER || session.role === ROLE.MANAGER}
       branches={branches.map((branch) => ({ id: branch.id.toString(), name: branch.name }))}
     />
-    {session.role === ROLE.OWNER ? <ProductConfigurationBoard branches={branches.map((branch) => ({ id: branch.id.toString(), name: branch.name }))} /> : null}
-  </div>
+  const configuration = <ProductConfigurationBoard branches={branches.map((branch) => ({ id: branch.id.toString(), name: branch.name }))} />
+  return session.role === ROLE.OWNER
+    ? <OwnerProductsTabs products={products} configuration={configuration} />
+    : <div className="space-y-5">{products}</div>
 }
