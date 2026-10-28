@@ -1640,7 +1640,7 @@ test('payroll lifecycle only permits ordered immutable transitions', () => {
   assert.equal(payrollToCents('12.5'), 1250)
 })
 
-test('invoice discounts apply fixed line amounts once and exclude lines from the general base', () => {
+test('invoice discounts apply general discount on subtotal after item discounts (canonical order)', () => {
   const result = calculateInvoiceDiscounts([
     { unitCents: 10_000n, quantity: 2, discountType: 'percentage', discountValue: 10n, eligibleForInvoiceDiscount: true },
     { unitCents: 5_000n, quantity: 3, discountType: 'amount', discountValue: 2_000n, eligibleForInvoiceDiscount: true },
@@ -1648,14 +1648,131 @@ test('invoice discounts apply fixed line amounts once and exclude lines from the
   ], 'percentage', 10n)
   assert.equal(result.subtotalCents, 38_000n)
   assert.equal(result.itemDiscountCents, 4_000n)
-  assert.equal(result.eligibleBaseCents, 31_000n)
-  assert.equal(result.invoiceDiscountCents, 3_100n)
-  assert.equal(result.finalCents, 30_900n)
+  assert.equal(result.afterItemDiscountCents, 34_000n)
+  assert.equal(result.eligibleBaseCents, 34_000n) // general discount base = all post-item-discount totals
+  assert.equal(result.invoiceDiscountCents, 3_400n) // 10% of 34_000
+  assert.equal(result.finalCents, 30_600n)
+  assert.equal(result.excludedCents, 0n)
 })
 
 test('invoice discounts reject discounts above their authoritative bases', () => {
   assert.throws(() => calculateInvoiceDiscounts([{ unitCents: 100n, quantity: 1, discountType: 'amount', discountValue: 101n, eligibleForInvoiceDiscount: true }], 'none', 0n), /Line fixed/)
-  assert.throws(() => calculateInvoiceDiscounts([{ unitCents: 100n, quantity: 1, discountType: 'none', discountValue: 0n, eligibleForInvoiceDiscount: false }], 'amount', 1n), /Invoice fixed/)
+  assert.throws(() => calculateInvoiceDiscounts([{ unitCents: 100n, quantity: 1, discountType: 'none', discountValue: 0n, eligibleForInvoiceDiscount: false }], 'amount', 101n), /Invoice discount exceeds subtotal after item discounts/)
+})
+
+// --- Task: Sequential Invoice Discount Calculation regression tests ---
+
+// Test A — Item discounts followed by general discount
+// Gross: 360.00, Item discounts: 30.00, Subtotal after: 330.00, General 50%, Final: 165.00
+test('invoice discounts: item discounts first then general percentage discount (Test A)', () => {
+  const result = calculateInvoiceDiscounts([
+    { unitCents: 60_00n, quantity: 1, discountType: 'none', discountValue: 0n, eligibleForInvoiceDiscount: true },
+    { unitCents: 75_00n, quantity: 2, discountType: 'amount', discountValue: 15_00n, eligibleForInvoiceDiscount: true },
+    { unitCents: 75_00n, quantity: 1, discountType: 'amount', discountValue: 15_00n, eligibleForInvoiceDiscount: true },
+    { unitCents: 75_00n, quantity: 1, discountType: 'none', discountValue: 0n, eligibleForInvoiceDiscount: true },
+  ], 'percentage', 50n)
+  assert.equal(result.subtotalCents, 360_00n)
+  assert.equal(result.itemDiscountCents, 30_00n)
+  assert.equal(result.afterItemDiscountCents, 330_00n)
+  assert.equal(result.invoiceDiscountCents, 165_00n)
+  assert.equal(result.finalCents, 165_00n)
+})
+
+// Test B — No item discounts
+// Gross: 200.00, Item discounts: 0.00, General 10%, Final: 180.00
+test('invoice discounts: general percentage discount with no item discounts (Test B)', () => {
+  const result = calculateInvoiceDiscounts([
+    { unitCents: 200_00n, quantity: 1, discountType: 'none', discountValue: 0n, eligibleForInvoiceDiscount: true },
+  ], 'percentage', 10n)
+  assert.equal(result.subtotalCents, 200_00n)
+  assert.equal(result.itemDiscountCents, 0n)
+  assert.equal(result.afterItemDiscountCents, 200_00n)
+  assert.equal(result.invoiceDiscountCents, 20_00n)
+  assert.equal(result.finalCents, 180_00n)
+})
+
+// Test C — Item discounts only
+// Gross: 200.00, Item discounts: 40.00, General 0%, Final: 160.00
+test('invoice discounts: item discounts only, no general discount (Test C)', () => {
+  const result = calculateInvoiceDiscounts([
+    { unitCents: 200_00n, quantity: 1, discountType: 'amount', discountValue: 40_00n, eligibleForInvoiceDiscount: true },
+  ], 'none', 0n)
+  assert.equal(result.subtotalCents, 200_00n)
+  assert.equal(result.itemDiscountCents, 40_00n)
+  assert.equal(result.afterItemDiscountCents, 160_00n)
+  assert.equal(result.invoiceDiscountCents, 0n)
+  assert.equal(result.finalCents, 160_00n)
+})
+
+// Test D — Fixed general discount
+// Gross: 200.00, Item discounts: 40.00, Subtotal after: 160.00, Fixed general: 30.00, Final: 130.00
+test('invoice discounts: fixed general discount after item discounts (Test D)', () => {
+  const result = calculateInvoiceDiscounts([
+    { unitCents: 200_00n, quantity: 1, discountType: 'amount', discountValue: 40_00n, eligibleForInvoiceDiscount: true },
+  ], 'amount', 30_00n)
+  assert.equal(result.subtotalCents, 200_00n)
+  assert.equal(result.itemDiscountCents, 40_00n)
+  assert.equal(result.afterItemDiscountCents, 160_00n)
+  assert.equal(result.invoiceDiscountCents, 30_00n)
+  assert.equal(result.finalCents, 130_00n)
+})
+
+// Test E — Full discount
+// Gross: 100.00, Item discounts: 20.00, General 100%, Final: 0.00
+test('invoice discounts: 100% general discount results in zero payable (Test E)', () => {
+  const result = calculateInvoiceDiscounts([
+    { unitCents: 100_00n, quantity: 1, discountType: 'amount', discountValue: 20_00n, eligibleForInvoiceDiscount: true },
+  ], 'percentage', 100n)
+  assert.equal(result.subtotalCents, 100_00n)
+  assert.equal(result.itemDiscountCents, 20_00n)
+  assert.equal(result.afterItemDiscountCents, 80_00n)
+  assert.equal(result.invoiceDiscountCents, 80_00n)
+  assert.equal(result.finalCents, 0n)
+})
+
+// Quantity handling: multiple units with item discounts
+test('invoice discounts: multiple quantities with item discounts then general discount', () => {
+  const result = calculateInvoiceDiscounts([
+    { unitCents: 50_00n, quantity: 4, discountType: 'percentage', discountValue: 20n, eligibleForInvoiceDiscount: true },
+    { unitCents: 30_00n, quantity: 2, discountType: 'none', discountValue: 0n, eligibleForInvoiceDiscount: true },
+  ], 'percentage', 10n)
+  // Line 1: 50*4=200, 20% item discount=40, after=160
+  // Line 2: 30*2=60, no discount, after=60
+  // Gross: 260, Item discounts: 40, After items: 220, General 10%: 22, Final: 198
+  assert.equal(result.subtotalCents, 260_00n)
+  assert.equal(result.itemDiscountCents, 40_00n)
+  assert.equal(result.afterItemDiscountCents, 220_00n)
+  assert.equal(result.invoiceDiscountCents, 22_00n)
+  assert.equal(result.finalCents, 198_00n)
+})
+
+// Percentage boundary: 0% general discount
+test('invoice discounts: 0% general discount leaves subtotal unchanged', () => {
+  const result = calculateInvoiceDiscounts([
+    { unitCents: 100_00n, quantity: 1, discountType: 'none', discountValue: 0n, eligibleForInvoiceDiscount: true },
+  ], 'percentage', 0n)
+  assert.equal(result.invoiceDiscountCents, 0n)
+  assert.equal(result.finalCents, 100_00n)
+})
+
+// Invalid: line fixed discount exceeds its subtotal
+test('invoice discounts: line fixed discount exceeding line subtotal is rejected', () => {
+  assert.throws(() => calculateInvoiceDiscounts([{ unitCents: 100n, quantity: 1, discountType: 'amount', discountValue: 101n, eligibleForInvoiceDiscount: true }], 'none', 0n), /Line fixed/)
+})
+
+// Invalid: invoice fixed discount exceeds subtotal after item discounts
+test('invoice discounts: general fixed discount exceeding subtotal after item discounts is rejected', () => {
+  assert.throws(() => calculateInvoiceDiscounts([{ unitCents: 100n, quantity: 1, discountType: 'none', discountValue: 0n, eligibleForInvoiceDiscount: true }], 'amount', 101n), /Invoice discount exceeds subtotal after item discounts/)
+})
+
+// Invalid: invoice percentage exceeds 100
+test('invoice discounts: general percentage above 100 is rejected', () => {
+  assert.throws(() => calculateInvoiceDiscounts([{ unitCents: 100n, quantity: 1, discountType: 'none', discountValue: 0n, eligibleForInvoiceDiscount: true }], 'percentage', 101n), /Invoice percentage cannot exceed 100/)
+})
+
+// Invalid: negative invoice value
+test('invoice discounts: negative general discount value is rejected', () => {
+  assert.throws(() => calculateInvoiceDiscounts([{ unitCents: 100n, quantity: 1, discountType: 'none', discountValue: 0n, eligibleForInvoiceDiscount: true }], 'amount', -1n), /Invalid invoice discount/)
 })
 
 
