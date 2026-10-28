@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { Button } from '@/components/ui/button'
 import { Icon } from '@/components/ui/icon'
@@ -11,9 +11,7 @@ export function PrintButton() {
   return (
     <Button size="sm" variant="outline" onClick={() => window.print()} className="print:hidden">
       <Icon name="orders" size={16} />
-      Ø·Ø¨Ø§Ø¹Ø©
+      طباعة
     </Button>
   )
 }
-
-

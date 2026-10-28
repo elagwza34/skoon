@@ -1,9 +1,9 @@
-﻿import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { formatNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 /**
- * TablesStatus â€” a snapshot of table occupancy for the branch: summary
+ * TablesStatus — a snapshot of table occupancy for the branch: summary
  * counts plus a colour-coded grid. Presentational (server) component.
  * All data comes from the real database via getDashboardStats().
  */
@@ -11,9 +11,9 @@ import { cn } from "@/lib/utils";
 export type TableStatus = "available" | "occupied" | "cleaning";
 
 export const TABLE_STATUS_META: Record<TableStatus, { label: string; tone: "success" | "warning" | "muted" }> = {
-  available: { label: "Ù…ØªØ§Ø­Ø©", tone: "success" },
-  occupied: { label: "Ù…Ø´ØºÙˆÙ„Ø©", tone: "warning" },
-  cleaning: { label: "ØªØ­ØªØ§Ø¬ ØªÙ†Ø¸ÙŠÙ", tone: "muted" },
+  available: { label: "متاحة", tone: "success" },
+  occupied: { label: "مشغولة", tone: "warning" },
+  cleaning: { label: "تحتاج تنظيف", tone: "muted" },
 };
 
 const CHIP: Record<TableStatus, string> = {
@@ -39,8 +39,8 @@ export function TablesStatus({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Ø­Ø§Ù„Ø© Ø§Ù„Ø·Ø§ÙˆÙ„Ø§Øª</CardTitle>
-        <CardDescription>{tableCounts.occupied} Ù…Ø´ØºÙˆÙ„Ø© Â· {tableCounts.available} Ù…ØªØ§Ø­Ø© â€” Ù…Ù† Ù‚Ø§Ø¹Ø¯Ø© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª</CardDescription>
+        <CardTitle>حالة الطاولات</CardTitle>
+        <CardDescription>{tableCounts.occupied} مشغولة · {tableCounts.available} متاحة — من قاعدة البيانات</CardDescription>
       </CardHeader>
       <CardContent>
         <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
@@ -56,7 +56,7 @@ export function TablesStatus({
               </span>
               <span className="text-[11px]">
                  {t.status === "occupied"
-                   ? `Ù…Ø´ØºÙˆÙ„Ø© - ${formatNumber(t.capacity)} Ù…Ù‚Ø¹Ø¯`
+                   ? `مشغولة - ${formatNumber(t.capacity)} مقعد`
                    : TABLE_STATUS_META[t.status].label}
               </span>
             </div>
@@ -66,5 +66,3 @@ export function TablesStatus({
     </Card>
   );
 }
-
-

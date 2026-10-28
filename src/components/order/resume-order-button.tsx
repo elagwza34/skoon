@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
@@ -32,10 +32,8 @@ export function ResumeOrderButton() {
         className="w-full md:w-auto rounded-lg border-white/40 bg-white/10 px-6 py-4 text-base text-white shadow-lg backdrop-blur hover:bg-white/20 hover:text-white md:px-8 md:py-6 md:text-lg"
       >
         <Icon name="clock" size={18} />
-        ÙƒÙ…Ù‘Ù„ Ù…ØªØ§Ø¨Ø¹Ø© Ø·Ù„Ø¨Ùƒ ({saved.orderNumber})
+        كمّل متابعة طلبك ({saved.orderNumber})
       </Button>
     </Link>
   )
 }
-
-

@@ -1,4 +1,4 @@
-﻿import { requirePageAccess } from '@/lib/require-page-access'
+import { requirePageAccess } from '@/lib/require-page-access'
 import { listAttendanceCorrections } from '@/lib/staff-scheduling-write'
 import { AttendanceCorrectionsBoard, type AttendanceCorrectionRow } from '@/components/staff/attendance-corrections-board'
 
@@ -16,5 +16,3 @@ export default async function AttendanceCorrectionsPage() {
   }))
   return <AttendanceCorrectionsBoard rows={rows} />
 }
-
-

@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -11,7 +11,7 @@ import { formatCurrency, formatNumber } from '@/lib/format'
 import type { ReportsSummary } from '@/lib/staff-reports'
 
 /**
- * Reports board â€” revenue + orders aggregates from the real DB.
+ * Reports board — revenue + orders aggregates from the real DB.
  * Day-range selector navigates (?days=7/30/90); chart + tables re-render.
  */
 export function ReportsBoard({ summary, vatSummary }: { summary: ReportsSummary; vatSummary?: { netCollectedVat: number; paidInvoices: number } }) {
@@ -23,37 +23,37 @@ export function ReportsBoard({ summary, vatSummary }: { summary: ReportsSummary;
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
-          Ø§Ù„Ù…Ø­ØµÙ‘Ù„ = Ù…Ø¯ÙÙˆØ¹Ø§Øª Ù…ÙƒØªÙ…Ù„Ø© Ø¨ØªØ§Ø±ÙŠØ® Ø§Ù„Ø¯ÙØ¹ Â· Ù‚ÙŠÙ…Ø© Ø§Ù„Ø·Ù„Ø¨Ø§Øª = Ø·Ù„Ø¨Ø§Øª Ø¨ØªØ§Ø±ÙŠØ® Ø§Ù„Ø·Ù„Ø¨ Â· Ø­Ø¯ÙˆØ¯ Ø§Ù„Ø£ÙŠØ§Ù… Ø¨ØªÙˆÙ‚ÙŠØª Ø§Ù„ÙØ±Ø¹
+          المحصّل = مدفوعات مكتملة بتاريخ الدفع · قيمة الطلبات = طلبات بتاريخ الطلب · حدود الأيام بتوقيت الفرع
         </p>
         <Segmented
           options={[
-            { value: '7', label: '7 Ø£ÙŠØ§Ù…' },
-            { value: '30', label: '30 ÙŠÙˆÙ…' },
-            { value: '90', label: '90 ÙŠÙˆÙ…' },
+            { value: '7', label: '7 أيام' },
+            { value: '30', label: '30 يوم' },
+            { value: '90', label: '90 يوم' },
           ]}
           value={String(summary.days)}
           onChange={(v) => {
             window.location.search = `?days=${v}`
           }}
-          ariaLabel="Ø§Ù„Ù†Ø·Ø§Ù‚ Ø§Ù„Ø²Ù…Ù†ÙŠ"
+          ariaLabel="النطاق الزمني"
         />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <StatCard label="Ø§Ù„Ù…Ø­ØµÙ‘Ù„ (Ù†Ù‚Ø¯ Ù…Ø­ØªÙØ¸ Ø¨Ù‡)" value={formatCurrency(summary.totalRevenue)} icon="reports" hint={`Ø¢Ø®Ø± ${summary.days} ÙŠÙˆÙ… â€” Ù…Ø¯ÙÙˆØ¹Ø§Øª Ù…ÙƒØªÙ…Ù„Ø©`} />
-        <StatCard label="Ù‚ÙŠÙ…Ø© Ø§Ù„Ø·Ù„Ø¨Ø§Øª" value={formatCurrency(summary.totalOrderValue)} icon="orders" hint="ØºÙŠØ± Ù…Ù„ØºÙŠØ© â€” ØªØ´Ù…Ù„ ØºÙŠØ± Ø§Ù„Ù…Ø¯ÙÙˆØ¹" />
-        <StatCard label="Ø§Ù„Ù…Ø³ØªØ±Ø¯" value={formatCurrency(summary.refundedTotal)} icon="trendingDown" hint="Ø³Ø·Ø± Ù…Ù†ÙØµÙ„ â€” ØºÙŠØ± Ù…Ø®ØµÙˆÙ… Ù…Ø¬Ø¯Ø¯Ø§Ù‹" />
-        <StatCard label="Ø¹Ø¯Ø¯ Ø§Ù„Ø·Ù„Ø¨Ø§Øª" value={formatNumber(summary.totalOrders)} icon="orders" hint={`Ø¢Ø®Ø± ${summary.days} ÙŠÙˆÙ… â€” Ø´Ø§Ù…Ù„ Ø§Ù„Ù…Ù„ØºÙŠ`} />
-        <StatCard label="Ø·Ù„Ø¨Ø§Øª Ù…Ø¯ÙÙˆØ¹Ø©" value={formatNumber(summary.paidOrders)} icon="pos" hint="Ø¨Ù…Ø¯ÙÙˆØ¹Ø§Øª Ù…ÙƒØªÙ…Ù„Ø© ÙÙŠ Ø§Ù„Ù†Ø·Ø§Ù‚" />
-        <StatCard label="Ù…ØªÙˆØ³Ø· Ø§Ù„Ù…Ø­ØµÙ‘Ù„ Ù„Ù„Ù…Ø¯ÙÙˆØ¹" value={formatCurrency(summary.avgCollectedPerPaidOrder)} icon="trendingUp" hint="Ø§Ù„Ù…Ø­ØµÙ‘Ù„ Ã· Ø§Ù„Ù…Ø¯ÙÙˆØ¹Ø©" />
-        {vatSummary ? <Link href="/reports?tab=vat" className="rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><StatCard label="ØµØ§ÙÙŠ Ø¶Ø±ÙŠØ¨Ø© Ø§Ù„Ù‚ÙŠÙ…Ø© Ø§Ù„Ù…Ø¶Ø§ÙØ©" value={formatCurrency(vatSummary.netCollectedVat)} icon="reports" hint={`${formatNumber(vatSummary.paidInvoices)} ÙÙˆØ§ØªÙŠØ± VAT Ù…Ø¤Ù‡Ù„Ø©`} /></Link> : null}
+        <StatCard label="المحصّل (نقد محتفظ به)" value={formatCurrency(summary.totalRevenue)} icon="reports" hint={`آخر ${summary.days} يوم — مدفوعات مكتملة`} />
+        <StatCard label="قيمة الطلبات" value={formatCurrency(summary.totalOrderValue)} icon="orders" hint="غير ملغية — تشمل غير المدفوع" />
+        <StatCard label="المسترد" value={formatCurrency(summary.refundedTotal)} icon="trendingDown" hint="سطر منفصل — غير مخصوم مجدداً" />
+        <StatCard label="عدد الطلبات" value={formatNumber(summary.totalOrders)} icon="orders" hint={`آخر ${summary.days} يوم — شامل الملغي`} />
+        <StatCard label="طلبات مدفوعة" value={formatNumber(summary.paidOrders)} icon="pos" hint="بمدفوعات مكتملة في النطاق" />
+        <StatCard label="متوسط المحصّل للمدفوع" value={formatCurrency(summary.avgCollectedPerPaidOrder)} icon="trendingUp" hint="المحصّل ÷ المدفوعة" />
+        {vatSummary ? <Link href="/reports?tab=vat" className="rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><StatCard label="صافي ضريبة القيمة المضافة" value={formatCurrency(vatSummary.netCollectedVat)} icon="reports" hint={`${formatNumber(vatSummary.paidInvoices)} فواتير VAT مؤهلة`} /></Link> : null}
       </div>
 
       {summary.byMethod.length > 0 ? (
         <Card>
           <CardHeader>
-            <CardTitle>Ø§Ù„Ù…Ø­ØµÙ‘Ù„ Ø­Ø³Ø¨ Ø·Ø±ÙŠÙ‚Ø© Ø§Ù„Ø¯ÙØ¹</CardTitle>
-            <CardDescription>Ù…Ø¯ÙÙˆØ¹Ø§Øª Ù…ÙƒØªÙ…Ù„Ø© â€” Ù…Ø¬Ù…ÙˆØ¹Ù‡Ø§ ÙŠØ³Ø§ÙˆÙŠ Ø§Ù„Ù…Ø­ØµÙ‘Ù„</CardDescription>
+            <CardTitle>المحصّل حسب طريقة الدفع</CardTitle>
+            <CardDescription>مدفوعات مكتملة — مجموعها يساوي المحصّل</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="flex flex-wrap gap-2">
@@ -70,29 +70,29 @@ export function ReportsBoard({ summary, vatSummary }: { summary: ReportsSummary;
 
       <Card>
         <CardHeader>
-          <CardTitle>Ù‚ÙŠÙ…Ø© Ø§Ù„Ø·Ù„Ø¨Ø§Øª Ø§Ù„ÙŠÙˆÙ…ÙŠØ©</CardTitle>
-          <CardDescription>Ù‚ÙŠÙ…Ø© Ø§Ù„Ø·Ù„Ø¨Ø§Øª ØºÙŠØ± Ø§Ù„Ù…Ù„ØºÙŠØ© Ø¨ØªØ§Ø±ÙŠØ® Ø§Ù„Ø·Ù„Ø¨ â€” Ø§Ù„Ù…Ø­ØµÙ‘Ù„ Ø§Ù„Ù†Ù‚Ø¯ÙŠ ÙÙŠ Ø§Ù„Ø¨Ø·Ø§Ù‚Ø§Øª Ø£Ø¹Ù„Ø§Ù‡</CardDescription>
+          <CardTitle>قيمة الطلبات اليومية</CardTitle>
+          <CardDescription>قيمة الطلبات غير الملغية بتاريخ الطلب — المحصّل النقدي في البطاقات أعلاه</CardDescription>
         </CardHeader>
         <CardContent>
-          <AreaChart data={points} ariaLabel="Ø±Ø³Ù… Ø¨ÙŠØ§Ù†ÙŠ Ù„Ù„Ø¥ÙŠØ±Ø§Ø¯" />
+          <AreaChart data={points} ariaLabel="رسم بياني للإيراد" />
         </CardContent>
       </Card>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Ø§Ù„Ø£ÙƒØ«Ø± Ù…Ø¨ÙŠØ¹Ø§Ù‹</CardTitle>
-            <CardDescription>Ø­Ø³Ø¨ Ø§Ù„Ø¥ÙŠØ±Ø§Ø¯ ÙÙŠ Ø§Ù„Ù†Ø·Ø§Ù‚</CardDescription>
+            <CardTitle>الأكثر مبيعاً</CardTitle>
+            <CardDescription>حسب الإيراد في النطاق</CardDescription>
           </CardHeader>
           <CardContent>
             {summary.topProducts.length === 0 ? (
-              <EmptyState icon="products" title="Ù„Ø§ ØªÙˆØ¬Ø¯ Ù…Ø¨ÙŠØ¹Ø§Øª" description="Ù„Ø§ ØªÙˆØ¬Ø¯ Ø£ØµÙ†Ø§Ù Ù…Ø¨Ø§Ø¹Ø© ÙÙŠ Ù‡Ø°Ø§ Ø§Ù„Ù†Ø·Ø§Ù‚." />
+              <EmptyState icon="products" title="لا توجد مبيعات" description="لا توجد أصناف مباعة في هذا النطاق." />
             ) : (
               <ul className="flex flex-col divide-y divide-border/60">
                 {summary.topProducts.map((p) => (
                   <li key={p.name} className="flex items-center justify-between gap-3 py-2.5 text-sm">
                     <span className="font-medium text-foreground">{p.name}</span>
-                    <span className="text-xs text-muted-foreground">{formatNumber(p.qty)} Ã—</span>
+                    <span className="text-xs text-muted-foreground">{formatNumber(p.qty)} ×</span>
                     <span className="font-semibold">{formatCurrency(p.revenue)}</span>
                   </li>
                 ))}
@@ -103,8 +103,8 @@ export function ReportsBoard({ summary, vatSummary }: { summary: ReportsSummary;
 
         <Card>
           <CardHeader>
-            <CardTitle>ØªÙˆØ²ÙŠØ¹ Ø§Ù„Ø­Ø§Ù„Ø§Øª</CardTitle>
-            <CardDescription>ÙƒÙ„ Ø§Ù„Ø·Ù„Ø¨Ø§Øª ÙÙŠ Ø§Ù„Ù†Ø·Ø§Ù‚</CardDescription>
+            <CardTitle>توزيع الحالات</CardTitle>
+            <CardDescription>كل الطلبات في النطاق</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="flex flex-wrap gap-2">
@@ -116,7 +116,7 @@ export function ReportsBoard({ summary, vatSummary }: { summary: ReportsSummary;
               ))}
             </div>
             <Link href="/orders" className="mt-4 inline-block text-sm text-primary hover:underline">
-              Ø¹Ø±Ø¶ Ø§Ù„Ø·Ù„Ø¨Ø§Øª â†
+              عرض الطلبات ←
             </Link>
           </CardContent>
         </Card>
@@ -124,5 +124,3 @@ export function ReportsBoard({ summary, vatSummary }: { summary: ReportsSummary;
     </div>
   )
 }
-
-

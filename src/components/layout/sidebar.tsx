@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import Link from "next/link";
 import Image from "next/image";
@@ -9,9 +9,9 @@ import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { cn } from "@/lib/utils";
 
 /**
- * Sidebar â€” brand mark, grouped navigation, current-branch card and the
+ * Sidebar — brand mark, grouped navigation, current-branch card and the
  * dark/light toggle. Branch identity comes from the signed-in session
- * (AppShell prop) â€” no fabricated branch data. The visible links are supplied
+ * (AppShell prop) — no fabricated branch data. The visible links are supplied
  * pre-filtered by the AppShell from the role's permissions.
  */
 
@@ -55,20 +55,20 @@ export function Sidebar({ open, onClose, branchName, groups = DEFAULT_GROUPS }: 
         <div className="flex items-center gap-2.5 px-4 py-4">
           <Image
             src="/logo.png"
-            alt="Ø´Ø¹Ø§Ø± Ø³ÙƒÙˆÙ†"
+            alt="شعار سكون"
             width={44}
             height={44}
             priority
             className="h-11 w-11 shrink-0 object-contain"
           />
           <div className="flex min-w-0 flex-col leading-tight">
-            <span className="text-base font-bold text-foreground">Ø³ÙƒÙˆÙ†</span>
-            <span className="text-[11px] text-muted-foreground">Ù†Ø¸Ø§Ù… Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„ÙƒØ§ÙÙŠÙ‡</span>
+            <span className="text-base font-bold text-foreground">سكون</span>
+            <span className="text-[11px] text-muted-foreground">نظام إدارة الكافيه</span>
           </div>
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 overflow-y-auto no-scrollbar px-3 pb-4" aria-label="Ø§Ù„ØªÙ†Ù‚Ù„ Ø§Ù„Ø±Ø¦ÙŠØ³ÙŠ">
+        <nav className="flex-1 overflow-y-auto no-scrollbar px-3 pb-4" aria-label="التنقل الرئيسي">
           {groups.map((group, gi) => (
             <div key={gi} className="flex flex-col gap-0.5">
               {group.title ? (
@@ -118,8 +118,8 @@ export function Sidebar({ open, onClose, branchName, groups = DEFAULT_GROUPS }: 
           <div className="flex items-center gap-2.5 rounded-md bg-accent/50 px-3 py-2">
             <Icon name="branch" size={18} className="text-muted-foreground" />
             <div className="flex min-w-0 flex-col leading-tight">
-              <span className="text-[11px] text-muted-foreground">Ø§Ù„ÙØ±Ø¹ Ø§Ù„Ø­Ø§Ù„ÙŠ</span>
-              <span className="truncate text-sm font-medium text-foreground">{branchName ?? "ÙƒÙ„ Ø§Ù„ÙØ±ÙˆØ¹"}</span>
+              <span className="text-[11px] text-muted-foreground">الفرع الحالي</span>
+              <span className="truncate text-sm font-medium text-foreground">{branchName ?? "كل الفروع"}</span>
             </div>
           </div>
           <ThemeToggle variant="full" className="w-full justify-start" />
@@ -128,5 +128,3 @@ export function Sidebar({ open, onClose, branchName, groups = DEFAULT_GROUPS }: 
     </>
   );
 }
-
-

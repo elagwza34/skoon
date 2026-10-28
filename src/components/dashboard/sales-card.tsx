@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -7,15 +7,15 @@ import { AreaChart } from "@/components/ui/chart";
 import { formatCurrency } from "@/lib/format";
 
 /**
- * SalesCard â€” the main dashboard chart with a time filter. Series are REAL
+ * SalesCard — the main dashboard chart with a time filter. Series are REAL
  * sales totals computed server-side (see dashboard-stats) and passed in.
  */
 type Range = "day" | "week" | "month";
 
 const RANGES: { value: Range; label: string }[] = [
-  { value: "day", label: "Ø§Ù„ÙŠÙˆÙ…" },
-  { value: "week", label: "Ø§Ù„Ø£Ø³Ø¨ÙˆØ¹" },
-  { value: "month", label: "Ø§Ù„Ø´Ù‡Ø±" },
+  { value: "day", label: "اليوم" },
+  { value: "week", label: "الأسبوع" },
+  { value: "month", label: "الشهر" },
 ];
 
 export function SalesCard({ seriesByRange }: { seriesByRange: Record<Range, { label: string; value: number }[]> }) {
@@ -33,15 +33,14 @@ export function SalesCard({ seriesByRange }: { seriesByRange: Record<Range, { la
     <Card>
       <CardHeader className="flex-col items-start gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
         <div>
-          <CardTitle>Ø§Ù„Ù…Ø¨ÙŠØ¹Ø§Øª</CardTitle>
-          <CardDescription>Ø¥Ø¬Ù…Ø§Ù„ÙŠ {formatCurrency(total)}</CardDescription>
+          <CardTitle>المبيعات</CardTitle>
+          <CardDescription>إجمالي {formatCurrency(total)}</CardDescription>
         </div>
-        <Segmented options={RANGES} value={range} onChange={setRange} ariaLabel="Ù†Ø·Ø§Ù‚ Ø§Ù„ÙˆÙ‚Øª" />
+        <Segmented options={RANGES} value={range} onChange={setRange} ariaLabel="نطاق الوقت" />
       </CardHeader>
       <CardContent>
-        <AreaChart data={points} ariaLabel="Ø±Ø³Ù… Ø¨ÙŠØ§Ù†ÙŠ Ù„Ù„Ù…Ø¨ÙŠØ¹Ø§Øª" />
+        <AreaChart data={points} ariaLabel="رسم بياني للمبيعات" />
       </CardContent>
     </Card>
   );
 }
-

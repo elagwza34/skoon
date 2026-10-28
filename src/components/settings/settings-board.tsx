@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
@@ -11,19 +11,19 @@ import { formatNumber } from '@/lib/format'
 import type { BranchSetting } from '@/lib/staff-settings'
 
 /**
- * Settings board â€” editable allowlisted keys for owner/manager.
+ * Settings board — editable allowlisted keys for owner/manager.
  * Unknown keys are shown read-only; all validation happens server-side.
  */
 
 type FieldKind = 'string' | 'number' | 'boolean'
 
 const EDITABLE: Record<string, { label: string; kind: FieldKind }> = {
-  currency: { label: 'Ø§Ù„Ø¹Ù…Ù„Ø©', kind: 'string' },
-  tax_name: { label: 'Ø§Ø³Ù… Ø§Ù„Ø¶Ø±ÙŠØ¨Ø©', kind: 'string' },
-  tax_rate: { label: 'Ù†Ø³Ø¨Ø© Ø§Ù„Ø¶Ø±ÙŠØ¨Ø© (%)', kind: 'number' },
-  tax_enabled: { label: 'ØªÙØ¹ÙŠÙ„ Ø§Ù„Ø¶Ø±ÙŠØ¨Ø©', kind: 'boolean' },
-  store_name: { label: 'Ø§Ø³Ù… Ø§Ù„Ù…Ø­Ù„', kind: 'string' },
-  phone: { label: 'Ø±Ù‚Ù… Ø§Ù„Ù‡Ø§ØªÙ', kind: 'string' },
+  currency: { label: 'العملة', kind: 'string' },
+  tax_name: { label: 'اسم الضريبة', kind: 'string' },
+  tax_rate: { label: 'نسبة الضريبة (%)', kind: 'number' },
+  tax_enabled: { label: 'تفعيل الضريبة', kind: 'boolean' },
+  store_name: { label: 'اسم المحل', kind: 'string' },
+  phone: { label: 'رقم الهاتف', kind: 'string' },
 }
 
 export function SettingsBoard({
@@ -67,7 +67,7 @@ export function SettingsBoard({
         else values[key] = raw
       }
       if (Object.keys(values).length === 0) {
-        setError('Ù„Ø§ ØªÙˆØ¬Ø¯ ØªØºÙŠÙŠØ±Ø§Øª Ù„Ø­ÙØ¸Ù‡Ø§')
+        setError('لا توجد تغييرات لحفظها')
         return
       }
       const res = await fetch('/api/staff/settings', {
@@ -76,11 +76,11 @@ export function SettingsBoard({
         body: JSON.stringify({ branchId: branchId ?? undefined, values }),
       })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data?.error ?? 'ØªØ¹Ø°Ø± Ø­ÙØ¸ Ø§Ù„Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª')
-      setSuccess(`ØªÙ… Ø­ÙØ¸ ${data.updated?.length ?? 0} Ø¥Ø¹Ø¯Ø§Ø¯`)
+      if (!res.ok) throw new Error(data?.error ?? 'تعذر حفظ الإعدادات')
+      setSuccess(`تم حفظ ${data.updated?.length ?? 0} إعداد`)
       startTransition(() => router.refresh())
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'ØªØ¹Ø°Ø± Ø­ÙØ¸ Ø§Ù„Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª')
+      setError(e instanceof Error ? e.message : 'تعذر حفظ الإعدادات')
     } finally {
       setSaving(false)
     }
@@ -101,12 +101,12 @@ export function SettingsBoard({
 
       <Card>
         <CardHeader>
-          <CardTitle>Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª Ù‚Ø§Ø¨Ù„Ø© Ù„Ù„ØªØ¹Ø¯ÙŠÙ„</CardTitle>
-          <CardDescription>ØªÙØ­ÙØ¸ Ø¹Ù„Ù‰ Ù…Ø³ØªÙˆÙ‰ Ø§Ù„ÙØ±Ø¹ â€” Ø§Ù„ØªØ­Ù‚Ù‚ Ù…Ù† Ø§Ù„Ù‚ÙŠÙ… ÙŠØªÙ… Ø¹Ù„Ù‰ Ø§Ù„Ø®Ø§Ø¯Ù…</CardDescription>
+          <CardTitle>إعدادات قابلة للتعديل</CardTitle>
+          <CardDescription>تُحفظ على مستوى الفرع — التحقق من القيم يتم على الخادم</CardDescription>
         </CardHeader>
         <CardContent>
           {settings.length === 0 && !canManage ? (
-            <EmptyState icon="settings" title="Ù„Ø§ ØªÙˆØ¬Ø¯ Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª Ù…Ø®ØµØµØ©" description="ÙŠÙØ³ØªØ®Ø¯Ù… Ø§Ù„Ø§ÙØªØ±Ø§Ø¶ÙŠ Ù„ÙƒÙ„ Ø§Ù„Ù…ÙØ§ØªÙŠØ­." />
+            <EmptyState icon="settings" title="لا توجد إعدادات مخصصة" description="يُستخدم الافتراضي لكل المفاتيح." />
           ) : (
             <div className="grid gap-3 sm:grid-cols-2">
               {Object.entries(EDITABLE).map(([key, def]) => (
@@ -119,21 +119,21 @@ export function SettingsBoard({
                         onChange={(e) => setDraft((d) => ({ ...d, [key]: e.target.value }))}
                         className="h-10 rounded-lg border border-border bg-background px-3 text-foreground"
                       >
-                        <option value="">Ø§Ù„Ø§ÙØªØ±Ø§Ø¶ÙŠ</option>
-                        <option value="true">Ù…ÙØ¹Ù‘Ù„</option>
-                        <option value="false">Ù…Ø¹Ø·Ù‘Ù„</option>
+                        <option value="">الافتراضي</option>
+                        <option value="true">مفعّل</option>
+                        <option value="false">معطّل</option>
                       </select>
                     ) : (
                       <Input
                         value={draft[key] ?? ''}
                         onChange={(e) => setDraft((d) => ({ ...d, [key]: e.target.value }))}
                         inputMode={def.kind === 'number' ? 'decimal' : 'text'}
-                        placeholder="Ø§Ù„Ø§ÙØªØ±Ø§Ø¶ÙŠ"
+                        placeholder="الافتراضي"
                       />
                     )
                   ) : (
                     <span className="text-foreground">
-                      {settings.find((s) => s.key === key)?.value ?? 'â€”'}
+                      {settings.find((s) => s.key === key)?.value ?? '—'}
                     </span>
                   )}
                 </label>
@@ -144,9 +144,9 @@ export function SettingsBoard({
             <div className="mt-4 flex items-center gap-3">
               <Button onClick={save} disabled={saving}>
                 <Icon name="check" size={16} />
-                {saving ? 'Ø¬Ø§Ø±Ù Ø§Ù„Ø­ÙØ¸â€¦' : 'Ø­ÙØ¸ Ø§Ù„Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª'}
+                {saving ? 'جارٍ الحفظ…' : 'حفظ الإعدادات'}
               </Button>
-              <span className="text-xs text-muted-foreground">Ø§Ù„Ù‚ÙŠÙ… Ø§Ù„ÙØ§Ø±ØºØ© = Ø§Ø³ØªØ®Ø¯Ø§Ù… Ø§Ù„Ø§ÙØªØ±Ø§Ø¶ÙŠ</span>
+              <span className="text-xs text-muted-foreground">القيم الفارغة = استخدام الافتراضي</span>
             </div>
           ) : null}
         </CardContent>
@@ -155,14 +155,14 @@ export function SettingsBoard({
       {readOnly.length > 0 ? (
         <Card>
           <CardHeader>
-            <CardTitle>Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª Ø£Ø®Ø±Ù‰ (Ù„Ù„Ù‚Ø±Ø§Ø¡Ø© ÙÙ‚Ø·)</CardTitle>
+            <CardTitle>إعدادات أخرى (للقراءة فقط)</CardTitle>
           </CardHeader>
           <CardContent>
             <ul className="flex flex-col divide-y divide-border/60">
               {readOnly.map((s) => (
                 <li key={s.key} className="flex items-center justify-between gap-3 py-2.5 text-sm">
                   <span className="font-mono text-foreground" dir="ltr">{s.key}</span>
-                  <span className="text-muted-foreground">{s.value ?? 'â€”'}</span>
+                  <span className="text-muted-foreground">{s.value ?? '—'}</span>
                 </li>
               ))}
             </ul>
@@ -170,11 +170,9 @@ export function SettingsBoard({
         </Card>
       ) : null}
       <p className="text-xs text-muted-foreground">
-        Ø¹Ø¯Ø¯ Ø§Ù„Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª Ø§Ù„Ø­Ø§Ù„ÙŠØ©: {formatNumber(settings.length)} Â· Ø§Ù„Ù…ÙØ§ØªÙŠØ­ Ø§Ù„Ù…Ø¹Ø¯Ù„Ø© Ù…Ø³Ù…ÙˆØ­Ø© ÙÙ‚Ø·ØŒ ÙˆØ£ÙŠ Ù…ÙØªØ§Ø­ Ø¢Ø®Ø±
-        Ù…Ø±ÙÙˆØ¶ Ù…Ù† Ø§Ù„Ø®Ø§Ø¯Ù….
+        عدد الإعدادات الحالية: {formatNumber(settings.length)} · المفاتيح المعدلة مسموحة فقط، وأي مفتاح آخر
+        مرفوض من الخادم.
       </p>
     </div>
   )
 }
-
-

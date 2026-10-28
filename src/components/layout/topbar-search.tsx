@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
@@ -8,7 +8,7 @@ import { Icon, type IconName } from "@/components/ui/icon";
 import { formatCurrency } from "@/lib/format";
 
 /**
- * TopbarSearch â€” real, branch-scoped search over products + orders.
+ * TopbarSearch — real, branch-scoped search over products + orders.
  * Queries /api/staff/search (server enforces session + branch scope).
  * Debounced; empty/error states handled with Arabic messages.
  */
@@ -53,7 +53,7 @@ export function TopbarSearch() {
         for (const o of data.orders ?? []) {
           out.push({
             id: `o-${o.id}`, label: o.number,
-            hint: `Ø·Ø§ÙˆÙ„Ø© ${o.tableNumber}`, icon: "orders", href: "/orders",
+            hint: `طاولة ${o.tableNumber}`, icon: "orders", href: "/orders",
           });
         }
         setResults(out.slice(0, 6));
@@ -88,15 +88,15 @@ export function TopbarSearch() {
           if (e.key === "Escape") setOpen(false);
           if (e.key === "Enter" && results[0]) go(results[0].href);
         }}
-        placeholder="Ø¨Ø­Ø« ÙÙŠ Ø§Ù„Ù…Ù†ØªØ¬Ø§Øª ÙˆØ§Ù„Ø·Ù„Ø¨Ø§Øªâ€¦"
-        aria-label="Ø¨Ø­Ø«"
+        placeholder="بحث في المنتجات والطلبات…"
+        aria-label="بحث"
         className="h-10"
       />
 
       {open && query.trim() ? (
         <div className="absolute inset-x-0 top-full z-40 mt-2 overflow-hidden rounded-lg border border-border bg-card shadow-lg animate-fade-in">
           {loading ? (
-            <p className="px-4 py-3 text-sm text-muted-foreground">Ø¬Ø§Ø±ÙŠ Ø§Ù„Ø¨Ø­Ø«â€¦</p>
+            <p className="px-4 py-3 text-sm text-muted-foreground">جاري البحث…</p>
           ) : results.length ? (
             <ul className="max-h-80 overflow-y-auto p-1">
               {results.map((r) => (
@@ -114,11 +114,10 @@ export function TopbarSearch() {
               ))}
             </ul>
           ) : (
-            <p className="px-4 py-3 text-sm text-muted-foreground">Ù„Ø§ ØªÙˆØ¬Ø¯ Ù†ØªØ§Ø¦Ø¬ Ù…Ø·Ø§Ø¨Ù‚Ø©.</p>
+            <p className="px-4 py-3 text-sm text-muted-foreground">لا توجد نتائج مطابقة.</p>
           )}
         </div>
       ) : null}
     </div>
   );
 }
-

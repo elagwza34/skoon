@@ -1,4 +1,4 @@
-﻿import { redirect } from 'next/navigation'
+import { redirect } from 'next/navigation'
 import { requirePageAccess } from '@/lib/require-page-access'
 import { getPosCatalog, PosError } from '@/lib/staff-pos'
 import { PosCheckout } from '@/components/pos/pos-checkout'
@@ -8,7 +8,7 @@ import { homeForRole } from '@/lib/route-access'
 
 export const dynamic = 'force-dynamic'
 
-/** POS screen â€” real branch catalog + tables, server-side pricing on submit. */
+/** POS screen — real branch catalog + tables, server-side pricing on submit. */
 export default async function PosPage() {
   const session = await requirePageAccess('/pos')
 
@@ -26,5 +26,3 @@ export default async function PosPage() {
     throw e
   }
 }
-
-

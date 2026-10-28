@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useEffect, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
@@ -13,11 +13,11 @@ import type { StaffSession } from '@/lib/session'
 import type { ShiftBoardData, ShiftView } from '@/lib/staff-shifts'
 
 /**
- * CashierDashboard â€” renders the shift-aware cashier workstation.
+ * CashierDashboard — renders the shift-aware cashier workstation.
  *
- * No active shift â†’ prominent "Open Shift" action + lock message.
- * Active shift   â†’ live reconciliation + end-of-shift handover action.
- * Closed shift   â†’ read-only closing summary.
+ * No active shift → prominent "Open Shift" action + lock message.
+ * Active shift   → live reconciliation + end-of-shift handover action.
+ * Closed shift   → read-only closing summary.
  */
 export function CashierDashboard({
   session,
@@ -56,7 +56,7 @@ export function CashierDashboard({
     if (busy) return
     const cash = Number(openingCash)
     if (!Number.isFinite(cash) || cash < 0) {
-      setError('Ø£Ø¯Ø®Ù„ Ø±ØµÙŠØ¯ Ø§ÙØªØªØ§Ø­ ØµØ­ÙŠØ­Ù‹Ø§')
+      setError('أدخل رصيد افتتاح صحيحًا')
       return
     }
     setBusy(true)
@@ -69,13 +69,13 @@ export function CashierDashboard({
         body: JSON.stringify({ openingCash: cash, branchId: Number(data.branchId) }),
       })
       const payload = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(payload?.error ?? 'ØªØ¹Ø°Ø± ÙØªØ­ Ø§Ù„ÙˆØ±Ø¯ÙŠØ©')
+      if (!res.ok) throw new Error(payload?.error ?? 'تعذر فتح الوردية')
       setOpeningCash('')
       setOpeningNotes('')
-      setSuccess('ØªÙ… ÙØªØ­ Ø§Ù„ÙˆØ±Ø¯ÙŠØ© â€” ÙŠÙ…ÙƒÙ†Ùƒ Ø§Ù„Ø¢Ù† Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ø·Ù„Ø¨Ø§Øª ÙˆØªØ­ØµÙŠÙ„ Ø§Ù„Ø¯ÙØ¹')
+      setSuccess('تم فتح الوردية — يمكنك الآن إنشاء الطلبات وتحصيل الدفع')
       refresh()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'ØªØ¹Ø°Ø± ÙØªØ­ Ø§Ù„ÙˆØ±Ø¯ÙŠØ©')
+      setError(e instanceof Error ? e.message : 'تعذر فتح الوردية')
     } finally {
       setBusy(false)
     }
@@ -86,7 +86,7 @@ export function CashierDashboard({
     if (busy || !current) return
     const cash = Number(closingCash)
     if (!Number.isFinite(cash) || cash < 0) {
-      setError('Ø£Ø¯Ø®Ù„ Ù‚ÙŠÙ…Ø© Ø¬Ø±Ø¯ Ø§Ù„ØµÙ†Ø¯ÙˆÙ‚ Ø§Ù„ØµØ­ÙŠØ­Ø©')
+      setError('أدخل قيمة جرد الصندوق الصحيحة')
       return
     }
     setBusy(true)
@@ -103,21 +103,21 @@ export function CashierDashboard({
         }),
       })
       const payload = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(payload?.error ?? 'ØªØ¹Ø°Ø± Ø¥ØºÙ„Ø§Ù‚ Ø§Ù„ÙˆØ±Ø¯ÙŠØ©')
+      if (!res.ok) throw new Error(payload?.error ?? 'تعذر إغلاق الوردية')
       const diff = Number(payload?.cashDifference ?? 0)
       setClosingCash('')
       setHandoverNotes('')
       setHandoverRecipientId('')
       setSuccess(
         diff === 0
-          ? 'ØªÙ… Ø¥ØºÙ„Ø§Ù‚ Ø§Ù„ÙˆØ±Ø¯ÙŠØ© â€” Ø§Ù„ØµÙ†Ø¯ÙˆÙ‚ Ù…Ø·Ø§Ø¨Ù‚'
+          ? 'تم إغلاق الوردية — الصندوق مطابق'
           : diff > 0
-            ? `ØªÙ… Ø¥ØºÙ„Ø§Ù‚ Ø§Ù„ÙˆØ±Ø¯ÙŠØ© â€” Ø²ÙŠØ§Ø¯Ø© ${formatCurrency(diff)}`
-            : `ØªÙ… Ø¥ØºÙ„Ø§Ù‚ Ø§Ù„ÙˆØ±Ø¯ÙŠØ© â€” Ù†Ù‚Øµ ${formatCurrency(Math.abs(diff))}`,
+            ? `تم إغلاق الوردية — زيادة ${formatCurrency(diff)}`
+            : `تم إغلاق الوردية — نقص ${formatCurrency(Math.abs(diff))}`,
       )
       refresh()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'ØªØ¹Ø°Ø± Ø¥ØºÙ„Ø§Ù‚ Ø§Ù„ÙˆØ±Ø¯ÙŠØ©')
+      setError(e instanceof Error ? e.message : 'تعذر إغلاق الوردية')
     } finally {
       setBusy(false)
     }
@@ -125,35 +125,35 @@ export function CashierDashboard({
 
   async function recordOperationalWithdrawal() {
     const amount = Number(withdrawalAmount)
-    if (!Number.isFinite(amount) || amount <= 0 || withdrawalReason.trim().length < 3) { setError('Ø£Ø¯Ø®Ù„ Ù…Ø¨Ù„ØºØ§Ù‹ Ù…ÙˆØ¬Ø¨Ø§Ù‹ ÙˆØ³Ø¨Ø¨Ø§Ù‹ ÙˆØ§Ø¶Ø­Ø§Ù‹ Ù„Ù„Ø³Ø­Ø¨'); return }
+    if (!Number.isFinite(amount) || amount <= 0 || withdrawalReason.trim().length < 3) { setError('أدخل مبلغاً موجباً وسبباً واضحاً للسحب'); return }
     setBusy(true); setError(null)
     try {
       const response = await fetch('/api/staff/fixed-float', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ direction: 'withdrawal', amount, reason: withdrawalReason.trim(), branchId: Number(data.branchId) }) })
-      const payload = await response.json().catch(() => ({})); if (!response.ok) throw new Error(payload.error ?? 'ØªØ¹Ø°Ø± ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø³Ø­Ø¨')
-      setWithdrawalAmount(''); setWithdrawalReason(''); setSuccess('ØªÙ… ØªØ³Ø¬ÙŠÙ„ Ø³Ø­Ø¨ ØªØ´ØºÙŠÙ„ÙŠ Ù…Ù† Ø¯Ø±Ø¬ Ø§Ù„ÙƒØ§Ø´ÙŠØ±'); refresh()
-    } catch (e) { setError(e instanceof Error ? e.message : 'ØªØ¹Ø°Ø± ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø³Ø­Ø¨') } finally { setBusy(false) }
+      const payload = await response.json().catch(() => ({})); if (!response.ok) throw new Error(payload.error ?? 'تعذر تسجيل السحب')
+      setWithdrawalAmount(''); setWithdrawalReason(''); setSuccess('تم تسجيل سحب تشغيلي من درج الكاشير'); refresh()
+    } catch (e) { setError(e instanceof Error ? e.message : 'تعذر تسجيل السحب') } finally { setBusy(false) }
   }
 
   const openedAtLabel = (iso: string): string => {
     const d = new Date(iso)
-    return `${formatDateShort(d)} â€” ${formatTime(d)}`
+    return `${formatDateShort(d)} — ${formatTime(d)}`
   }
 
   const diffTone = (shift: ShiftView): { tone: 'success' | 'warning' | 'destructive' | 'primary'; label: string } => {
-    if (shift.status === 'open') return { tone: 'primary', label: 'Ù…ÙØªÙˆØ­Ø©' }
+    if (shift.status === 'open') return { tone: 'primary', label: 'مفتوحة' }
     const diff = Number(shift.cashDifference)
-    if (diff > 0) return { tone: 'warning', label: `Ø²ÙŠØ§Ø¯Ø© ${formatCurrency(diff)}` }
-    if (diff < 0) return { tone: 'destructive', label: `Ù†Ù‚Øµ ${formatCurrency(Math.abs(diff))}` }
-    return { tone: 'success', label: 'Ù…Ø·Ø§Ø¨Ù‚' }
+    if (diff > 0) return { tone: 'warning', label: `زيادة ${formatCurrency(diff)}` }
+    if (diff < 0) return { tone: 'destructive', label: `نقص ${formatCurrency(Math.abs(diff))}` }
+    return { tone: 'success', label: 'مطابق' }
   }
 
   return (
     <div className="flex flex-col gap-5" dir="rtl">
       {!compact && <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Ù„ÙˆØ­Ø© Ø§Ù„ÙƒØ§Ø´ÙŠØ±</h1>
+          <h1 className="text-2xl font-bold">لوحة الكاشير</h1>
           <p className="text-sm text-muted-foreground">
-            Ø§Ù„ÙØ±Ø¹: {branchName ?? 'â€”'} Â· Ø§Ù„ÙƒØ§Ø´ÙŠØ±: {session.name}
+            الفرع: {branchName ?? '—'} · الكاشير: {session.name}
           </p>
         </div>
         <form action="/login?next=/cashier">
@@ -161,7 +161,7 @@ export function CashierDashboard({
             type="submit"
             className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <span className="text-xs">ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø®Ø±ÙˆØ¬</span>
+            <span className="text-xs">تسجيل الخروج</span>
           </button>
         </form>
       </div>}
@@ -181,33 +181,33 @@ export function CashierDashboard({
       {!hasActiveShift ? (
         <Card className="border-warning/30 bg-warning/10">
           <CardHeader>
-            <CardTitle>Ù„Ø§ ØªÙˆØ¬Ø¯ ÙˆØ±Ø¯ÙŠØ© Ù…ÙØªÙˆØ­Ø©</CardTitle>
+            <CardTitle>لا توجد وردية مفتوحة</CardTitle>
             <CardDescription>
-              Ù„Ø§ ÙŠÙ…ÙƒÙ† Ø¥Ù†Ø´Ø§Ø¡ Ø·Ù„Ø¨ Ø£Ùˆ ØªØ­ØµÙŠÙ„ Ø¯ÙØ¹ Ø£Ùˆ Ø¥Ø¬Ø±Ø§Ø¡ Ø£ÙŠ Ø¹Ù…Ù„ÙŠØ© Ù…Ø§Ù„ÙŠØ© Ù‚Ø¨Ù„ ÙØªØ­ Ø§Ù„ÙˆØ±Ø¯ÙŠØ©. Ø¬Ù…ÙŠØ¹ Ø§Ù„Ø¹Ù…Ù„ÙŠØ§Øª Ù…Ù‚ÙÙ„Ø©
-              Ø­ØªÙ‰ ØªØ¨Ø¯Ø£ ÙˆØ±Ø¯ÙŠØªÙƒ.
+              لا يمكن إنشاء طلب أو تحصيل دفع أو إجراء أي عملية مالية قبل فتح الوردية. جميع العمليات مقفلة
+              حتى تبدأ ورديتك.
             </CardDescription>
           </CardHeader>
           <CardContent className="pt-0">
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <div className="flex flex-col gap-3 rounded-lg border border-warning/30 bg-warning/5 p-4">
-                <span className="text-xs font-medium text-warning">Ø§Ù„ÙØ±Ø¹ Ø§Ù„Ù…Ø­Ø¯Ø¯</span>
+                <span className="text-xs font-medium text-warning">الفرع المحدد</span>
                 <span className="text-sm font-medium text-foreground">
-                  {branchName ?? 'â€”'}
+                  {branchName ?? '—'}
                 </span>
               </div>
               <div className="flex flex-col gap-3 rounded-lg border border-warning/30 bg-warning/5 p-4">
-                <span className="text-xs font-medium text-warning">Ø§Ù„ÙƒØ§Ø´ÙŠØ± Ø§Ù„Ù…Ø³Ø¬Ù„</span>
+                <span className="text-xs font-medium text-warning">الكاشير المسجل</span>
                 <span className="text-sm font-medium text-foreground">{session.name}</span>
               </div>
               <div className="flex flex-col gap-3 rounded-lg border border-warning/30 bg-warning/5 p-4">
-                <span className="text-xs font-medium text-warning">ÙˆÙ‚Øª Ø§Ù„ÙØªØ­ Ø§Ù„Ù…ØªÙˆÙ‚Ø¹</span>
-                <span className="text-sm font-medium text-foreground">Ø¹Ù†Ø¯ Ø¨Ø¯Ø¡ Ø§Ù„ÙˆØ±Ø¯ÙŠØ©</span>
+                <span className="text-xs font-medium text-warning">وقت الفتح المتوقع</span>
+                <span className="text-sm font-medium text-foreground">عند بدء الوردية</span>
               </div>
             </div>
 
             <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:gap-4">
               <label className="flex flex-1 flex-col gap-1.5 text-sm">
-                <span className="text-muted-foreground">Ø±ØµÙŠØ¯ Ø§Ù„Ø§ÙØªØªØ§Ø­ (Ù†Ù‚Ø¯ÙŠ Ø¨Ø§Ù„ØµÙ†Ø¯ÙˆÙ‚)</span>
+                <span className="text-muted-foreground">رصيد الافتتاح (نقدي بالصندوق)</span>
                 <Input
                   inputMode="decimal"
                   placeholder="0.00"
@@ -216,19 +216,19 @@ export function CashierDashboard({
                 />
               </label>
               <label className="flex flex-col gap-1.5 text-sm">
-                <span className="text-muted-foreground">Ù…Ù„Ø§Ø­Ø¸Ø§Øª Ø§Ù„Ø§ÙØªØªØ§Ø­ (Ø§Ø®ØªÙŠØ§Ø±ÙŠ)</span>
+                <span className="text-muted-foreground">ملاحظات الافتتاح (اختياري)</span>
                 <Input
-                  placeholder="Ù…Ø«Ø§Ù„: ØµÙ†Ø¯ÙˆÙ‚ Ø§Ù„ØªØ¬Ù‡ÙŠØ² Ø§Ù„ØµØ¨Ø§Ø­ÙŠ"
+                  placeholder="مثال: صندوق التجهيز الصباحي"
                   value={openingNotes}
                   onChange={(e) => setOpeningNotes(e.target.value)}
                 />
               </label>
               <Button variant="primary" size="lg" className="w-full sm:w-auto" onClick={openShift} disabled={busy}>
-                {busy ? 'Ø¬Ø§Ø±Ù Ø§Ù„ÙØªØ­â€¦' : 'ÙØªØ­ Ø§Ù„ÙˆØ±Ø¯ÙŠØ©'}
+                {busy ? 'جارٍ الفتح…' : 'فتح الوردية'}
               </Button>
             </div>
             <p className="text-xs text-muted-foreground mt-2">
-              ÙŠÙØ³Ø¬Ù‘Ù„ Ø§Ù„ÙƒØ§Ø´ÙŠØ± ÙˆØ§Ù„ÙØ±Ø¹ ÙˆØ±ØµÙŠØ¯ Ø§Ù„Ø§ÙØªØªØ§Ø­ ØªÙ„Ù‚Ø§Ø¦ÙŠØ§Ù‹ Ø¹Ù†Ø¯ Ø§Ù„ÙØªØ­. Ù„Ø§ ÙŠÙ…ÙƒÙ† ÙØªØ­ Ø£ÙƒØ«Ø± Ù…Ù† ÙˆØ±Ø¯ÙŠØ© ÙˆØ§Ø­Ø¯Ø© Ù„Ù†ÙØ³ Ø§Ù„ÙØ±Ø¹.
+              يُسجّل الكاشير والفرع ورصيد الافتتاح تلقائياً عند الفتح. لا يمكن فتح أكثر من وردية واحدة لنفس الفرع.
             </p>
           </CardContent>
         </Card>
@@ -240,41 +240,41 @@ export function CashierDashboard({
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between gap-3">
-                <CardTitle>Ø§Ù„ÙˆØ±Ø¯ÙŠØ© Ø§Ù„Ù…ÙØªÙˆØ­Ø©</CardTitle>
-                <Badge tone="primary">Ù…ÙØªÙˆØ­Ø©</Badge>
+                <CardTitle>الوردية المفتوحة</CardTitle>
+                <Badge tone="primary">مفتوحة</Badge>
               </div>
               <CardDescription>
-                ÙØªØ­Ù‡Ø§ {current.openBy} â€” {openedAtLabel(current.openedAt)}
+                فتحها {current.openBy} — {openedAtLabel(current.openedAt)}
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <StatCard label="Ø±ØµÙŠØ¯ Ø§Ù„Ø§ÙØªØªØ§Ø­" value={formatCurrency(Number(current.openingCash))} icon="shifts" />
+                <StatCard label="رصيد الافتتاح" value={formatCurrency(Number(current.openingCash))} icon="shifts" />
                 <StatCard
-                  label="Ù…Ø­ØµÙŽÙ‘Ù„ Ù†Ù‚Ø¯ÙŠ"
+                  label="محصَّل نقدي"
                   value={formatCurrency(Number(current.cashIn))}
                   icon="plus"
-                  hint="Ø¯ÙØ¹Ø§Øª Ù†Ù‚Ø¯ÙŠØ© Ù…ÙƒØªÙ…Ù„Ø©"
+                  hint="دفعات نقدية مكتملة"
                 />
                 <StatCard
-                  label="Ù…Ø±Ø¯ÙˆØ¯ Ù†Ù‚Ø¯ÙŠ"
+                  label="مردود نقدي"
                   value={formatCurrency(Number(current.cashOut))}
                   icon="minus"
-                  hint="Ø§Ø³ØªØ±Ø¯Ø§Ø¯Ø§Øª Ù†Ù‚Ø¯ÙŠØ©"
+                  hint="استردادات نقدية"
                 />
                 <StatCard
-                  label="Ø§Ù„Ù…ØªÙˆÙ‚Ø¹ ÙÙŠ Ø§Ù„ØµÙ†Ø¯ÙˆÙ‚"
+                  label="المتوقع في الصندوق"
                   value={formatCurrency(Number(current.expectedCash))}
                   icon="clock"
-                  hint="Ø§ÙØªØªØ§Ø­ + Ù…Ø­ØµÙŽÙ‘Ù„ âˆ’ Ù…Ø±Ø¯ÙˆØ¯"
+                  hint="افتتاح + محصَّل − مردود"
                 />
-                <StatCard label="Ø·Ù„Ø¨Ø§Øª Ø§Ù„ÙˆØ±Ø¯ÙŠØ©" value={formatNumber(current.ordersCount)} icon="orders" />
-                <StatCard label="Ø¯ÙØ¹Ø§Øª Ø§Ù„ÙˆØ±Ø¯ÙŠØ©" value={formatNumber(current.paymentsCount)} icon="pos" />
+                <StatCard label="طلبات الوردية" value={formatNumber(current.ordersCount)} icon="orders" />
+                <StatCard label="دفعات الوردية" value={formatNumber(current.paymentsCount)} icon="pos" />
               </div>
 
               <div className="flex flex-col gap-3 rounded-lg border border-border p-4 sm:flex-row sm:items-end sm:gap-4">
                 <label className="flex flex-1 flex-col gap-1.5 text-sm">
-                  <span className="text-muted-foreground">Ø¬Ø±Ø¯ Ø§Ù„ØµÙ†Ø¯ÙˆÙ‚ Ø§Ù„ÙØ¹Ù„ÙŠ (Ø§Ù„Ù†Ù‚Ø¯ÙŠ Ø§Ù„Ù…Ø¹Ø¯ÙˆØ¯)</span>
+                  <span className="text-muted-foreground">جرد الصندوق الفعلي (النقدي المعدود)</span>
                   <Input
                     inputMode="decimal"
                     placeholder="0.00"
@@ -283,37 +283,37 @@ export function CashierDashboard({
                   />
                 </label>
                 <label className="flex flex-col gap-1.5 text-sm">
-                  <span className="text-muted-foreground">Ù…Ù„Ø§Ø­Ø¸Ø§Øª Ø§Ù„ØªØ³Ù„ÙŠÙ… (Ø§Ø®ØªÙŠØ§Ø±ÙŠ)</span>
+                  <span className="text-muted-foreground">ملاحظات التسليم (اختياري)</span>
                   <Input
-                    placeholder="Ù…Ù„Ø§Ø­Ø¸Ø§Øª Ø­ÙˆÙ„ ØªØ³Ù„ÙŠÙ… Ø§Ù„ØµÙ†Ø¯ÙˆÙ‚"
+                    placeholder="ملاحظات حول تسليم الصندوق"
                     value={handoverNotes}
                     onChange={(e) => setHandoverNotes(e.target.value)}
                   />
                 </label>
                 <label className="flex flex-col gap-1.5 text-sm">
-                  <span className="text-muted-foreground">Ø§Ù„ÙƒØ§Ø´ÙŠØ± Ø§Ù„Ù…Ø³ØªÙ„Ù… (Ù‚Ø¨Ù„ Ù…Ù†ØªØµÙ Ø§Ù„Ù„ÙŠÙ„)</span>
+                  <span className="text-muted-foreground">الكاشير المستلم (قبل منتصف الليل)</span>
                   <select className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={handoverRecipientId} onChange={(e) => setHandoverRecipientId(e.target.value)}>
-                    <option value="">Ø§Ø®ØªØ± ÙƒØ§Ø´ÙŠØ±Ø§Ù‹</option>
+                    <option value="">اختر كاشيراً</option>
                     {data.cashiers.filter((cashier) => cashier.id !== session.id).map((cashier) => <option key={cashier.id} value={cashier.id}>{cashier.name}</option>)}
                   </select>
                 </label>
                 <Button variant="destructive" size="lg" className="w-full sm:w-auto" onClick={closeShift} disabled={busy}>
-                  {busy ? 'Ø¬Ø§Ø±Ù Ø§Ù„Ø¥ØºÙ„Ø§Ù‚â€¦' : 'Ø¥ØºÙ„Ø§Ù‚ Ø§Ù„ÙˆØ±Ø¯ÙŠØ© ÙˆØªØ³Ù„ÙŠÙ… Ø§Ù„ØµÙ†Ø¯ÙˆÙ‚'}
+                  {busy ? 'جارٍ الإغلاق…' : 'إغلاق الوردية وتسليم الصندوق'}
                 </Button>
               </div>
 
               <div className="flex flex-col gap-3 rounded-lg border border-warning/30 bg-warning/5 p-4 sm:flex-row sm:items-end">
-                <p className="text-sm text-muted-foreground sm:max-w-xs">Ø³Ø­Ø¨ ØªØ´ØºÙŠÙ„ÙŠ Ù…Ù† Ø¯Ø±Ø¬ Ø§Ù„ÙƒØ§Ø´ÙŠØ±ØŒ ÙˆÙ„ÙŠØ³ Ù…Ù† Ø§Ù„Ø¹Ù‡Ø¯Ø© Ø§Ù„Ø«Ø§Ø¨ØªØ©. ÙŠÙØ®ØµÙ… Ù…Ø±Ø© ÙˆØ§Ø­Ø¯Ø© Ù…Ù† Ø§Ù„Ù…ØªÙˆÙ‚Ø¹ Ø¹Ù†Ø¯ Ø§Ù„Ø¥ØºÙ„Ø§Ù‚.</p>
-                <Input className="sm:w-28" inputMode="decimal" placeholder="Ø§Ù„Ù…Ø¨Ù„Øº" value={withdrawalAmount} onChange={(e) => setWithdrawalAmount(e.target.value)} />
-                <Input className="sm:flex-1" placeholder="Ø³Ø¨Ø¨ Ø§Ù„Ø³Ø­Ø¨" value={withdrawalReason} onChange={(e) => setWithdrawalReason(e.target.value)} />
-                <Button variant="outline" disabled={busy} onClick={recordOperationalWithdrawal}>ØªØ³Ø¬ÙŠÙ„ Ø³Ø­Ø¨ ØªØ´ØºÙŠÙ„ÙŠ</Button>
+                <p className="text-sm text-muted-foreground sm:max-w-xs">سحب تشغيلي من درج الكاشير، وليس من العهدة الثابتة. يُخصم مرة واحدة من المتوقع عند الإغلاق.</p>
+                <Input className="sm:w-28" inputMode="decimal" placeholder="المبلغ" value={withdrawalAmount} onChange={(e) => setWithdrawalAmount(e.target.value)} />
+                <Input className="sm:flex-1" placeholder="سبب السحب" value={withdrawalReason} onChange={(e) => setWithdrawalReason(e.target.value)} />
+                <Button variant="outline" disabled={busy} onClick={recordOperationalWithdrawal}>تسجيل سحب تشغيلي</Button>
               </div>
 
               {!compact && <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between gap-2">
                 <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
-                  <span className="text-xs font-medium text-muted-foreground">Ø§Ù„Ø¹Ù…Ù„ÙŠØ§Øª Ø§Ù„Ø³Ø±ÙŠØ¹Ø©</span>
+                  <span className="text-xs font-medium text-muted-foreground">العمليات السريعة</span>
                   <p className="text-sm text-muted-foreground">
-                    Ø£Ù†Ø´Ø¦ Ø·Ù„Ø¨Ø§Ù‹ Ø¬Ø¯ÙŠØ¯Ø§Ù‹ Ø£Ùˆ ØªØ­Ù‚Ù‘Ù‚ Ù…Ù† Ø§Ù„Ø·Ù„Ø¨Ø§Øª Ø§Ù„Ø­Ø§Ù„ÙŠØ©. Ø¬Ù…ÙŠØ¹ Ø§Ù„Ø·Ù„Ø¨Ø§Øª ÙˆØ§Ù„Ø¯ÙØ¹Ø§Øª ØªÙØ±Ø¨Ø· Ø¨Ù‡Ø°Ù‡ Ø§Ù„ÙˆØ±Ø¯ÙŠØ© ØªÙ„Ù‚Ø§Ø¦ÙŠØ§Ù‹.
+                    أنشئ طلباً جديداً أو تحقّق من الطلبات الحالية. جميع الطلبات والدفعات تُربط بهذه الوردية تلقائياً.
                   </p>
                 </div>
                 <div className="flex gap-2 sm:flex-wrap">
@@ -321,19 +321,19 @@ export function CashierDashboard({
                     href="/pos"
                     className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-4 py-2 text-sm font-medium text-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
-                    <span>POS â€” Ø·Ù„Ø¨ Ø¬Ø¯ÙŠØ¯</span>
+                    <span>POS — طلب جديد</span>
                   </a>
                   <a
                     href="/orders"
                     className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-4 py-2 text-sm font-medium text-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
-                    <span>Ø§Ù„Ø·Ù„Ø¨Ø§Øª</span>
+                    <span>الطلبات</span>
                   </a>
                   <a
                     href="/shifts"
                     className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-4 py-2 text-sm font-medium text-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
-                    <span>Ø§Ù„ØªØ§Ø±ÙŠØ®</span>
+                    <span>التاريخ</span>
                   </a>
                 </div>
               </div>}
@@ -343,25 +343,25 @@ export function CashierDashboard({
           {/* Closed / previous shift history on same page for context */}
           {!compact && <Card>
             <CardHeader>
-              <CardTitle>Ø¢Ø®Ø± Ø§Ù„ÙˆØ±Ø¯ÙŠØ§Øª</CardTitle>
-              <CardDescription>Ø§Ù„Ø­Ø§Ù„Ø© ÙˆØ§Ù„Ù…ØªÙˆÙ‚Ø¹ ÙˆØ§Ù„Ø¬Ø±Ø¯ ÙˆØ§Ù„ÙØ±Ù‚ (Ø²ÙŠØ§Ø¯Ø© Ø£Ùˆ Ù†Ù‚Øµ)</CardDescription>
+              <CardTitle>آخر الورديات</CardTitle>
+              <CardDescription>الحالة والمتوقع والجرد والفرق (زيادة أو نقص)</CardDescription>
             </CardHeader>
             <CardContent>
               {data.recent.length === 0 ? (
-                <EmptyState icon="shifts" title="Ù„Ø§ ØªÙˆØ¬Ø¯ ÙˆØ±Ø¯ÙŠØ§Øª Ø³Ø§Ø¨Ù‚Ø©" description="Ø£fter ÙØªØ­ Ø£ÙˆÙ„ ÙˆØ±Ø¯ÙŠØ© Ø³ØªØ¸Ù‡Ø± Ù‡Ù†Ø§." />
+                <EmptyState icon="shifts" title="لا توجد ورديات سابقة" description="أfter فتح أول وردية ستظهر هنا." />
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-border text-xs text-muted-foreground">
-                        <th className="px-2 py-2 text-start font-medium">Ø§Ù„Ø­Ø§Ù„Ø©</th>
-                        <th className="px-2 py-2 text-start font-medium">ØªÙ… Ø§Ù„ÙØªØ­</th>
-                        <th className="px-2 py-2 text-start font-medium">ÙØªØ­Ù‡Ø§</th>
-                        <th className="px-2 py-2 text-end font-medium">Ø±ØµÙŠØ¯ Ø§Ù„Ø§ÙØªØªØ§Ø­</th>
-                        <th className="px-2 py-2 text-end font-medium">Ø§Ù„Ù…ØªÙˆÙ‚Ø¹</th>
-                        <th className="px-2 py-2 text-end font-medium">Ø§Ù„Ø¬Ø±Ø¯</th>
-                        <th className="px-2 py-2 text-end font-medium">Ø§Ù„ÙØ±Ù‚</th>
-                        <th className="px-2 py-2 text-end font-medium">Ø·Ù„Ø¨Ø§Øª</th>
+                        <th className="px-2 py-2 text-start font-medium">الحالة</th>
+                        <th className="px-2 py-2 text-start font-medium">تم الفتح</th>
+                        <th className="px-2 py-2 text-start font-medium">فتحها</th>
+                        <th className="px-2 py-2 text-end font-medium">رصيد الافتتاح</th>
+                        <th className="px-2 py-2 text-end font-medium">المتوقع</th>
+                        <th className="px-2 py-2 text-end font-medium">الجرد</th>
+                        <th className="px-2 py-2 text-end font-medium">الفرق</th>
+                        <th className="px-2 py-2 text-end font-medium">طلبات</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -375,17 +375,17 @@ export function CashierDashboard({
                             </td>
                             <td className="px-2 py-2 text-muted-foreground">
                               {openedAtLabel(s.openedAt)}
-                              {s.closedAt ? ` â†’ ${formatTime(new Date(s.closedAt))}` : ''}
+                              {s.closedAt ? ` → ${formatTime(new Date(s.closedAt))}` : ''}
                             </td>
                             <td className="px-2 py-2 text-muted-foreground">{s.openBy}</td>
                             <td className="px-2 py-2 text-end">{formatCurrency(Number(s.openingCash))}</td>
                             <td className="px-2 py-2 text-end">{formatCurrency(Number(s.expectedCash))}</td>
                             <td className="px-2 py-2 text-end">
-                              {s.status === 'closed' ? formatCurrency(Number(s.closingCash)) : 'â€”'}
+                              {s.status === 'closed' ? formatCurrency(Number(s.closingCash)) : '—'}
                             </td>
                             <td className="px-2 py-2 text-end font-medium">
                               {s.status !== 'closed'
-                                ? 'â€”'
+                                ? '—'
                                 : diff > 0
                                   ? `+${formatCurrency(diff)}`
                                   : formatCurrency(diff)}
@@ -407,31 +407,31 @@ export function CashierDashboard({
       {current && current.status === 'closed' ? (
         <Card>
           <CardHeader>
-            <CardTitle>Ø§Ù„ÙˆØ±Ø¯ÙŠØ© Ù…ØºÙ„Ù‚Ø© â€” Ù…Ù„Ø®Øµ Ø§Ù„ØªØ³Ù„ÙŠÙ…</CardTitle>
-            <CardDescription>Ù…Ù„Ø®Øµ Ù‚Ø±Ø§Ø¡Ø© ÙÙ‚Ø· Ù„Ù„ÙˆØ±Ø¯ÙŠØ© Ø§Ù„Ù…Ù†ØªÙ‡ÙŠØ©. Ù„Ø§ ÙŠÙ…ÙƒÙ† ØªØ¹Ø¯ÙŠÙ„ Ø§Ù„Ø£Ø±Ù‚Ø§Ù… Ø¨Ø¹Ø¯ Ø§Ù„Ø¥ØºÙ„Ø§Ù‚.</CardDescription>
+            <CardTitle>الوردية مغلقة — ملخص التسليم</CardTitle>
+            <CardDescription>ملخص قراءة فقط للوردية المنتهية. لا يمكن تعديل الأرقام بعد الإغلاق.</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3 sm:grid-cols-3">
-            <StatCard label="Ø±ØµÙŠØ¯ Ø§Ù„Ø§ÙØªØªØ§Ø­" value={formatCurrency(Number(current.openingCash))} icon="shifts" />
-            <StatCard label="Ø§Ù„Ù…ØªÙˆÙ‚Ø¹ ÙÙŠ Ø§Ù„ØµÙ†Ø¯ÙˆÙ‚" value={formatCurrency(Number(current.expectedCash))} icon="clock" />
-            <StatCard label="Ø§Ù„Ø¬Ø±Ø¯ Ø§Ù„ÙØ¹Ù„ÙŠ" value={formatCurrency(Number(current.closingCash))} icon="pos" />
+            <StatCard label="رصيد الافتتاح" value={formatCurrency(Number(current.openingCash))} icon="shifts" />
+            <StatCard label="المتوقع في الصندوق" value={formatCurrency(Number(current.expectedCash))} icon="clock" />
+            <StatCard label="الجرد الفعلي" value={formatCurrency(Number(current.closingCash))} icon="pos" />
             <StatCard
-              label="Ø§Ù„ÙØ±Ù‚ (Ø²Ø§Ø¦Ø¯ / Ù†Ø§Ù‚Øµ)"
+              label="الفرق (زائد / ناقص)"
               value={formatCurrency(Math.abs(Number(current.cashDifference)))}
               icon={Number(current.cashDifference) >= 0 ? 'trendingUp' : 'trendingDown'}
             />
-            <StatCard label="Ø§Ù„Ø­Ø§Ù„Ø©" value="Ù…ØºÙ„Ù‚Ø©" icon="check" />
+            <StatCard label="الحالة" value="مغلقة" icon="check" />
             <StatCard
-              label="ØªØ§Ø±ÙŠØ® Ø§Ù„Ø¥ØºÙ„Ø§Ù‚"
-              value={current.closedAt ? formatDateShort(new Date(current.closedAt)) : 'â€”'}
+              label="تاريخ الإغلاق"
+              value={current.closedAt ? formatDateShort(new Date(current.closedAt)) : '—'}
               icon="clock"
             />
             {current.handoverTo && (
-              <StatCard label="ØªÙ… Ø§Ù„ØªØ³Ù„ÙŠÙ… Ø¥Ù„Ù‰" value={current.handoverTo} icon="staff" />
+              <StatCard label="تم التسليم إلى" value={current.handoverTo} icon="staff" />
             )}
           </CardContent>
           {current.handoverNotes ? (
             <div className="mt-4 rounded-lg border border-border bg-muted p-4 text-sm">
-              <span className="text-xs font-medium text-muted-foreground block mb-1">Ù…Ù„Ø§Ø­Ø¸Ø§Øª Ø§Ù„ØªØ³Ù„ÙŠÙ…</span>
+              <span className="text-xs font-medium text-muted-foreground block mb-1">ملاحظات التسليم</span>
               <p className="text-foreground">{current.handoverNotes}</p>
             </div>
           ) : null}
@@ -440,5 +440,3 @@ export function CashierDashboard({
     </div>
   )
 }
-
-

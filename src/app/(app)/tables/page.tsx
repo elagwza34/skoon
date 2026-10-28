@@ -1,4 +1,4 @@
-﻿import { redirect } from 'next/navigation'
+import { redirect } from 'next/navigation'
 import { requirePageAccess } from '@/lib/require-page-access'
 import { getStaffTables } from '@/lib/staff-tables'
 import { TablesBoard } from '@/components/tables/tables-board'
@@ -9,7 +9,7 @@ import { prisma } from '@/lib/prisma'
 export const dynamic = 'force-dynamic'
 
 /**
- * Tables â€” server component. Real branch tables + live occupancy from
+ * Tables — server component. Real branch tables + live occupancy from
  * open orders (no local demo state).
  */
 export default async function TablesPage() {
@@ -27,5 +27,3 @@ export default async function TablesPage() {
     : []
   return <TablesBoard tables={tables} canEditLayout={isOwner(session.role)} branches={branches.map((branch) => ({ id: branch.id.toString(), name: branch.name }))} />
 }
-
-

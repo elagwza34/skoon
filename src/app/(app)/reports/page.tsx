@@ -1,4 +1,4 @@
-﻿import { requirePageAccess } from '@/lib/require-page-access'
+import { requirePageAccess } from '@/lib/require-page-access'
 import { ROLE } from '@/lib/authz'
 import { getReportsSummary } from '@/lib/staff-reports'
 import { getVatReport } from '@/lib/vat-report'
@@ -8,7 +8,7 @@ import { VatReport } from '@/components/reports/vat-report'
 
 export const dynamic = 'force-dynamic'
 
-/** Reports â€” server component. Real aggregates, Cairo day boundaries. */
+/** Reports — server component. Real aggregates, Cairo day boundaries. */
 export default async function ReportsPage({
   searchParams,
 }: {
@@ -28,5 +28,3 @@ export default async function ReportsPage({
   const vatSummary = session.role === ROLE.OWNER ? await getVatReport(session, {}) : null
   return <ReportsBoard summary={summary} vatSummary={vatSummary ? { netCollectedVat: vatSummary.netCollectedVat, paidInvoices: vatSummary.paidInvoices } : undefined} />
 }
-
-

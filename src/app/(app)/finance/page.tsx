@@ -1,4 +1,4 @@
-﻿import { requirePageAccess } from '@/lib/require-page-access'
+import { requirePageAccess } from '@/lib/require-page-access'
 import { getOwnerFinanceWorkspace } from '@/lib/staff-finance'
 import { OwnerFinanceBoard } from '@/components/finance/owner-finance-board'
 
@@ -9,5 +9,3 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
   const filters = await searchParams
   return <OwnerFinanceBoard data={await getOwnerFinanceWorkspace(session, filters)} />
 }
-
-

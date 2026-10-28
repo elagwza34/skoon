@@ -1,4 +1,4 @@
-﻿import { requirePageAccess } from '@/lib/require-page-access'
+import { requirePageAccess } from '@/lib/require-page-access'
 import { isOwner } from '@/lib/authz'
 import { redirect } from 'next/navigation'
 import { getShiftsBoard } from '@/lib/staff-shifts'
@@ -40,5 +40,3 @@ export default async function CashierPage() {
     sharedFloat={sharedFloat}
   />
 }
-
-

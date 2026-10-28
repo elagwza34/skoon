@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
@@ -19,11 +19,11 @@ import { HrReportsBoard } from '@/components/staff/hr-reports-board'
 import { OvertimePolicyHistory } from '@/components/staff/overtime-policy-history'
 
 /**
- * Staff board â€” real directory + trusted provisioning UI (owner/manager).
+ * Staff board — real directory + trusted provisioning UI (owner/manager).
  *
  * Adding an employee creates a direct Supabase Auth password identity; the server assigns the
  * role/branch under the caller's authority. Row actions (role, branch,
- * activation) hit the same server-side rules â€” the UI never grants anything
+ * activation) hit the same server-side rules — the UI never grants anything
  * the server would reject.
  */
 export function StaffBoard({ directory }: { directory: StaffDirectory }) {
@@ -84,11 +84,11 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
         body: JSON.stringify({ name: branchName, code: branchCode, phone: branchPhone || undefined, address: branchAddress || undefined }),
       })
       const data = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(data.error ?? 'ØªØ¹Ø°Ø± Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„ÙØ±Ø¹ Ø§Ù„Ø£ÙˆÙ„')
-      setSuccess(`ØªÙ… Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„ÙØ±Ø¹ Ø§Ù„Ù†Ø´Ø· ${data.branch.name} (${data.branch.code}). ÙŠÙ…ÙƒÙ†Ùƒ Ø§Ù„Ø¢Ù† Ø¥Ù†Ø´Ø§Ø¡ Ø­Ø³Ø§Ø¨ Ù…ÙˆØ¸Ù.`)
+      if (!response.ok) throw new Error(data.error ?? 'تعذر إنشاء الفرع الأول')
+      setSuccess(`تم إنشاء الفرع النشط ${data.branch.name} (${data.branch.code}). يمكنك الآن إنشاء حساب موظف.`)
       startTransition(() => router.refresh())
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'ØªØ¹Ø°Ø± Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„ÙØ±Ø¹ Ø§Ù„Ø£ÙˆÙ„')
+      setError(cause instanceof Error ? cause.message : 'تعذر إنشاء الفرع الأول')
     } finally {
       setBootstrappingBranch(false)
     }
@@ -120,23 +120,23 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
     setError(null)
     setSuccess(null)
     if (!name.trim() || !username.trim()) {
-      setError('Ø£Ø¯Ø®Ù„ Ø§Ø³Ù… Ø§Ù„Ù…ÙˆØ¸Ù ÙˆØ§Ø³Ù… Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù… Ø£ÙˆÙ„Ù‹Ø§.')
+      setError('أدخل اسم الموظف واسم المستخدم أولًا.')
       return
     }
     if (permanentPassword.length < 12) {
-      setError('ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ± ÙŠØ¬Ø¨ Ø£Ù† ØªÙƒÙˆÙ† 12 Ø­Ø±ÙÙ‹Ø§ Ø¹Ù„Ù‰ Ø§Ù„Ø£Ù‚Ù„.')
+      setError('كلمة المرور يجب أن تكون 12 حرفًا على الأقل.')
       return
     }
     if (permanentPassword !== confirmPassword) {
-      setError('ØªØ£ÙƒÙŠØ¯ ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ± ØºÙŠØ± Ù…Ø·Ø§Ø¨Ù‚.')
+      setError('تأكيد كلمة المرور غير مطابق.')
       return
     }
     if (Boolean(probationStart) !== Boolean(probationEnd)) {
-      setError('Ø£Ø¯Ø®Ù„ ØªØ§Ø±ÙŠØ® Ø¨Ø¯Ø§ÙŠØ© ÙˆÙ†Ù‡Ø§ÙŠØ© ÙØªØ±Ø© Ø§Ù„ØªØ¬Ø±Ø¨Ø© Ù…Ø¹Ù‹Ø§ØŒ Ø£Ùˆ Ø§ØªØ±ÙƒÙ‡Ù…Ø§ ÙØ§Ø±ØºÙŠÙ†.')
+      setError('أدخل تاريخ بداية ونهاية فترة التجربة معًا، أو اتركهما فارغين.')
       return
     }
     if (probationStart && probationEnd && probationEnd < probationStart) {
-      setError('Ù†Ù‡Ø§ÙŠØ© ÙØªØ±Ø© Ø§Ù„ØªØ¬Ø±Ø¨Ø© ÙŠØ¬Ø¨ Ø£Ù† ØªÙƒÙˆÙ† Ø¨Ø¹Ø¯ Ø¨Ø¯Ø§ÙŠØªÙ‡Ø§.')
+      setError('نهاية فترة التجربة يجب أن تكون بعد بدايتها.')
       return
     }
     setSaving(true)
@@ -164,8 +164,8 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
         }),
       })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data?.error ?? 'ØªØ¹Ø°Ø± Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ø­Ø³Ø§Ø¨')
-      setSuccess(`ØªÙ… Ø¥Ù†Ø´Ø§Ø¡ ÙˆØªÙØ¹ÙŠÙ„ Ø­Ø³Ø§Ø¨ Ø§Ù„Ù…ÙˆØ¸Ù ${data.username ?? username.trim()} Ù…Ø¨Ø§Ø´Ø±Ø©Ù‹.`)
+      if (!res.ok) throw new Error(data?.error ?? 'تعذر إنشاء الحساب')
+      setSuccess(`تم إنشاء وتفعيل حساب الموظف ${data.username ?? username.trim()} مباشرةً.`)
       setUsername('')
       setName('')
       setPermanentPassword('')
@@ -183,7 +183,7 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
       setInvOpen(false)
       startTransition(() => router.refresh())
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'ØªØ¹Ø°Ø± Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ø­Ø³Ø§Ø¨')
+      setError(e instanceof Error ? e.message : 'تعذر إنشاء الحساب')
     } finally {
       setSaving(false)
     }
@@ -199,17 +199,17 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
         body: JSON.stringify(body),
       })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data?.error ?? 'ØªØ¹Ø°Ø± Ø§Ù„ØªØ­Ø¯ÙŠØ«')
-      setSuccess('ØªÙ… Ø§Ù„ØªØ­Ø¯ÙŠØ«')
+      if (!res.ok) throw new Error(data?.error ?? 'تعذر التحديث')
+      setSuccess('تم التحديث')
       startTransition(() => router.refresh())
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'ØªØ¹Ø°Ø± Ø§Ù„ØªØ­Ø¯ÙŠØ«')
+      setError(e instanceof Error ? e.message : 'تعذر التحديث')
       startTransition(() => router.refresh())
     }
   }
 
   async function archiveEmployee(id: string, name: string) {
-    const reason = window.prompt(`Ø³Ø¨Ø¨ Ø§Ù„Ø­Ø°Ù Ø§Ù„Ø¢Ù…Ù† Ù„Ù„Ù…ÙˆØ¸Ù ${name} (Ø¥Ù„Ø²Ø§Ù…ÙŠ):`)
+    const reason = window.prompt(`سبب الحذف الآمن للموظف ${name} (إلزامي):`)
     if (!reason?.trim()) return
 
     setError(null)
@@ -221,23 +221,23 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
         body: JSON.stringify({ reason: reason.trim() }),
       })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data?.error ?? 'ØªØ¹Ø°Ø± Ø­Ø°Ù Ø§Ù„Ù…ÙˆØ¸Ù')
-      setSuccess(`ØªÙ… Ø­Ø°Ù Ø§Ù„Ù…ÙˆØ¸Ù ${name} Ø¨Ø£Ù…Ø§Ù† ÙˆØ¥ÙŠÙ‚Ø§Ù Ø¯Ø®ÙˆÙ„Ù‡ Ù…Ø¹ Ø§Ù„Ø§Ø­ØªÙØ§Ø¸ Ø¨Ø³Ø¬Ù„Ø§ØªÙ‡.`)
+      if (!res.ok) throw new Error(data?.error ?? 'تعذر حذف الموظف')
+      setSuccess(`تم حذف الموظف ${name} بأمان وإيقاف دخوله مع الاحتفاظ بسجلاته.`)
       startTransition(() => router.refresh())
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'ØªØ¹Ø°Ø± Ø­Ø°Ù Ø§Ù„Ù…ÙˆØ¸Ù')
+      setError(e instanceof Error ? e.message : 'تعذر حذف الموظف')
     }
   }
 
   return (
     <div dir="rtl" className="flex min-h-0 flex-col gap-4">
       <header className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card/70 px-4 py-3">
-        <div><h1 className="text-xl font-bold">Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„Ù…ÙˆØ§Ø±Ø¯ Ø§Ù„Ø¨Ø´Ø±ÙŠØ©</h1><p className="text-sm text-muted-foreground">Ù…Ù„ÙØ§Øª Ø§Ù„Ù…ÙˆØ¸ÙÙŠÙ†ØŒ Ø§Ù„Ø­Ø¶ÙˆØ±ØŒ Ø§Ù„Ø§Ø³ØªØ­Ù‚Ø§Ù‚Ø§Øª ÙˆØ§Ù„Ø±ÙˆØ§ØªØ¨ ÙÙŠ Ù…Ø³Ø§Ø­Ø© Ø¹Ù…Ù„ ÙˆØ§Ø­Ø¯Ø©.</p></div>
-        {activeTab === 'employees' && directory.canManage && directory.branches.length > 0 ? <Button onClick={openInvite}><Icon name="plus" size={16} /> Ø¥Ø¶Ø§ÙØ© Ù…ÙˆØ¸Ù</Button> : null}
+        <div><h1 className="text-xl font-bold">إدارة الموارد البشرية</h1><p className="text-sm text-muted-foreground">ملفات الموظفين، الحضور، الاستحقاقات والرواتب في مساحة عمل واحدة.</p></div>
+        {activeTab === 'employees' && directory.canManage && directory.branches.length > 0 ? <Button onClick={openInvite}><Icon name="plus" size={16} /> إضافة موظف</Button> : null}
       </header>
       <HrKpiCards />
-      <nav aria-label="Ø£Ù‚Ø³Ø§Ù… Ø§Ù„Ù…ÙˆØ§Ø±Ø¯ Ø§Ù„Ø¨Ø´Ø±ÙŠØ©" className="flex gap-1 overflow-x-auto rounded-xl border border-border bg-card p-1">
-        {([['employees', 'Ø§Ù„Ù…ÙˆØ¸ÙÙˆÙ†'], ['schedules', 'Ø§Ù„Ø¬Ø¯Ø§ÙˆÙ„'], ['attendance', 'Ø§Ù„Ø­Ø¶ÙˆØ±'], ['leave', 'Ø§Ù„Ø¥Ø¬Ø§Ø²Ø§Øª'], ['overtime', 'Ø§Ù„Ø¥Ø¶Ø§ÙÙŠ'], ['financials', 'Ø§Ù„Ù…Ø³ØªØ­Ù‚Ø§Øª'], ['advances', 'Ø§Ù„Ø³Ù„Ù'], ['payroll', 'Ø§Ù„Ø±ÙˆØ§ØªØ¨'], ['reports', 'Ø§Ù„ØªÙ‚Ø§Ø±ÙŠØ±']] as const).map(([id, label]) => <button key={id} type="button" onClick={() => setActiveTab(id)} className={`whitespace-nowrap rounded-lg px-3 py-2 text-sm transition ${activeTab === id ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent hover:text-foreground'}`}>{label}</button>)}
+      <nav aria-label="أقسام الموارد البشرية" className="flex gap-1 overflow-x-auto rounded-xl border border-border bg-card p-1">
+        {([['employees', 'الموظفون'], ['schedules', 'الجداول'], ['attendance', 'الحضور'], ['leave', 'الإجازات'], ['overtime', 'الإضافي'], ['financials', 'المستحقات'], ['advances', 'السلف'], ['payroll', 'الرواتب'], ['reports', 'التقارير']] as const).map(([id, label]) => <button key={id} type="button" onClick={() => setActiveTab(id)} className={`whitespace-nowrap rounded-lg px-3 py-2 text-sm transition ${activeTab === id ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent hover:text-foreground'}`}>{label}</button>)}
       </nav>
       {error ? (
         <Card className="border-destructive/40">
@@ -253,51 +253,51 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
       {activeTab === 'employees' ? <>
       {directory.canManage && directory.branches.length === 0 ? (
         <Card className="border-warning/50">
-          <CardHeader><CardTitle>ØªÙ‡ÙŠØ¦Ø© Ø§Ù„ÙØ±Ø¹ Ø§Ù„Ø±Ø¦ÙŠØ³ÙŠ</CardTitle><CardDescription>Ù„Ø§ ÙŠÙ…ÙƒÙ† Ø¥Ù†Ø´Ø§Ø¡ Ù…ÙˆØ¸Ù ØªØ´ØºÙŠÙ„ÙŠ Ù‚Ø¨Ù„ ÙˆØ¬ÙˆØ¯ ÙØ±Ø¹ Ù†Ø´Ø·. Ù‡Ø°Ù‡ Ø§Ù„Ø¹Ù…Ù„ÙŠØ© Ù…ØªØ§Ø­Ø© Ù…Ø±Ø© ÙˆØ§Ø­Ø¯Ø© ÙÙ‚Ø· Ø¹Ù†Ø¯ Ø¹Ø¯Ù… ÙˆØ¬ÙˆØ¯ Ø£ÙŠ ÙØ±Ø¹ØŒ ÙˆØªÙØ³Ø¬Ù„ ÙÙŠ Ø³Ø¬Ù„ Ø§Ù„ØªØ¯Ù‚ÙŠÙ‚.</CardDescription></CardHeader>
+          <CardHeader><CardTitle>تهيئة الفرع الرئيسي</CardTitle><CardDescription>لا يمكن إنشاء موظف تشغيلي قبل وجود فرع نشط. هذه العملية متاحة مرة واحدة فقط عند عدم وجود أي فرع، وتُسجل في سجل التدقيق.</CardDescription></CardHeader>
           <CardContent className="grid gap-3 sm:grid-cols-2">
-            <label className="flex flex-col gap-1.5 text-sm"><span className="text-muted-foreground">Ø§Ø³Ù… Ø§Ù„ÙØ±Ø¹</span><Input value={branchName} onChange={(event) => setBranchName(event.target.value)} maxLength={100} /></label>
-            <label className="flex flex-col gap-1.5 text-sm"><span className="text-muted-foreground">Ø±Ù…Ø² Ø§Ù„ÙØ±Ø¹</span><Input value={branchCode} onChange={(event) => setBranchCode(event.target.value)} dir="ltr" maxLength={20} placeholder="MAIN" /></label>
-            <label className="flex flex-col gap-1.5 text-sm"><span className="text-muted-foreground">Ù‡Ø§ØªÙ Ø§Ù„ÙØ±Ø¹ (Ø§Ø®ØªÙŠØ§Ø±ÙŠ)</span><Input value={branchPhone} onChange={(event) => setBranchPhone(event.target.value)} inputMode="tel" maxLength={20} /></label>
-            <label className="flex flex-col gap-1.5 text-sm"><span className="text-muted-foreground">Ø§Ù„Ø¹Ù†ÙˆØ§Ù† (Ø§Ø®ØªÙŠØ§Ø±ÙŠ)</span><Input value={branchAddress} onChange={(event) => setBranchAddress(event.target.value)} maxLength={255} /></label>
-            <div className="sm:col-span-2"><p className="mb-2 text-xs text-muted-foreground">Ø³ÙŠÙÙ†Ø´Ø£ Ø§Ù„ÙØ±Ø¹ Ù†Ø´Ø·Ù‹Ø§ Ø¨Ø§Ù„Ù…Ù†Ø·Ù‚Ø© Ø§Ù„Ø²Ù…Ù†ÙŠØ© Africa/Cairo. Ø±Ø§Ø¬Ø¹ Ø§Ù„Ø§Ø³Ù… ÙˆØ§Ù„Ø±Ù…Ø² Ù‚Ø¨Ù„ Ø§Ù„ØªØ£ÙƒÙŠØ¯.</p><Button disabled={bootstrappingBranch || !branchName.trim() || !branchCode.trim()} onClick={() => void createInitialBranch()}>{bootstrappingBranch ? 'Ø¬Ø§Ø±Ù Ø§Ù„ØªÙ‡ÙŠØ¦Ø©â€¦' : 'Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„ÙØ±Ø¹ Ø§Ù„Ø±Ø¦ÙŠØ³ÙŠ'}</Button></div>
+            <label className="flex flex-col gap-1.5 text-sm"><span className="text-muted-foreground">اسم الفرع</span><Input value={branchName} onChange={(event) => setBranchName(event.target.value)} maxLength={100} /></label>
+            <label className="flex flex-col gap-1.5 text-sm"><span className="text-muted-foreground">رمز الفرع</span><Input value={branchCode} onChange={(event) => setBranchCode(event.target.value)} dir="ltr" maxLength={20} placeholder="MAIN" /></label>
+            <label className="flex flex-col gap-1.5 text-sm"><span className="text-muted-foreground">هاتف الفرع (اختياري)</span><Input value={branchPhone} onChange={(event) => setBranchPhone(event.target.value)} inputMode="tel" maxLength={20} /></label>
+            <label className="flex flex-col gap-1.5 text-sm"><span className="text-muted-foreground">العنوان (اختياري)</span><Input value={branchAddress} onChange={(event) => setBranchAddress(event.target.value)} maxLength={255} /></label>
+            <div className="sm:col-span-2"><p className="mb-2 text-xs text-muted-foreground">سيُنشأ الفرع نشطًا بالمنطقة الزمنية Africa/Cairo. راجع الاسم والرمز قبل التأكيد.</p><Button disabled={bootstrappingBranch || !branchName.trim() || !branchCode.trim()} onClick={() => void createInitialBranch()}>{bootstrappingBranch ? 'جارٍ التهيئة…' : 'إنشاء الفرع الرئيسي'}</Button></div>
           </CardContent>
         </Card>
       ) : null}
       <div className="flex flex-wrap items-center gap-3">
         <Input
           icon="search" value={query} onChange={(e) => setQuery(e.target.value)}
-          placeholder="Ø§Ø¨Ø­Ø« Ø¨Ø§Ù„Ø§Ø³Ù… Ø£Ùˆ Ø§Ù„Ø¨Ø±ÙŠØ¯â€¦" aria-label="Ø¨Ø­Ø« Ø§Ù„Ù…ÙˆØ¸ÙÙŠÙ†" className="max-w-xs"
+          placeholder="ابحث بالاسم أو البريد…" aria-label="بحث الموظفين" className="max-w-xs"
         />
       </div>
 
       {directory.canManage && invOpen ? (
-        <div role="dialog" aria-modal="true" aria-label="Ø¥Ø¶Ø§ÙØ© Ù…ÙˆØ¸Ù Ø¬Ø¯ÙŠØ¯" className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-3 sm:p-6">
+        <div role="dialog" aria-modal="true" aria-label="إضافة موظف جديد" className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-3 sm:p-6">
         <Card className="mx-auto my-4 w-full max-w-4xl sm:my-8">
           <CardHeader>
-            <CardTitle>Ø¥Ø¶Ø§ÙØ© Ù…ÙˆØ¸Ù Ø¬Ø¯ÙŠØ¯</CardTitle>
-            <CardDescription>Ø£Ù†Ø´Ø¦ Ø§Ø³Ù… Ù…Ø³ØªØ®Ø¯Ù… ÙˆÙƒÙ„Ù…Ø© Ù…Ø±ÙˆØ± Ù…Ø¨Ø§Ø´Ø±Ø©Ø› Ù„Ø§ ØªÙØ±Ø³Ù„ Ø±Ø³Ø§Ù„Ø© Ø¯Ø¹ÙˆØ© Ø£Ùˆ ÙƒÙ„Ù…Ø© Ù…Ø±ÙˆØ± Ø¨Ø§Ù„Ø¨Ø±ÙŠØ¯.</CardDescription>
+            <CardTitle>إضافة موظف جديد</CardTitle>
+            <CardDescription>أنشئ اسم مستخدم وكلمة مرور مباشرة؛ لا تُرسل رسالة دعوة أو كلمة مرور بالبريد.</CardDescription>
           </CardHeader>
           <CardContent>
             {error ? <p role="alert" className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="flex flex-col gap-1.5 text-sm">
-                <span className="text-muted-foreground">Ø§Ù„Ø§Ø³Ù…</span>
-                <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ø§Ø³Ù… Ø§Ù„Ù…ÙˆØ¸Ù" />
+                <span className="text-muted-foreground">الاسم</span>
+                <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="اسم الموظف" />
               </label>
               <label className="flex flex-col gap-1.5 text-sm">
-                <span className="text-muted-foreground">Ø§Ø³Ù… Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…</span>
+                <span className="text-muted-foreground">اسم المستخدم</span>
                 <Input value={username} onChange={(e) => setUsername(e.target.value)} dir="ltr" autoComplete="username" placeholder="ahmed.saleh" />
               </label>
               <label className="flex flex-col gap-1.5 text-sm">
-                <span className="text-muted-foreground">ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ±</span>
+                <span className="text-muted-foreground">كلمة المرور</span>
                 <Input value={permanentPassword} type="password" autoComplete="new-password" onChange={(e) => setPermanentPassword(e.target.value)} />
               </label>
               <label className="flex flex-col gap-1.5 text-sm">
-                <span className="text-muted-foreground">ØªØ£ÙƒÙŠØ¯ ÙƒÙ„Ù…Ø© Ø§Ù„Ù…Ø±ÙˆØ±</span>
+                <span className="text-muted-foreground">تأكيد كلمة المرور</span>
                 <Input value={confirmPassword} type="password" autoComplete="new-password" onChange={(e) => setConfirmPassword(e.target.value)} />
               </label>
               <label className="flex flex-col gap-1.5 text-sm">
-                <span className="text-muted-foreground">Ø§Ù„Ø¯ÙˆØ±</span>
+                <span className="text-muted-foreground">الدور</span>
                 <select
                   value={role} onChange={(e) => setRole(e.target.value)}
                   className="h-10 rounded-lg border border-border bg-background px-3 text-foreground"
@@ -309,7 +309,7 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
               </label>
               {role !== 'owner' && directory.branches.length > 0 ? (
                 <label className="flex flex-col gap-1.5 text-sm">
-                  <span className="text-muted-foreground">Ø§Ù„ÙØ±Ø¹</span>
+                  <span className="text-muted-foreground">الفرع</span>
                   <select
                     value={branchId} onChange={(e) => setBranchId(e.target.value)}
                     className="h-10 rounded-lg border border-border bg-background px-3 text-foreground"
@@ -322,26 +322,26 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
               ) : null}
             </div>
             <details className="mt-4 rounded-lg border border-border p-3">
-              <summary className="cursor-pointer text-sm font-medium">Ø¨ÙŠØ§Ù†Ø§Øª Ù…Ù„Ù HR Ø§Ù„Ø£Ø³Ø§Ø³ÙŠØ©</summary>
-              <p className="mt-1 text-xs text-muted-foreground">ØªÙÙ†Ø´Ø£ Ø¨Ø·Ø§Ù‚Ø© HR Ù…Ø¹ Ø§Ù„Ø­Ø³Ø§Ø¨. Ø£Ø¯Ø®Ù„ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù…ØªØ§Ø­Ø© Ø§Ù„Ø¢Ù† ÙˆÙŠÙ…ÙƒÙ† Ø§Ø³ØªÙƒÙ…Ø§Ù„Ù‡Ø§ Ù„Ø§Ø­Ù‚Ù‹Ø§ Ù…Ù† Ù…Ù„Ù Ø§Ù„Ù…ÙˆØ¸Ù.</p>
+              <summary className="cursor-pointer text-sm font-medium">بيانات ملف HR الأساسية</summary>
+              <p className="mt-1 text-xs text-muted-foreground">تُنشأ بطاقة HR مع الحساب. أدخل البيانات المتاحة الآن ويمكن استكمالها لاحقًا من ملف الموظف.</p>
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                <label className="flex flex-col gap-1.5 text-sm"><span className="text-muted-foreground">Ù‡Ø§ØªÙ Ø§Ù„Ø¹Ù…Ù„</span><Input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" /></label>
-                <label className="flex flex-col gap-1.5 text-sm"><span className="text-muted-foreground">Ù†ÙˆØ¹ Ø§Ù„ØªÙˆØ¸ÙŠÙ</span><Input value={employmentType} onChange={(e) => setEmploymentType(e.target.value)} placeholder="Ø¯ÙˆØ§Ù… ÙƒØ§Ù…Ù„ / Ø¬Ø²Ø¦ÙŠ / ØªØ­Øª Ø§Ù„ØªØ¬Ø±Ø¨Ø©" /></label>
-                <label className="flex flex-col gap-1.5 text-sm"><span className="text-muted-foreground">ØªØ§Ø±ÙŠØ® Ø§Ù„ØªØ¹ÙŠÙŠÙ†</span><Input type="date" value={hireDate} onChange={(e) => setHireDate(e.target.value)} /></label>
-                <label className="flex flex-col gap-1.5 text-sm"><span className="text-muted-foreground">Ø§Ù„Ø¨Ø±ÙŠØ¯ Ø§Ù„Ø´Ø®ØµÙŠ</span><Input type="email" value={personalEmail} onChange={(e) => setPersonalEmail(e.target.value)} /></label>
-                <label className="flex flex-col gap-1.5 text-sm"><span className="text-muted-foreground">Ø§Ù„Ù‡Ø§ØªÙ Ø§Ù„Ø´Ø®ØµÙŠ</span><Input value={personalPhone} onChange={(e) => setPersonalPhone(e.target.value)} inputMode="tel" /></label>
-                <label className="flex flex-col gap-1.5 text-sm"><span className="text-muted-foreground">Ø§Ù„Ø¹Ù†ÙˆØ§Ù†</span><Input value={address} onChange={(e) => setAddress(e.target.value)} /></label>
-                <label className="flex flex-col gap-1.5 text-sm"><span className="text-muted-foreground">Ø¨Ø¯Ø§ÙŠØ© ÙØªØ±Ø© Ø§Ù„ØªØ¬Ø±Ø¨Ø©</span><Input type="date" value={probationStart} onChange={(e) => setProbationStart(e.target.value)} /></label>
-                <label className="flex flex-col gap-1.5 text-sm"><span className="text-muted-foreground">Ù†Ù‡Ø§ÙŠØ© ÙØªØ±Ø© Ø§Ù„ØªØ¬Ø±Ø¨Ø©</span><Input type="date" value={probationEnd} onChange={(e) => setProbationEnd(e.target.value)} /></label>
-                <label className="flex flex-col gap-1.5 text-sm"><span className="text-muted-foreground">Ø§Ø³Ù… Ø¬Ù‡Ø© Ø§Ù„Ø·ÙˆØ§Ø±Ø¦</span><Input value={emergencyContactName} onChange={(e) => setEmergencyContactName(e.target.value)} /></label>
-                <label className="flex flex-col gap-1.5 text-sm"><span className="text-muted-foreground">Ù‡Ø§ØªÙ Ø¬Ù‡Ø© Ø§Ù„Ø·ÙˆØ§Ø±Ø¦</span><Input value={emergencyContactPhone} onChange={(e) => setEmergencyContactPhone(e.target.value)} inputMode="tel" /></label>
+                <label className="flex flex-col gap-1.5 text-sm"><span className="text-muted-foreground">هاتف العمل</span><Input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" /></label>
+                <label className="flex flex-col gap-1.5 text-sm"><span className="text-muted-foreground">نوع التوظيف</span><Input value={employmentType} onChange={(e) => setEmploymentType(e.target.value)} placeholder="دوام كامل / جزئي / تحت التجربة" /></label>
+                <label className="flex flex-col gap-1.5 text-sm"><span className="text-muted-foreground">تاريخ التعيين</span><Input type="date" value={hireDate} onChange={(e) => setHireDate(e.target.value)} /></label>
+                <label className="flex flex-col gap-1.5 text-sm"><span className="text-muted-foreground">البريد الشخصي</span><Input type="email" value={personalEmail} onChange={(e) => setPersonalEmail(e.target.value)} /></label>
+                <label className="flex flex-col gap-1.5 text-sm"><span className="text-muted-foreground">الهاتف الشخصي</span><Input value={personalPhone} onChange={(e) => setPersonalPhone(e.target.value)} inputMode="tel" /></label>
+                <label className="flex flex-col gap-1.5 text-sm"><span className="text-muted-foreground">العنوان</span><Input value={address} onChange={(e) => setAddress(e.target.value)} /></label>
+                <label className="flex flex-col gap-1.5 text-sm"><span className="text-muted-foreground">بداية فترة التجربة</span><Input type="date" value={probationStart} onChange={(e) => setProbationStart(e.target.value)} /></label>
+                <label className="flex flex-col gap-1.5 text-sm"><span className="text-muted-foreground">نهاية فترة التجربة</span><Input type="date" value={probationEnd} onChange={(e) => setProbationEnd(e.target.value)} /></label>
+                <label className="flex flex-col gap-1.5 text-sm"><span className="text-muted-foreground">اسم جهة الطوارئ</span><Input value={emergencyContactName} onChange={(e) => setEmergencyContactName(e.target.value)} /></label>
+                <label className="flex flex-col gap-1.5 text-sm"><span className="text-muted-foreground">هاتف جهة الطوارئ</span><Input value={emergencyContactPhone} onChange={(e) => setEmergencyContactPhone(e.target.value)} inputMode="tel" /></label>
               </div>
             </details>
             <div className="mt-4 flex items-center gap-3">
               <Button onClick={createEmployee} disabled={saving}>
-                <Icon name="check" size={16} /> {saving ? 'Ø¬Ø§Ø±Ù Ø§Ù„Ø¥Ù†Ø´Ø§Ø¡â€¦' : 'Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ø­Ø³Ø§Ø¨'}
+                <Icon name="check" size={16} /> {saving ? 'جارٍ الإنشاء…' : 'إنشاء الحساب'}
               </Button>
-              <Button variant="ghost" onClick={() => setInvOpen(false)}>Ø¥Ù„ØºØ§Ø¡</Button>
+              <Button variant="ghost" onClick={() => setInvOpen(false)}>إلغاء</Button>
             </div>
           </CardContent>
         </Card>
@@ -350,34 +350,34 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
 
       <Card>
         <CardHeader className="flex-row items-center justify-between">
-          <CardTitle>Ø§Ù„Ù…ÙˆØ¸ÙÙˆÙ† ({rows.length})</CardTitle>
+          <CardTitle>الموظفون ({rows.length})</CardTitle>
         </CardHeader>
         <CardContent>
           {rows.length === 0 ? (
-            <EmptyState icon="staff" title="Ù„Ø§ ÙŠÙˆØ¬Ø¯ Ù…ÙˆØ¸ÙÙˆÙ† Ù…Ø·Ø§Ø¨Ù‚ÙˆÙ†" description="Ø¬Ø±Ù‘Ø¨ Ø¨Ø­Ø«Ø§Ù‹ Ø¢Ø®Ø± Ø£Ùˆ Ø§Ø¯Ø¹Ù Ù…ÙˆØ¸ÙØ§Ù‹ Ø¬Ø¯ÙŠØ¯Ø§Ù‹." />
+            <EmptyState icon="staff" title="لا يوجد موظفون مطابقون" description="جرّب بحثاً آخر أو ادعُ موظفاً جديداً." />
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border text-xs text-muted-foreground">
-                    <th className="px-2 py-2 text-start font-medium">Ø§Ù„Ø§Ø³Ù…</th>
-                    <th className="px-2 py-2 text-start font-medium">Ø§Ù„Ø¯Ø®ÙˆÙ„</th>
-                    <th className="px-2 py-2 text-start font-medium">Ø§Ù„Ø¯ÙˆØ±</th>
-                    <th className="px-2 py-2 text-start font-medium">Ø§Ù„ÙØ±Ø¹</th>
-                    <th className="px-2 py-2 text-start font-medium">Ø§Ù„Ø­Ø§Ù„Ø©</th>
-                    <th className="px-2 py-2 text-start font-medium">Ø§Ù†Ø¶Ù…</th>
-                    {directory.canManage ? <th className="px-2 py-2 text-start font-medium">Ø¥Ø¬Ø±Ø§Ø¡</th> : null}
+                    <th className="px-2 py-2 text-start font-medium">الاسم</th>
+                    <th className="px-2 py-2 text-start font-medium">الدخول</th>
+                    <th className="px-2 py-2 text-start font-medium">الدور</th>
+                    <th className="px-2 py-2 text-start font-medium">الفرع</th>
+                    <th className="px-2 py-2 text-start font-medium">الحالة</th>
+                    <th className="px-2 py-2 text-start font-medium">انضم</th>
+                    {directory.canManage ? <th className="px-2 py-2 text-start font-medium">إجراء</th> : null}
                   </tr>
                 </thead>
                 <tbody>
                   {rows.map((r) => (
                     <tr key={r.id} className="border-b border-border/50 last:border-0 hover:bg-accent/40">
                       <td className="px-2 py-2.5 font-medium text-foreground">{r.name}</td>
-                      <td className="px-2 py-2.5 text-muted-foreground" dir="ltr">{r.username ?? r.email ?? 'â€”'}</td>
+                      <td className="px-2 py-2.5 text-muted-foreground" dir="ltr">{r.username ?? r.email ?? '—'}</td>
                       <td className="px-2 py-2.5 text-muted-foreground">{r.roleName}</td>
-                      <td className="px-2 py-2.5 text-muted-foreground">{r.branchName ?? 'ÙƒÙ„ Ø§Ù„ÙØ±ÙˆØ¹'}</td>
+                      <td className="px-2 py-2.5 text-muted-foreground">{r.branchName ?? 'كل الفروع'}</td>
                       <td className="px-2 py-2.5">
-                        <Badge tone={r.isActive ? 'success' : 'muted'}>{r.isActive ? 'Ù†Ø´Ø·' : 'Ù…ÙˆÙ‚ÙˆÙ'}</Badge>
+                        <Badge tone={r.isActive ? 'success' : 'muted'}>{r.isActive ? 'نشط' : 'موقوف'}</Badge>
                       </td>
                       <td className="px-2 py-2.5 text-muted-foreground">{formatRelative(new Date(r.createdAt))}</td>
                       {directory.canManage ? (
@@ -386,7 +386,7 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
                             {r.role !== 'owner' ? (
                               <>
                                 <select
-                                  aria-label={`ØªØºÙŠÙŠØ± Ø¯ÙˆØ± ${r.name}`}
+                                  aria-label={`تغيير دور ${r.name}`}
                                   value={r.role}
                                   onChange={(e) => patch(r.id, { role: e.target.value })}
                                   className="h-8 rounded-md border border-border bg-background px-2 text-xs"
@@ -399,17 +399,17 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
                                   size="sm" variant="outline"
                                   onClick={() => patch(r.id, { isActive: !r.isActive })}
                                 >
-                                  {r.isActive ? 'Ø¥ÙŠÙ‚Ø§Ù' : 'ØªÙØ¹ÙŠÙ„'}
+                                  {r.isActive ? 'إيقاف' : 'تفعيل'}
                                 </Button>
                                 <Button
                                   size="sm" variant="destructive"
                                   onClick={() => void archiveEmployee(r.id, r.name)}
                                 >
-                                  Ø­Ø°Ù Ø¢Ù…Ù†
+                                  حذف آمن
                                 </Button>
                               </>
                             ) : (
-                              <span className="text-xs text-muted-foreground">Ø­Ø³Ø§Ø¨ Ø§Ù„Ù…Ø§Ù„Ùƒ</span>
+                              <span className="text-xs text-muted-foreground">حساب المالك</span>
                             )}
                           </div>
                         </td>
@@ -431,11 +431,9 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
       {activeTab === 'financials' || activeTab === 'advances' || activeTab === 'payroll' ? <PayrollManagementBoard employees={directory.rows.map((row) => ({ id: row.id, name: row.name, branchId: row.branchId }))} canManage={directory.canManage} /> : null}
       {activeTab === 'reports' ? <HrReportsBoard employees={directory.rows.map((row) => ({ id: row.id, name: row.name }))} /> : null}
       <p className="text-xs text-muted-foreground">
-        Ø§Ù„Ø¯Ø¹ÙˆØ© ØªÙÙ†Ø´Ø¦ Ø­Ø³Ø§Ø¨Ø§Ù‹ ÙÙŠ Supabase Auth Ø«Ù… ÙŠÙØ±Ø¨Ø· Ø¨Ø¯ÙˆØ± ÙˆÙØ±Ø¹ Ù…Ø­Ø¯Ø¯ÙŠÙ† Ù‡Ù†Ø§ â€” ØªØ¹Ø¯ÙŠÙ„Ø§Øª Ø§Ù„Ø£Ø¯ÙˆØ§Ø± ØªÙØ·Ø¨ÙŽÙ‘Ù‚ Ø¹Ù„Ù‰
-        Ø§Ù„Ø®Ø§Ø¯Ù… ÙˆÙ„Ø§ ÙŠÙ…ÙƒÙ† ØªØ¬Ø§ÙˆØ²Ù‡Ø§ Ù…Ù† Ø§Ù„Ù…ØªØµÙØ­.
+        الدعوة تُنشئ حساباً في Supabase Auth ثم يُربط بدور وفرع محددين هنا — تعديلات الأدوار تُطبَّق على
+        الخادم ولا يمكن تجاوزها من المتصفح.
       </p>
     </div>
   )
 }
-
-

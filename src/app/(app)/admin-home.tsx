@@ -1,4 +1,4 @@
-﻿import { requirePageAccess } from "@/lib/require-page-access";
+import { requirePageAccess } from "@/lib/require-page-access";
 import { getDashboardStats } from "@/lib/dashboard-stats";
 import { StatCard } from "@/components/ui/stat";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -66,13 +66,13 @@ export async function CanonicalDashboardPage({ pathname }: { pathname: '/owner' 
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Ù„ÙˆØ­Ø© Ø§Ù„ØªØ­ÙƒÙ…</h1>
-          <p className="text-sm text-muted-foreground">Ø¬Ù…ÙŠØ¹ Ø§Ù„Ø£Ø±Ù‚Ø§Ù… Ù…Ø£Ø®ÙˆØ°Ø© Ù…Ù† Ù‚Ø§Ø¹Ø¯Ø© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ø­Ù‚ÙŠÙ‚ÙŠØ©ØŒ ÙˆØªØ­Ø¯Ù‘Ø« Ù‡ÙŠÙƒÙ„Ù‡Ø§ ØªÙ„Ù‚Ø§Ø¦ÙŠØ§Ù‹.</p>
+          <h1 className="text-2xl font-bold">لوحة التحكم</h1>
+          <p className="text-sm text-muted-foreground">جميع الأرقام مأخوذة من قاعدة البيانات الحقيقية، وتحدّث هيكلها تلقائياً.</p>
         </div>
         <div className="flex items-center gap-2">
           <span className="inline-flex items-center gap-1.5 rounded-full bg-info/10 px-3 py-1 text-xs font-semibold text-info">
             <span className="h-1.5 w-1.5 rounded-full bg-info animate-pulse" aria-hidden="true" />
-            Ø­ÙŠ (Ù…Ø­Ø¯Ø« ØªÙ„Ù‚Ø§Ø¦ÙŠØ§Ù‹)
+            حي (محدث تلقائياً)
           </span>
           <form action={logoutAction}>
             <button
@@ -80,7 +80,7 @@ export async function CanonicalDashboardPage({ pathname }: { pathname: '/owner' 
               className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <Icon name="logout" size={16} />
-              ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø®Ø±ÙˆØ¬
+              تسجيل الخروج
             </button>
           </form>
         </div>
@@ -88,29 +88,29 @@ export async function CanonicalDashboardPage({ pathname }: { pathname: '/owner' 
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
-          label="Ø§Ù„Ù…Ø­ØµÙ‘Ù„ Ø§Ù„ÙŠÙˆÙ…"
+          label="المحصّل اليوم"
           value={formatCurrency(stats.totalSalesToday)}
           icon="trendingUp"
           delta={salesDelta.delta}
           deltaDirection={salesDelta.dir}
-          hint="Ù…Ø¯ÙÙˆØ¹Ø§Øª Ù…ÙƒØªÙ…Ù„Ø© â€” Ù…Ù‚Ø§Ø±Ù†Ø© Ø¨Ø§Ù„Ø£Ù…Ø³"
+          hint="مدفوعات مكتملة — مقارنة بالأمس"
         />
         <StatCard
-          label="Ù‚ÙŠÙ…Ø© Ø·Ù„Ø¨Ø§Øª Ø§Ù„ÙŠÙˆÙ…"
+          label="قيمة طلبات اليوم"
           value={formatCurrency(stats.orderValueToday)}
           icon="orders"
-          hint="Ø·Ù„Ø¨Ø§Øª ØºÙŠØ± Ù…Ù„ØºÙŠØ© â€” ØªØ´Ù…Ù„ ØºÙŠØ± Ø§Ù„Ù…Ø¯ÙÙˆØ¹"
+          hint="طلبات غير ملغية — تشمل غير المدفوع"
         />
         <StatCard
-          label="Ø¹Ø¯Ø¯ Ø§Ù„Ø·Ù„Ø¨Ø§Øª"
+          label="عدد الطلبات"
           value={formatNumber(stats.ordersToday)}
           icon="orders"
           delta={ordersDelta.delta}
           deltaDirection={ordersDelta.dir}
-          hint="Ù…Ù‚Ø§Ø±Ù†Ø© Ø¨Ø§Ù„Ø£Ù…Ø³"
+          hint="مقارنة بالأمس"
         />
-        <StatCard label="Ù…ØªÙˆØ³Ø· Ø§Ù„Ù…Ø­ØµÙ‘Ù„ Ù„Ù„Ø·Ù„Ø¨ Ø§Ù„Ù…Ø¯ÙÙˆØ¹" value={formatCurrency(stats.avgOrderValue)} icon="reports" hint={stats.paidOrdersToday ? `Ø¹Ù„Ù‰ ${formatNumber(stats.paidOrdersToday)} Ø·Ù„Ø¨ Ù…Ø¯ÙÙˆØ¹` : 'Ù„Ø§ Ø·Ù„Ø¨Ø§Øª Ù…Ø¯ÙÙˆØ¹Ø© Ø§Ù„ÙŠÙˆÙ…'} />
-        <StatCard label="Ù‚ÙŠØ¯ Ø§Ù„ØªØ­Ø¶ÙŠØ±" value={formatNumber(stats.ordersInPreparation)} icon="kitchen" hint="Ø·Ù„Ø¨Ø§Øª Ù†Ø´Ø·Ø©" />
+        <StatCard label="متوسط المحصّل للطلب المدفوع" value={formatCurrency(stats.avgOrderValue)} icon="reports" hint={stats.paidOrdersToday ? `على ${formatNumber(stats.paidOrdersToday)} طلب مدفوع` : 'لا طلبات مدفوعة اليوم'} />
+        <StatCard label="قيد التحضير" value={formatNumber(stats.ordersInPreparation)} icon="kitchen" hint="طلبات نشطة" />
       </div>
 
       {managerOperations ? <ManagerOperationsCenter data={managerOperations} /> : null}
@@ -123,11 +123,11 @@ export async function CanonicalDashboardPage({ pathname }: { pathname: '/owner' 
         </div>
         <Card>
           <CardHeader>
-            <CardTitle>ØªÙˆØ²ÙŠØ¹ Ø­Ø§Ù„Ø§Øª Ø§Ù„Ø·Ù„Ø¨Ø§Øª</CardTitle>
-            <CardDescription>Ø§Ù„ÙŠÙˆÙ… â€” Ù…Ù† Ù‚Ø§Ø¹Ø¯Ø© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª</CardDescription>
+            <CardTitle>توزيع حالات الطلبات</CardTitle>
+            <CardDescription>اليوم — من قاعدة البيانات</CardDescription>
           </CardHeader>
           <CardContent>
-            <DonutChart data={stats.statusDistribution} centerValue={formatNumber(stats.ordersToday)} centerLabel="Ø·Ù„Ø¨" />
+            <DonutChart data={stats.statusDistribution} centerValue={formatNumber(stats.ordersToday)} centerLabel="طلب" />
           </CardContent>
         </Card>
       </div>
@@ -160,5 +160,3 @@ export default async function AdminHomePage() {
   // through a legacy dashboard redirect.
   redirect('/login')
 }
-
-

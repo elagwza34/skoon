@@ -1,4 +1,4 @@
-﻿import { redirect } from 'next/navigation'
+import { redirect } from 'next/navigation'
 import { requirePageAccess } from '@/lib/require-page-access'
 import { getOpenShift } from '@/lib/staff-shifts'
 import { isOwner, requiresOperationalShift } from '@/lib/authz'
@@ -9,11 +9,11 @@ import { OwnerWaiterMonitor } from '@/components/waiter/owner-waiter-monitor'
 export const dynamic = 'force-dynamic'
 
 export const metadata = {
-  title: 'Ø§Ù„ÙˆÙŠØªØ± | Skoon',
+  title: 'الويتر | Skoon',
 }
 
 /**
- * Waiter â€” server component. Real branch tables + open orders from the DB.
+ * Waiter — server component. Real branch tables + open orders from the DB.
  * Requires an open shift for the waiter before rendering the board.
  */
 export default async function WaiterPage() {
@@ -33,5 +33,3 @@ export default async function WaiterPage() {
   const workspace = await getWaiterWorkspace(session)
   return <WaiterBoard workspace={workspace} />
 }
-
-

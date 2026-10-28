@@ -1,4 +1,4 @@
-﻿import { LoginForm } from '@/components/auth/login-form'
+import { LoginForm } from '@/components/auth/login-form'
 import { redirect } from 'next/navigation'
 import { getStaffSession } from '@/lib/session'
 import { resolveRoleHome } from '@/lib/route-access'
@@ -6,8 +6,8 @@ import { resolveRoleHome } from '@/lib/route-access'
 /**
  * Staff sign-in page (public). Renders the client form which submits to the
  * server action in `src/app/login/actions.ts`.
- * `next` â€” where to go after sign-in (validated server-side).
- * `reason` â€” context from a bounce (e.g. `unprovisioned`).
+ * `next` — where to go after sign-in (validated server-side).
+ * `reason` — context from a bounce (e.g. `unprovisioned`).
  */
 export default async function LoginPage({
   searchParams,
@@ -25,5 +25,3 @@ export default async function LoginPage({
   }
   return <LoginForm next={next} reason={reason} />
 }
-
-

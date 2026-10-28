@@ -1,9 +1,9 @@
-﻿import type { ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 import { Icon, type IconName } from '@/components/ui/icon'
 
 /**
- * EmptyState â€” friendly placeholder for empty / no-results / error surfaces.
+ * EmptyState — friendly placeholder for empty / no-results / error surfaces.
  * Keeps the preview honest: search "no results" is distinct from a real error.
  */
 
@@ -34,5 +34,3 @@ export function EmptyState({ icon = 'sparkles', title, description, action, clas
     </div>
   )
 }
-
-

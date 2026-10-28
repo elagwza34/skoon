@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Popover } from '@/components/ui/popover'
@@ -6,7 +6,7 @@ import { Icon } from '@/components/ui/icon'
 import { cn } from '@/lib/utils'
 
 /**
- * NotificationsBell â€” a live, per-user bell that polls GET /api/staff/notifications.
+ * NotificationsBell — a live, per-user bell that polls GET /api/staff/notifications.
  *
  * WHY A SELF-FETCHING COMPONENT: operational roles (waiter/kitchen/cashier) run
  * on full-screen boards WITHOUT the admin AppShell/Topbar, so a bell passed down
@@ -50,12 +50,12 @@ const ICON: Record<string, string> = {
 
 function timeAgo(iso: string): string {
   const s = Math.max(1, Math.round((Date.now() - new Date(iso).getTime()) / 1000))
-  if (s < 60) return `Ù‚Ø¨Ù„ ${s} Ø«`
+  if (s < 60) return `قبل ${s} ث`
   const m = Math.round(s / 60)
-  if (m < 60) return `Ù‚Ø¨Ù„ ${m} Ø¯`
+  if (m < 60) return `قبل ${m} د`
   const h = Math.round(m / 60)
-  if (h < 24) return `Ù‚Ø¨Ù„ ${h} Ø³`
-  return `Ù‚Ø¨Ù„ ${Math.round(h / 24)} ÙŠ`
+  if (h < 24) return `قبل ${h} س`
+  return `قبل ${Math.round(h / 24)} ي`
 }
 
 export function NotificationsBell({ className }: { className?: string }) {
@@ -72,7 +72,7 @@ export function NotificationsBell({ className }: { className?: string }) {
       setItems(data.items)
       setUnread(data.unread)
     } catch {
-      // Network blip â€” keep the last known state, retry on the next tick.
+      // Network blip — keep the last known state, retry on the next tick.
     }
   }, [])
 
@@ -101,13 +101,13 @@ export function NotificationsBell({ className }: { className?: string }) {
 
   return (
     <Popover
-      ariaLabel="Ø§Ù„Ø¥Ø´Ø¹Ø§Ø±Ø§Øª"
+      ariaLabel="الإشعارات"
       panelClassName="w-80"
       onOpen={markRead}
       trigger={(p) => (
         <button
           {...p}
-          aria-label="Ø§Ù„Ø¥Ø´Ø¹Ø§Ø±Ø§Øª"
+          aria-label="الإشعارات"
           className={cn(
             'relative inline-flex h-10 w-10 items-center justify-center rounded-md text-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
             className,
@@ -125,13 +125,13 @@ export function NotificationsBell({ className }: { className?: string }) {
       {() => (
         <div className="w-80">
           <div className="flex items-center justify-between border-b border-border px-4 py-2.5 text-sm font-semibold text-foreground">
-            <span>Ø§Ù„Ø¥Ø´Ø¹Ø§Ø±Ø§Øª</span>
+            <span>الإشعارات</span>
             {unread > 0 ? (
-              <span className="text-xs font-normal text-muted-foreground">{unread} Ø¬Ø¯ÙŠØ¯</span>
+              <span className="text-xs font-normal text-muted-foreground">{unread} جديد</span>
             ) : null}
           </div>
           {items.length === 0 ? (
-            <p className="px-4 py-6 text-center text-sm text-muted-foreground">Ù„Ø§ ØªÙˆØ¬Ø¯ Ø¥Ø´Ø¹Ø§Ø±Ø§Øª Ø¬Ø¯ÙŠØ¯Ø©.</p>
+            <p className="px-4 py-6 text-center text-sm text-muted-foreground">لا توجد إشعارات جديدة.</p>
           ) : (
             <ul className="max-h-80 overflow-y-auto">
               {items.map((n) => (
@@ -163,5 +163,3 @@ export function NotificationsBell({ className }: { className?: string }) {
     </Popover>
   )
 }
-
-

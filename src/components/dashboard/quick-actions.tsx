@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import Link from "next/link";
 import { canSeeRoute } from "@/lib/route-access";
@@ -6,15 +6,15 @@ import { isOwner } from "@/lib/authz";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Icon, type IconName } from "@/components/ui/icon";
 
-/** QuickActions â€” real navigation shortcuts to the main operational screens.
+/** QuickActions — real navigation shortcuts to the main operational screens.
  * Each link navigates to a working route (no dead buttons).
  * Owner and roles with the required permission see the matching action.
  */
 const ACTIONS: { href: string; label: string; icon: IconName; desc: string; requiredPermission?: string }[] = [
-  { href: "/pos", label: "ÙØªØ­ Ø§Ù„ÙƒØ§Ø´ÙŠØ±", icon: "pos", desc: "Ø¨Ø¯Ø¡ Ø·Ù„Ø¨ Ø¬Ø¯ÙŠØ¯", requiredPermission: "/pos" },
-  { href: "/orders", label: "Ù…ØªØ§Ø¨Ø¹Ø© Ø§Ù„Ø·Ù„Ø¨Ø§Øª", icon: "orders", desc: "ÙƒÙ„ Ø§Ù„Ø·Ù„Ø¨Ø§Øª", requiredPermission: "/orders" },
-  { href: "/kitchen", label: "Ø´Ø§Ø´Ø© Ø§Ù„Ù…Ø·Ø¨Ø®", icon: "kitchen", desc: "Ù‚ÙŠØ¯ Ø§Ù„ØªØ­Ø¶ÙŠØ±", requiredPermission: "/kitchen" },
-  { href: "/reports", label: "Ø§Ù„ØªÙ‚Ø§Ø±ÙŠØ±", icon: "reports", desc: "Ø§Ù„ØªØ§Ù„ÙŠ ÙˆØ§Ù„ØªØ­Ù„ÙŠÙ„", requiredPermission: "/reports" },
+  { href: "/pos", label: "فتح الكاشير", icon: "pos", desc: "بدء طلب جديد", requiredPermission: "/pos" },
+  { href: "/orders", label: "متابعة الطلبات", icon: "orders", desc: "كل الطلبات", requiredPermission: "/orders" },
+  { href: "/kitchen", label: "شاشة المطبخ", icon: "kitchen", desc: "قيد التحضير", requiredPermission: "/kitchen" },
+  { href: "/reports", label: "التقارير", icon: "reports", desc: "التالي والتحليل", requiredPermission: "/reports" },
 ];
 
 export function QuickActions({ user }: { user?: { role?: string; permissions?: string[] } }) {
@@ -24,8 +24,8 @@ export function QuickActions({ user }: { user?: { role?: string; permissions?: s
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Ø¥Ø¬Ø±Ø§Ø¡Ø§Øª Ø³Ø±ÙŠØ¹Ø©</CardTitle>
-        <CardDescription>Ø§Ø®ØªØµØ§Ø±Ø§Øª Ù„Ù„Ø´Ø§Ø´Ø§Øª Ø§Ù„ØªØ´ØºÙŠÙ„ÙŠØ© ÙˆØ§Ù„Ù…Ø­Ù„Ù„Ø©</CardDescription>
+        <CardTitle>إجراءات سريعة</CardTitle>
+        <CardDescription>اختصارات للشاشات التشغيلية والمحللة</CardDescription>
       </CardHeader>
       <CardContent>
         <div className="flex flex-col gap-2">
@@ -55,5 +55,3 @@ export function QuickActions({ user }: { user?: { role?: string; permissions?: s
     </Card>
   );
 }
-
-

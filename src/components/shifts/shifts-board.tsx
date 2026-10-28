@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useEffect, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
@@ -18,21 +18,21 @@ const CASH_HANDLING_ROLES = ['cashier', 'manager']
 
 function openedAtLabel(iso: string): string {
   const d = new Date(iso)
-  return `${formatDateShort(d)} â€” ${formatTime(d)}`
+  return `${formatDateShort(d)} — ${formatTime(d)}`
 }
 
 function diffInfo(shift: ShiftView): { tone: BadgeTone; label: string } {
-  if (shift.status === 'open') return { tone: 'primary', label: 'Ù…ÙØªÙˆØ­Ø©' }
+  if (shift.status === 'open') return { tone: 'primary', label: 'مفتوحة' }
   const diff = Number(shift.cashDifference)
-  if (diff > 0) return { tone: 'warning', label: `Ø²ÙŠØ§Ø¯Ø© ${formatCurrency(diff)}` }
-  if (diff < 0) return { tone: 'destructive', label: `Ù†Ù‚Øµ ${formatCurrency(Math.abs(diff))}` }
-  return { tone: 'success', label: 'Ù…Ø·Ø§Ø¨Ù‚' }
+  if (diff > 0) return { tone: 'warning', label: `زيادة ${formatCurrency(diff)}` }
+  if (diff < 0) return { tone: 'destructive', label: `نقص ${formatCurrency(Math.abs(diff))}` }
+  return { tone: 'success', label: 'مطابق' }
 }
 
 function paymentBadge(paymentStatus: string): { tone: BadgeTone; label: string } {
-  if (paymentStatus === 'paid') return { tone: 'success', label: 'Ù…Ø¯ÙÙˆØ¹' }
-  if (paymentStatus === 'refunded') return { tone: 'warning', label: 'Ù…Ø³ØªØ±Ø¯' }
-  return { tone: 'muted', label: 'ØºÙŠØ± Ù…Ø¯ÙÙˆØ¹' }
+  if (paymentStatus === 'paid') return { tone: 'success', label: 'مدفوع' }
+  if (paymentStatus === 'refunded') return { tone: 'warning', label: 'مسترد' }
+  return { tone: 'muted', label: 'غير مدفوع' }
 }
 
 export function ShiftsBoard({ initial }: { initial: ShiftBoardData }) {
@@ -57,7 +57,7 @@ export function ShiftsBoard({ initial }: { initial: ShiftBoardData }) {
     if (busy) return
     const cash = isCashHandling ? Number(openingCash) : 0
     if (isCashHandling && (!Number.isFinite(cash) || cash < 0)) {
-      setError('Ø£Ø¯Ø®Ù„ Ø±ØµÙŠØ¯ Ø§ÙØªØªØ§Ø­ ØµØ­ÙŠØ­Ù‹Ø§')
+      setError('أدخل رصيد افتتاح صحيحًا')
       return
     }
     setBusy(true)
@@ -70,13 +70,13 @@ export function ShiftsBoard({ initial }: { initial: ShiftBoardData }) {
         body: JSON.stringify({ openingCash: cash, branchId: Number(data.branchId) }),
       })
       const payload = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(payload?.error ?? 'ØªØ¹Ø°Ø± ÙØªØ­ Ø§Ù„ÙˆØ±Ø¯ÙŠØ©')
+      if (!res.ok) throw new Error(payload?.error ?? 'تعذر فتح الوردية')
       setOpeningCash('')
-      setSuccess('ØªÙ… ÙØªØ­ Ø§Ù„ÙˆØ±Ø¯ÙŠØ©')
+      setSuccess('تم فتح الوردية')
       // After opening, send the employee to their role workspace.
       router.push(homeForRole(data.userRole))
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'ØªØ¹Ø°Ø± ÙØªØ­ Ø§Ù„ÙˆØ±Ø¯ÙŠØ©')
+      setError(e instanceof Error ? e.message : 'تعذر فتح الوردية')
     } finally {
       setBusy(false)
     }
@@ -86,7 +86,7 @@ export function ShiftsBoard({ initial }: { initial: ShiftBoardData }) {
     if (busy || !data.current) return
     const cash = isCashHandling ? Number(closingCash) : 0
     if (isCashHandling && (!Number.isFinite(cash) || cash < 0)) {
-      setError('Ø£Ø¯Ø®Ù„ Ù‚ÙŠÙ…Ø© Ø¬Ø±Ø¯ Ø§Ù„ØµÙ†Ø¯ÙˆÙ‚ Ø§Ù„ØµØ­ÙŠØ­Ø©')
+      setError('أدخل قيمة جرد الصندوق الصحيحة')
       return
     }
     setBusy(true)
@@ -103,21 +103,21 @@ export function ShiftsBoard({ initial }: { initial: ShiftBoardData }) {
         }),
       })
       const payload = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(payload?.error ?? 'ØªØ¹Ø°Ø± Ø¥ØºÙ„Ø§Ù‚ Ø§Ù„ÙˆØ±Ø¯ÙŠØ©')
+      if (!res.ok) throw new Error(payload?.error ?? 'تعذر إغلاق الوردية')
       const diff = Number(payload?.cashDifference ?? 0)
       setClosingCash('')
       setHandoverNotes('')
       setHandoverRecipientId('')
       setSuccess(
         diff === 0
-          ? 'ØªÙ… Ø¥ØºÙ„Ø§Ù‚ Ø§Ù„ÙˆØ±Ø¯ÙŠØ© â€” Ø§Ù„Ø±ØµÙŠØ¯ Ù…Ø·Ø§Ø¨Ù‚'
+          ? 'تم إغلاق الوردية — الرصيد مطابق'
           : diff > 0
-            ? `ØªÙ… Ø¥ØºÙ„Ø§Ù‚ Ø§Ù„ÙˆØ±Ø¯ÙŠØ© â€” Ø²ÙŠØ§Ø¯Ø© ${formatCurrency(diff)}`
-            : `ØªÙ… Ø¥ØºÙ„Ø§Ù‚ Ø§Ù„ÙˆØ±Ø¯ÙŠØ© â€” Ù†Ù‚Øµ ${formatCurrency(Math.abs(diff))}`,
+            ? `تم إغلاق الوردية — زيادة ${formatCurrency(diff)}`
+            : `تم إغلاق الوردية — نقص ${formatCurrency(Math.abs(diff))}`,
       )
       refresh()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'ØªØ¹Ø°Ø± Ø¥ØºÙ„Ø§Ù‚ Ø§Ù„ÙˆØ±Ø¯ÙŠØ©')
+      setError(e instanceof Error ? e.message : 'تعذر إغلاق الوردية')
     } finally {
       setBusy(false)
     }
@@ -138,7 +138,7 @@ export function ShiftsBoard({ initial }: { initial: ShiftBoardData }) {
 
       {data.branches.length > 1 && data.userRole === 'owner' ? (
         <div className="flex items-center gap-2 self-end">
-          <span className="text-sm text-muted-foreground">Ø§Ù„ÙØ±Ø¹</span>
+          <span className="text-sm text-muted-foreground">الفرع</span>
           <select
             value={data.branchId}
             onChange={(e) => router.push(`/shifts?branchId=${e.target.value}`)}
@@ -157,46 +157,46 @@ export function ShiftsBoard({ initial }: { initial: ShiftBoardData }) {
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between gap-3">
-              <CardTitle>Ø§Ù„ÙˆØ±Ø¯ÙŠØ© Ø§Ù„Ù…ÙØªÙˆØ­Ø©</CardTitle>
-              <Badge tone="primary">Ù…ÙØªÙˆØ­Ø©</Badge>
+              <CardTitle>الوردية المفتوحة</CardTitle>
+              <Badge tone="primary">مفتوحة</Badge>
             </div>
             <CardDescription>
-              ÙØªØ­Ù‡Ø§ {data.current.openBy} ({data.userRole}) â€” {openedAtLabel(data.current.openedAt)}
+              فتحها {data.current.openBy} ({data.userRole}) — {openedAtLabel(data.current.openedAt)}
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              <StatCard label="Ø±ØµÙŠØ¯ Ø§Ù„Ø§ÙØªØªØ§Ø­" value={formatCurrency(Number(data.current.openingCash))} icon="shifts" />
+              <StatCard label="رصيد الافتتاح" value={formatCurrency(Number(data.current.openingCash))} icon="shifts" />
               {isCashHandling ? (
                 <>
                   <StatCard
-                    label="Ù…Ø­ØµÙŽÙ‘Ù„ Ù†Ù‚Ø¯ÙŠ"
+                    label="محصَّل نقدي"
                     value={formatCurrency(Number(data.current.cashIn))}
                     icon="plus"
-                    hint="Ø¯ÙØ¹Ø§Øª Ù†Ù‚Ø¯ÙŠØ© Ù…ÙƒØªÙ…Ù„Ø©"
+                    hint="دفعات نقدية مكتملة"
                   />
                   <StatCard
-                    label="Ù…Ø±Ø¯ÙˆØ¯ Ù†Ù‚Ø¯ÙŠ"
+                    label="مردود نقدي"
                     value={formatCurrency(Number(data.current.cashOut))}
                     icon="minus"
-                    hint="Ø§Ø³ØªØ±Ø¯Ø§Ø¯Ø§Øª Ù†Ù‚Ø¯ÙŠØ©"
+                    hint="استردادات نقدية"
                   />
                 </>
               ) : null}
               <StatCard
-                label="Ø§Ù„Ù…ØªÙˆÙ‚Ø¹ ÙÙŠ Ø§Ù„ØµÙ†Ø¯ÙˆÙ‚"
+                label="المتوقع في الصندوق"
                 value={formatCurrency(Number(data.current.expectedCash))}
                 icon="clock"
-                hint={isCashHandling ? 'Ø§ÙØªØªØ§Ø­ + Ù…Ø­ØµÙŽÙ‘Ù„ âˆ’ Ù…Ø±Ø¯ÙˆØ¯' : 'ØºÙŠØ± Ù…ØªØ§Ø­ Ù„Ù‡Ø°Ø§ Ø§Ù„Ø¯ÙˆØ±'}
+                hint={isCashHandling ? 'افتتاح + محصَّل − مردود' : 'غير متاح لهذا الدور'}
               />
-              <StatCard label="Ø·Ù„Ø¨Ø§Øª Ø§Ù„ÙˆØ±Ø¯ÙŠØ©" value={formatNumber(data.current.ordersCount)} icon="orders" />
-              <StatCard label="Ø¯ÙØ¹Ø§Øª Ø§Ù„ÙˆØ±Ø¯ÙŠØ©" value={formatNumber(data.current.paymentsCount)} icon="pos" />
+              <StatCard label="طلبات الوردية" value={formatNumber(data.current.ordersCount)} icon="orders" />
+              <StatCard label="دفعات الوردية" value={formatNumber(data.current.paymentsCount)} icon="pos" />
             </div>
 
             <div className="flex flex-col gap-3 rounded-lg border border-border p-4 sm:flex-row sm:items-end sm:gap-4">
               {isCashHandling ? (
                 <label className="flex flex-1 flex-col gap-1.5 text-sm">
-                  <span className="text-muted-foreground">Ø¬Ø±Ø¯ Ø§Ù„ØµÙ†Ø¯ÙˆÙ‚ Ø§Ù„ÙØ¹Ù„ÙŠ (Ø§Ù„Ù†Ù‚Ø¯ÙŠ Ø§Ù„Ù…Ø¹Ø¯ÙˆØ¯)</span>
+                  <span className="text-muted-foreground">جرد الصندوق الفعلي (النقدي المعدود)</span>
                   <Input
                     inputMode="decimal"
                     placeholder="0.00"
@@ -206,31 +206,31 @@ export function ShiftsBoard({ initial }: { initial: ShiftBoardData }) {
                 </label>
               ) : null}
               <label className="flex flex-col gap-1.5 text-sm">
-                <span className="text-muted-foreground">Ù…Ù„Ø§Ø­Ø¸Ø§Øª Ø§Ù„ØªØ³Ù„ÙŠÙ… (Ø§Ø®ØªÙŠØ§Ø±ÙŠ)</span>
+                <span className="text-muted-foreground">ملاحظات التسليم (اختياري)</span>
                 <Input
-                  placeholder="Ù…Ù„Ø§Ø­Ø¸Ø§Øª Ø­ÙˆÙ„ ØªØ³Ù„ÙŠÙ… Ø§Ù„ÙˆØ±Ø¯ÙŠØ©"
+                  placeholder="ملاحظات حول تسليم الوردية"
                   value={handoverNotes}
                   onChange={(e) => setHandoverNotes(e.target.value)}
                 />
               </label>
               <label className="flex flex-col gap-1.5 text-sm">
-                <span className="text-muted-foreground">Ø§Ù„ÙƒØ§Ø´ÙŠØ± Ø§Ù„Ù…Ø³ØªÙ„Ù… (Ù‚Ø¨Ù„ Ù…Ù†ØªØµÙ Ø§Ù„Ù„ÙŠÙ„)</span>
+                <span className="text-muted-foreground">الكاشير المستلم (قبل منتصف الليل)</span>
                 <select className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={handoverRecipientId} onChange={(e) => setHandoverRecipientId(e.target.value)}>
-                  <option value="">Ø§Ø®ØªØ± ÙƒØ§Ø´ÙŠØ±Ø§Ù‹</option>
+                  <option value="">اختر كاشيراً</option>
                   {data.cashiers.map((cashier) => <option key={cashier.id} value={cashier.id}>{cashier.name}</option>)}
                 </select>
               </label>
               <Button variant="destructive" onClick={close} disabled={busy}>
-                {busy ? 'Ø¬Ø§Ø±Ù Ø§Ù„Ø¥ØºÙ„Ø§Ù‚â€¦' : 'Ø¥ØºÙ„Ø§Ù‚ Ø§Ù„ÙˆØ±Ø¯ÙŠØ© ÙˆØªØ³Ø¬ÙŠÙ„ Ø§Ù„ØªØ³Ù„ÙŠÙ…'}
+                {busy ? 'جارٍ الإغلاق…' : 'إغلاق الوردية وتسجيل التسليم'}
               </Button>
               <p className="text-xs text-muted-foreground mt-2">
-                ÙŠØªÙ… ØªØ³Ø¬ÙŠÙ„ Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„ØªØ³Ù„ÙŠÙ… Ø¹Ù†Ø¯ Ø§Ù„Ø¥ØºÙ„Ø§Ù‚. ØªØ£ÙƒÙŠØ¯ Ø§Ù„Ø§Ø³ØªÙ„Ø§Ù… Ù…Ù† Ù‚Ø¨Ù„ Ø§Ù„Ù…ÙˆØ¸Ù Ø§Ù„Ù…Ø³ØªÙ„Ù… ØºÙŠØ± Ù…Ø¯Ø¹ÙˆÙ… Ø­Ø§Ù„ÙŠØ§Ù‹.
+                يتم تسجيل بيانات التسليم عند الإغلاق. تأكيد الاستلام من قبل الموظف المستلم غير مدعوم حالياً.
               </p>
             </div>
 
             {data.currentOrders.length > 0 ? (
               <div className="flex flex-col gap-2">
-                <span className="text-sm font-medium text-foreground">Ø£Ø­Ø¯Ø« Ø·Ù„Ø¨Ø§Øª Ø§Ù„ÙˆØ±Ø¯ÙŠØ©</span>
+                <span className="text-sm font-medium text-foreground">أحدث طلبات الوردية</span>
                 <div className="flex flex-col divide-y divide-border rounded-lg border border-border">
                   {data.currentOrders.map((o) => {
                     const pay = paymentBadge(o.paymentStatus)
@@ -256,20 +256,20 @@ export function ShiftsBoard({ initial }: { initial: ShiftBoardData }) {
       ) : (
         <Card>
           <CardHeader>
-            <CardTitle>ÙØªØ­ ÙˆØ±Ø¯ÙŠØ©</CardTitle>
+            <CardTitle>فتح وردية</CardTitle>
             <CardDescription>
-              Ø³Ø¬Ù‘Ù„ Ø¨Ø¯Ø§ÙŠØ© ÙˆØ±Ø¯ÙŠØªÙƒ â€” Ù„Ø§ ÙŠÙ…ÙƒÙ† ØªÙ†ÙÙŠØ° Ø£ÙŠ Ø¹Ù…Ù„ÙŠØ© ØªØ´ØºÙŠÙ„ÙŠØ© Ù‚Ø¨Ù„ ÙØªØ­ Ø§Ù„ÙˆØ±Ø¯ÙŠØ©
+              سجّل بداية ورديتك — لا يمكن تنفيذ أي عملية تشغيلية قبل فتح الوردية
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:gap-4">
               <div className="flex flex-col gap-1.5 text-sm">
-                <span className="text-muted-foreground">Ø§Ù„Ù…ÙˆØ¸Ù</span>
+                <span className="text-muted-foreground">الموظف</span>
                 <span className="text-sm font-medium text-foreground">{data.userRole}</span>
               </div>
               {isCashHandling ? (
                 <label className="flex flex-1 flex-col gap-1.5 text-sm">
-                  <span className="text-muted-foreground">Ø±ØµÙŠØ¯ Ø§Ù„Ø§ÙØªØªØ§Ø­ (Ù†Ù‚Ø¯ÙŠ Ø¨Ø§Ù„ØµÙ†Ø¯ÙˆÙ‚)</span>
+                  <span className="text-muted-foreground">رصيد الافتتاح (نقدي بالصندوق)</span>
                   <Input
                     inputMode="decimal"
                     placeholder="0.00"
@@ -279,7 +279,7 @@ export function ShiftsBoard({ initial }: { initial: ShiftBoardData }) {
                 </label>
               ) : null}
               <Button onClick={open} disabled={busy}>
-                {busy ? 'Ø¬Ø§Ø±Ù Ø§Ù„ÙØªØ­â€¦' : 'ÙØªØ­ Ø§Ù„ÙˆØ±Ø¯ÙŠØ©'}
+                {busy ? 'جارٍ الفتح…' : 'فتح الوردية'}
               </Button>
               <form action={logoutAction}>
                 <button
@@ -288,13 +288,13 @@ export function ShiftsBoard({ initial }: { initial: ShiftBoardData }) {
                   className="flex w-full sm:w-auto items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium text-destructive hover:bg-accent hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <Icon name="logout" size={16} />
-                  ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø®Ø±ÙˆØ¬
+                  تسجيل الخروج
                 </button>
               </form>
             </div>
             {!isCashHandling ? (
               <p className="text-xs text-muted-foreground mt-2">
-                Ø¯ÙˆØ±Ùƒ Ù„Ø§ ÙŠØªØ¹Ø§Ù…Ù„ Ù…Ø¹ Ø§Ù„Ù†Ù‚Ø¯ Ø§Ù„Ù…Ø¨Ø§Ø´Ø± â€” ØªÙÙØªØ­ Ø§Ù„ÙˆØ±Ø¯ÙŠØ© Ø¨Ø±ØµÙŠØ¯ Ø§ÙØªØªØ§Ø­ ØµÙØ±.
+                دورك لا يتعامل مع النقد المباشر — تُفتح الوردية برصيد افتتاح صفر.
               </p>
             ) : null}
           </CardContent>
@@ -303,29 +303,29 @@ export function ShiftsBoard({ initial }: { initial: ShiftBoardData }) {
 
       <Card>
         <CardHeader>
-          <CardTitle>Ø¢Ø®Ø± Ø§Ù„ÙˆØ±Ø¯ÙŠØ§Øª</CardTitle>
-          <CardDescription>Ø§Ù„Ø­Ø§Ù„Ø© ÙˆØ§Ù„Ù…ØªÙˆÙ‚Ø¹ ÙˆØ§Ù„Ø¬Ø±Ø¯ ÙˆØ§Ù„ÙØ±Ù‚ (Ø²ÙŠØ§Ø¯Ø© Ø£Ùˆ Ù†Ù‚Øµ)</CardDescription>
+          <CardTitle>آخر الورديات</CardTitle>
+          <CardDescription>الحالة والمتوقع والجرد والفرق (زيادة أو نقص)</CardDescription>
         </CardHeader>
         <CardContent>
           {data.recent.length === 0 ? (
             <EmptyState
               icon="shifts"
-              title="Ù„Ø§ ØªÙˆØ¬Ø¯ ÙˆØ±Ø¯ÙŠØ§Øª Ø¨Ø¹Ø¯"
-              description="Ø§ÙØªØ­ Ø£ÙˆÙ„ ÙˆØ±Ø¯ÙŠØ© Ù„Ø¨Ø¯Ø¡ ØªØ³Ø¬ÙŠÙ„ Ù†Ø´Ø§Ø·Ùƒ Ø§Ù„ØªØ´ØºÙŠÙ„ÙŠ."
+              title="لا توجد ورديات بعد"
+              description="افتح أول وردية لبدء تسجيل نشاطك التشغيلي."
             />
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border text-xs text-muted-foreground">
-                    <th className="px-2 py-2 text-start font-medium">Ø§Ù„Ø­Ø§Ù„Ø©</th>
-                    <th className="px-2 py-2 text-start font-medium">Ø§Ù„Ø§ÙØªØªØ§Ø­</th>
-                    <th className="px-2 py-2 text-start font-medium">ÙØªØ­Ù‡Ø§</th>
-                    <th className="px-2 py-2 text-end font-medium">Ø±ØµÙŠØ¯ Ø§Ù„Ø§ÙØªØªØ§Ø­</th>
-                    <th className="px-2 py-2 text-end font-medium">Ø§Ù„Ù…ØªÙˆÙ‚Ø¹</th>
-                    <th className="px-2 py-2 text-end font-medium">Ø§Ù„Ø¬Ø±Ø¯</th>
-                    <th className="px-2 py-2 text-end font-medium">Ø§Ù„ÙØ±Ù‚</th>
-                    <th className="px-2 py-2 text-end font-medium">Ø·Ù„Ø¨Ø§Øª</th>
+                    <th className="px-2 py-2 text-start font-medium">الحالة</th>
+                    <th className="px-2 py-2 text-start font-medium">الافتتاح</th>
+                    <th className="px-2 py-2 text-start font-medium">فتحها</th>
+                    <th className="px-2 py-2 text-end font-medium">رصيد الافتتاح</th>
+                    <th className="px-2 py-2 text-end font-medium">المتوقع</th>
+                    <th className="px-2 py-2 text-end font-medium">الجرد</th>
+                    <th className="px-2 py-2 text-end font-medium">الفرق</th>
+                    <th className="px-2 py-2 text-end font-medium">طلبات</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -339,13 +339,13 @@ export function ShiftsBoard({ initial }: { initial: ShiftBoardData }) {
                         </td>
                         <td className="px-2 py-2 text-muted-foreground">
                           {openedAtLabel(s.openedAt)}
-                          {s.closedAt ? ` â†’ ${formatTime(new Date(s.closedAt))}` : ''}
+                          {s.closedAt ? ` → ${formatTime(new Date(s.closedAt))}` : ''}
                         </td>
                         <td className="px-2 py-2 text-muted-foreground">{s.openBy}</td>
                         <td className="px-2 py-2 text-end">{formatCurrency(Number(s.openingCash))}</td>
                         <td className="px-2 py-2 text-end">{formatCurrency(Number(s.expectedCash))}</td>
                         <td className="px-2 py-2 text-end">
-                          {s.status === 'closed' ? formatCurrency(Number(s.closingCash)) : 'â€”'}
+                          {s.status === 'closed' ? formatCurrency(Number(s.closingCash)) : '—'}
                         </td>
                         <td
                           className={`px-2 py-2 text-end font-medium ${
@@ -359,7 +359,7 @@ export function ShiftsBoard({ initial }: { initial: ShiftBoardData }) {
                           }`}
                         >
                           {s.status !== 'closed'
-                            ? 'â€”'
+                            ? '—'
                             : diff > 0
                               ? `+${formatCurrency(diff)}`
                               : formatCurrency(diff)}
@@ -377,5 +377,3 @@ export function ShiftsBoard({ initial }: { initial: ShiftBoardData }) {
     </div>
   )
 }
-
-
