@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useRef, useState } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
@@ -9,16 +9,16 @@ import { cn } from '@/lib/utils'
  * Live order status tracker for the customer confirmation screen.
  *
  * Polls the public tracking endpoint (guarded by id + orderNumber) and reflects
- * staff-side transitions in real time: new → preparing → ready → served, or
+ * staff-side transitions in real time: new â†’ preparing â†’ ready â†’ served, or
  * cancelled. Polling stops once the order reaches a terminal state so the screen
  * doesn't run forever. Shows a "live" pulse only while the order is active.
  */
 
 const STEPS = [
-  { key: 'new', label: 'تم الاستلام', icon: 'check' as const },
-  { key: 'preparing', label: 'جاري التحضير', icon: 'flame' as const },
-  { key: 'ready', label: 'جاهز', icon: 'bell' as const },
-  { key: 'served', label: 'تم التقديم', icon: 'utensils' as const },
+  { key: 'new', label: 'ØªÙ… Ø§Ù„Ø§Ø³ØªÙ„Ø§Ù…', icon: 'check' as const },
+  { key: 'preparing', label: 'Ø¬Ø§Ø±ÙŠ Ø§Ù„ØªØ­Ø¶ÙŠØ±', icon: 'flame' as const },
+  { key: 'ready', label: 'Ø¬Ø§Ù‡Ø²', icon: 'bell' as const },
+  { key: 'served', label: 'ØªÙ… Ø§Ù„ØªÙ‚Ø¯ÙŠÙ…', icon: 'utensils' as const },
 ]
 
 const TERMINAL = new Set(['served', 'cancelled', 'completed'])
@@ -53,7 +53,7 @@ export function OrderStatusTracker({ id, orderNumber, initialStatus, branchName,
           setChanged(true)
         }
       } catch {
-        /* transient network blip — keep polling */
+        /* transient network blip â€” keep polling */
       }
     }
 
@@ -75,8 +75,8 @@ export function OrderStatusTracker({ id, orderNumber, initialStatus, branchName,
             <span className="flex h-14 w-14 items-center justify-center rounded-full bg-destructive/10 text-destructive">
               <Icon name="close" size={28} />
             </span>
-            <h1 className="text-xl font-bold">تم إلغاء الطلب</h1>
-            <p className="text-sm text-muted-foreground">لو فيه استفسار، كلّم الكاشير من فضلك.</p>
+            <h1 className="text-xl font-bold">ØªÙ… Ø¥Ù„ØºØ§Ø¡ Ø§Ù„Ø·Ù„Ø¨</h1>
+            <p className="text-sm text-muted-foreground">Ù„Ùˆ ÙÙŠÙ‡ Ø§Ø³ØªÙØ³Ø§Ø±ØŒ ÙƒÙ„Ù‘Ù… Ø§Ù„ÙƒØ§Ø´ÙŠØ± Ù…Ù† ÙØ¶Ù„Ùƒ.</p>
           </>
         ) : (
           <>
@@ -88,15 +88,15 @@ export function OrderStatusTracker({ id, orderNumber, initialStatus, branchName,
                 <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-success" />
               </span>
               <span className="text-xs font-medium text-muted-foreground">
-                {changed ? 'تم تحديث الحالة' : 'متابعة مباشرة لحالة الطلب'}
+                {changed ? 'ØªÙ… ØªØ­Ø¯ÙŠØ« Ø§Ù„Ø­Ø§Ù„Ø©' : 'Ù…ØªØ§Ø¨Ø¹Ø© Ù…Ø¨Ø§Ø´Ø±Ø© Ù„Ø­Ø§Ù„Ø© Ø§Ù„Ø·Ù„Ø¨'}
               </span>
             </div>
-            <h1 className="text-xl font-bold">{STEPS[currentIndex]?.label ?? 'تم استلام طلبك'}</h1>
+            <h1 className="text-xl font-bold">{STEPS[currentIndex]?.label ?? 'ØªÙ… Ø§Ø³ØªÙ„Ø§Ù… Ø·Ù„Ø¨Ùƒ'}</h1>
           </>
         )}
 
         <p className="text-sm text-muted-foreground">
-          {branchName} · طاولة {tableNumber}
+          {branchName} Â· Ø·Ø§ÙˆÙ„Ø© {tableNumber}
         </p>
 
         {!cancelled ? (
@@ -130,9 +130,11 @@ export function OrderStatusTracker({ id, orderNumber, initialStatus, branchName,
         ) : null}
 
         <span className="mt-1 rounded-full border border-border bg-card px-3 py-1 text-xs text-muted-foreground">
-          رقم الطلب: {orderNumber}
+          Ø±Ù‚Ù… Ø§Ù„Ø·Ù„Ø¨: {orderNumber}
         </span>
       </CardContent>
     </Card>
   )
 }
+
+

@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
@@ -14,7 +14,7 @@ import { cn } from '@/lib/utils'
 import type { StaffCatalog } from '@/lib/staff-catalog'
 
 /**
- * Products board — real branch catalog from the DB.
+ * Products board â€” real branch catalog from the DB.
  * Search + category filter client-side; availability toggle via API.
  */
 interface ProductDraft {
@@ -70,7 +70,7 @@ export function ProductsBoard({
 
   const options = useMemo(
     () => [
-      { value: 'all', label: 'الكل' },
+      { value: 'all', label: 'Ø§Ù„ÙƒÙ„' },
       ...catalog.categories.map((c) => ({ value: c.id, label: `${c.name} (${c.productsCount})` })),
     ],
     [catalog.categories],
@@ -104,10 +104,10 @@ export function ProductsBoard({
     try {
       const res = await fetch(`/api/staff/products/${id}/toggle`, { method: 'POST' })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data?.error ?? 'فشل التحديث')
+      if (!res.ok) throw new Error(data?.error ?? 'ÙØ´Ù„ Ø§Ù„ØªØ­Ø¯ÙŠØ«')
       refresh()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'فشل التحديث')
+      setError(e instanceof Error ? e.message : 'ÙØ´Ù„ Ø§Ù„ØªØ­Ø¯ÙŠØ«')
     } finally {
       setPendingId(null)
     }
@@ -149,7 +149,7 @@ export function ProductsBoard({
     const priceNum = Number(draft.price)
     const taxRate = Number(draft.taxRate || '0')
     if (!Number.isFinite(priceNum) || priceNum <= 0) {
-      setError('السعر يجب أن يكون رقماً موجباً')
+      setError('Ø§Ù„Ø³Ø¹Ø± ÙŠØ¬Ø¨ Ø£Ù† ÙŠÙƒÙˆÙ† Ø±Ù‚Ù…Ø§Ù‹ Ù…ÙˆØ¬Ø¨Ø§Ù‹')
       return
     }
     if (!Number.isFinite(taxRate) || taxRate < 0 || taxRate > 100) {
@@ -157,15 +157,15 @@ export function ProductsBoard({
       return
     }
     if (!draft.categoryId) {
-      setError('اختر التصنيف')
+      setError('Ø§Ø®ØªØ± Ø§Ù„ØªØµÙ†ÙŠÙ')
       return
     }
     if (!draft.id && branches.length > 0 && !createBranchId) {
-      setError('اختر الفرع')
+      setError('Ø§Ø®ØªØ± Ø§Ù„ÙØ±Ø¹')
       return
     }
     if (!draft.name.trim()) {
-      setError('اسم المنتج مطلوب')
+      setError('Ø§Ø³Ù… Ø§Ù„Ù…Ù†ØªØ¬ Ù…Ø·Ù„ÙˆØ¨')
       return
     }
     setSaving(true)
@@ -193,12 +193,12 @@ export function ProductsBoard({
         body: JSON.stringify(body),
       })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data?.error ?? 'فشل الحفظ')
+      if (!res.ok) throw new Error(data?.error ?? 'ÙØ´Ù„ Ø§Ù„Ø­ÙØ¸')
       setShowForm(false)
-      setSuccess(isEdit ? 'تم تحديث المنتج' : 'تم إضافة المنتج')
+      setSuccess(isEdit ? 'ØªÙ… ØªØ­Ø¯ÙŠØ« Ø§Ù„Ù…Ù†ØªØ¬' : 'ØªÙ… Ø¥Ø¶Ø§ÙØ© Ø§Ù„Ù…Ù†ØªØ¬')
       refresh()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'فشل الحفظ')
+      setError(e instanceof Error ? e.message : 'ÙØ´Ù„ Ø§Ù„Ø­ÙØ¸')
     } finally {
       setSaving(false)
     }
@@ -243,12 +243,12 @@ export function ProductsBoard({
         body: JSON.stringify({ name, ...(branches.length > 1 ? { branchId: createBranchId } : {}) }),
       })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data?.error ?? 'فشل إضافة التصنيف')
+      if (!res.ok) throw new Error(data?.error ?? 'ÙØ´Ù„ Ø¥Ø¶Ø§ÙØ© Ø§Ù„ØªØµÙ†ÙŠÙ')
       setNewCategory('')
-      setSuccess('تم إضافة التصنيف')
+      setSuccess('ØªÙ… Ø¥Ø¶Ø§ÙØ© Ø§Ù„ØªØµÙ†ÙŠÙ')
       refresh()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'فشل إضافة التصنيف')
+      setError(e instanceof Error ? e.message : 'ÙØ´Ù„ Ø¥Ø¶Ø§ÙØ© Ø§Ù„ØªØµÙ†ÙŠÙ')
     } finally {
       setCatBusy(false)
     }
@@ -262,11 +262,11 @@ export function ProductsBoard({
     try {
       const res = await fetch(`/api/staff/categories/${id}`, { method: 'DELETE' })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data?.error ?? 'فشل حذف التصنيف')
-      setSuccess('تم حذف التصنيف')
+      if (!res.ok) throw new Error(data?.error ?? 'ÙØ´Ù„ Ø­Ø°Ù Ø§Ù„ØªØµÙ†ÙŠÙ')
+      setSuccess('ØªÙ… Ø­Ø°Ù Ø§Ù„ØªØµÙ†ÙŠÙ')
       refresh()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'فشل حذف التصنيف')
+      setError(e instanceof Error ? e.message : 'ÙØ´Ù„ Ø­Ø°Ù Ø§Ù„ØªØµÙ†ÙŠÙ')
     } finally {
       setCatBusy(false)
     }
@@ -277,12 +277,12 @@ export function ProductsBoard({
       <div className="flex flex-wrap items-center gap-3">
         <Input
           icon="search" value={query} onChange={(e) => setQuery(e.target.value)}
-          placeholder="ابحث عن منتج…" aria-label="بحث المنتجات" className="max-w-xs"
+          placeholder="Ø§Ø¨Ø­Ø« Ø¹Ù† Ù…Ù†ØªØ¬â€¦" aria-label="Ø¨Ø­Ø« Ø§Ù„Ù…Ù†ØªØ¬Ø§Øª" className="max-w-xs"
         />
-        <Segmented options={options} value={category} onChange={setCategory} ariaLabel="تصفية التصنيف" />
+        <Segmented options={options} value={category} onChange={setCategory} ariaLabel="ØªØµÙÙŠØ© Ø§Ù„ØªØµÙ†ÙŠÙ" />
         {canEdit ? (
           <Button size="sm" className="ms-auto" onClick={openCreate}>
-            <Icon name="plus" size={16} /> منتج جديد
+            <Icon name="plus" size={16} /> Ù…Ù†ØªØ¬ Ø¬Ø¯ÙŠØ¯
           </Button>
         ) : null}
       </div>
@@ -298,14 +298,14 @@ export function ProductsBoard({
         <div role="dialog" aria-modal="true" aria-label={draft.id ? 'Edit product' : 'Add product'} className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-3 pt-8 sm:items-center sm:p-6">
         <Card className="w-full max-w-2xl border-primary/40">
           <CardHeader>
-            <CardTitle>{draft.id ? 'تعديل منتج' : 'منتج جديد'}</CardTitle>
+            <CardTitle>{draft.id ? 'ØªØ¹Ø¯ÙŠÙ„ Ù…Ù†ØªØ¬' : 'Ù…Ù†ØªØ¬ Ø¬Ø¯ÙŠØ¯'}</CardTitle>
           </CardHeader>
           <CardContent className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label className="flex flex-col gap-1 text-sm">
-              <span className="text-muted-foreground">الاسم</span>
+              <span className="text-muted-foreground">Ø§Ù„Ø§Ø³Ù…</span>
               <Input
                 value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-                placeholder="اسم المنتج" aria-label="اسم المنتج" maxLength={150}
+                placeholder="Ø§Ø³Ù… Ø§Ù„Ù…Ù†ØªØ¬" aria-label="Ø§Ø³Ù… Ø§Ù„Ù…Ù†ØªØ¬" maxLength={150}
               />
             </label>
             <label className="flex flex-col gap-1 text-sm">
@@ -325,7 +325,7 @@ export function ProductsBoard({
             </label>
             {!draft.id && branches.length > 1 ? (
               <label className="flex flex-col gap-1 text-sm">
-                <span className="text-muted-foreground">الفرع</span>
+                <span className="text-muted-foreground">Ø§Ù„ÙØ±Ø¹</span>
                 <select
                   value={createBranchId}
                   onChange={(e) => {
@@ -335,30 +335,30 @@ export function ProductsBoard({
                     setDraft((current) => ({ ...current, categoryId: firstCategory?.id ?? '', inventoryItemId: '' }))
                     void loadVariantAttributes(branchId)
                   }}
-                  aria-label="فرع المنتج"
+                  aria-label="ÙØ±Ø¹ Ø§Ù„Ù…Ù†ØªØ¬"
                   className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
                 >
-                  <option value="">اختر الفرع…</option>
+                  <option value="">Ø§Ø®ØªØ± Ø§Ù„ÙØ±Ø¹â€¦</option>
                   {branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
                 </select>
               </label>
             ) : null}
             <label className="flex flex-col gap-1 text-sm">
-              <span className="text-muted-foreground">السعر (ج.م)</span>
+              <span className="text-muted-foreground">Ø§Ù„Ø³Ø¹Ø± (Ø¬.Ù…)</span>
               <Input
                 type="number" inputMode="decimal" step="0.01" min="0"
                 value={draft.price} onChange={(e) => setDraft({ ...draft, price: e.target.value })}
-                placeholder="0.00" aria-label="سعر المنتج"
+                placeholder="0.00" aria-label="Ø³Ø¹Ø± Ø§Ù„Ù…Ù†ØªØ¬"
               />
             </label>
             <label className="flex flex-col gap-1 text-sm">
-              <span className="text-muted-foreground">التصنيف</span>
+              <span className="text-muted-foreground">Ø§Ù„ØªØµÙ†ÙŠÙ</span>
               <select
                 value={draft.categoryId} onChange={(e) => setDraft({ ...draft, categoryId: e.target.value })}
-                aria-label="تصنيف المنتج"
+                aria-label="ØªØµÙ†ÙŠÙ Ø§Ù„Ù…Ù†ØªØ¬"
                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
               >
-                <option value="" disabled>اختر التصنيف…</option>
+                <option value="" disabled>Ø§Ø®ØªØ± Ø§Ù„ØªØµÙ†ÙŠÙâ€¦</option>
                 {formCategories.map((c) => (
                   <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
@@ -370,27 +370,27 @@ export function ProductsBoard({
                 onChange={(e) => setDraft({ ...draft, isAvailable: e.target.checked })}
                 className="h-4 w-4 accent-[hsl(var(--primary))]"
               />
-              <span className="text-muted-foreground">متاح للطلب</span>
+              <span className="text-muted-foreground">Ù…ØªØ§Ø­ Ù„Ù„Ø·Ù„Ø¨</span>
             </label>
             <label className="flex flex-col gap-1 text-sm sm:col-span-2">
-              <span className="text-muted-foreground">الوصف (اختياري)</span>
+              <span className="text-muted-foreground">Ø§Ù„ÙˆØµÙ (Ø§Ø®ØªÙŠØ§Ø±ÙŠ)</span>
               <Input
                 value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })}
-                placeholder="وصف مختصر" aria-label="وصف المنتج" maxLength={500}
+                placeholder="ÙˆØµÙ Ù…Ø®ØªØµØ±" aria-label="ÙˆØµÙ Ø§Ù„Ù…Ù†ØªØ¬" maxLength={500}
               />
             </label>
             <div className="space-y-3 rounded-lg border border-primary/25 p-3 sm:col-span-2">
-              <div><p className="font-medium">متغيرات المنتج (اختياري)</p><p className="text-xs text-muted-foreground">اختر الخصائص ثم أضف كل تكوين بسعره المستقل. المنتج البسيط يبقى كما هو عند ترك هذا القسم فارغًا.</p></div>
-              {variantAttributes.length === 0 ? <p className="text-sm text-muted-foreground">أضف خصائص وقيمًا أولًا من قسم «خصائص ومتغيرات المنتجات» أسفل الصفحة.</p> : <div className="flex flex-wrap gap-2">{variantAttributes.map((attribute) => <label key={attribute.id} className="flex items-center gap-2 rounded border px-2 py-1 text-sm"><input type="checkbox" checked={draft.attributeIds.includes(attribute.id)} onChange={(event) => setDraft((current) => ({ ...current, attributeIds: event.target.checked ? [...current.attributeIds, attribute.id] : current.attributeIds.filter((id) => id !== attribute.id), variants: [] }))} />{attribute.name}</label>)}</div>}
-              {draft.attributeIds.length ? <Button size="sm" variant="outline" disabled={draft.attributeIds.some((id) => !(variantAttributes.find((attribute) => attribute.id === id)?.values.length))} onClick={() => setDraft((current) => ({ ...current, variants: [...current.variants, { valueIds: current.attributeIds.map((id) => variantAttributes.find((attribute) => attribute.id === id)?.values[0]?.id ?? ''), price: current.price, inventoryItemId: '' }] }))}><Icon name="plus" size={14} /> إضافة تكوين</Button> : null}
-              {draft.variants.map((variant, index) => <div key={index} className="grid gap-2 rounded border p-2 sm:grid-cols-[1fr_9rem_auto]"> <div className="grid gap-2 sm:grid-cols-2">{draft.attributeIds.map((attributeId) => { const attribute = variantAttributes.find((item) => item.id === attributeId); const valueIndex = draft.attributeIds.indexOf(attributeId); return <select key={attributeId} value={variant.valueIds[valueIndex] ?? ''} onChange={(event) => setDraft((current) => ({ ...current, variants: current.variants.map((item, itemIndex) => itemIndex !== index ? item : { ...item, valueIds: item.valueIds.map((value, currentIndex) => currentIndex === valueIndex ? event.target.value : value) }) }))} className="h-10 rounded border bg-background px-2 text-sm"><option value="">{attribute?.name}</option>{attribute?.values.map((value) => <option key={value.id} value={value.id}>{attribute.name}: {value.label}</option>)}</select> })}</div><Input type="number" min="0.01" step="0.01" value={variant.price} onChange={(event) => setDraft((current) => ({ ...current, variants: current.variants.map((item, itemIndex) => itemIndex === index ? { ...item, price: event.target.value } : item) }))} aria-label="سعر المتغير" /><Button size="sm" variant="ghost" onClick={() => setDraft((current) => ({ ...current, variants: current.variants.filter((_, itemIndex) => itemIndex !== index) }))}>حذف</Button></div>)}
+              <div><p className="font-medium">Ù…ØªØºÙŠØ±Ø§Øª Ø§Ù„Ù…Ù†ØªØ¬ (Ø§Ø®ØªÙŠØ§Ø±ÙŠ)</p><p className="text-xs text-muted-foreground">Ø§Ø®ØªØ± Ø§Ù„Ø®ØµØ§Ø¦Øµ Ø«Ù… Ø£Ø¶Ù ÙƒÙ„ ØªÙƒÙˆÙŠÙ† Ø¨Ø³Ø¹Ø±Ù‡ Ø§Ù„Ù…Ø³ØªÙ‚Ù„. Ø§Ù„Ù…Ù†ØªØ¬ Ø§Ù„Ø¨Ø³ÙŠØ· ÙŠØ¨Ù‚Ù‰ ÙƒÙ…Ø§ Ù‡Ùˆ Ø¹Ù†Ø¯ ØªØ±Ùƒ Ù‡Ø°Ø§ Ø§Ù„Ù‚Ø³Ù… ÙØ§Ø±ØºÙ‹Ø§.</p></div>
+              {variantAttributes.length === 0 ? <p className="text-sm text-muted-foreground">Ø£Ø¶Ù Ø®ØµØ§Ø¦Øµ ÙˆÙ‚ÙŠÙ…Ù‹Ø§ Ø£ÙˆÙ„Ù‹Ø§ Ù…Ù† Ù‚Ø³Ù… Â«Ø®ØµØ§Ø¦Øµ ÙˆÙ…ØªØºÙŠØ±Ø§Øª Ø§Ù„Ù…Ù†ØªØ¬Ø§ØªÂ» Ø£Ø³ÙÙ„ Ø§Ù„ØµÙØ­Ø©.</p> : <div className="flex flex-wrap gap-2">{variantAttributes.map((attribute) => <label key={attribute.id} className="flex items-center gap-2 rounded border px-2 py-1 text-sm"><input type="checkbox" checked={draft.attributeIds.includes(attribute.id)} onChange={(event) => setDraft((current) => ({ ...current, attributeIds: event.target.checked ? [...current.attributeIds, attribute.id] : current.attributeIds.filter((id) => id !== attribute.id), variants: [] }))} />{attribute.name}</label>)}</div>}
+              {draft.attributeIds.length ? <Button size="sm" variant="outline" disabled={draft.attributeIds.some((id) => !(variantAttributes.find((attribute) => attribute.id === id)?.values.length))} onClick={() => setDraft((current) => ({ ...current, variants: [...current.variants, { valueIds: current.attributeIds.map((id) => variantAttributes.find((attribute) => attribute.id === id)?.values[0]?.id ?? ''), price: current.price, inventoryItemId: '' }] }))}><Icon name="plus" size={14} /> Ø¥Ø¶Ø§ÙØ© ØªÙƒÙˆÙŠÙ†</Button> : null}
+              {draft.variants.map((variant, index) => <div key={index} className="grid gap-2 rounded border p-2 sm:grid-cols-[1fr_9rem_auto]"> <div className="grid gap-2 sm:grid-cols-2">{draft.attributeIds.map((attributeId) => { const attribute = variantAttributes.find((item) => item.id === attributeId); const valueIndex = draft.attributeIds.indexOf(attributeId); return <select key={attributeId} value={variant.valueIds[valueIndex] ?? ''} onChange={(event) => setDraft((current) => ({ ...current, variants: current.variants.map((item, itemIndex) => itemIndex !== index ? item : { ...item, valueIds: item.valueIds.map((value, currentIndex) => currentIndex === valueIndex ? event.target.value : value) }) }))} className="h-10 rounded border bg-background px-2 text-sm"><option value="">{attribute?.name}</option>{attribute?.values.map((value) => <option key={value.id} value={value.id}>{attribute.name}: {value.label}</option>)}</select> })}</div><Input type="number" min="0.01" step="0.01" value={variant.price} onChange={(event) => setDraft((current) => ({ ...current, variants: current.variants.map((item, itemIndex) => itemIndex === index ? { ...item, price: event.target.value } : item) }))} aria-label="Ø³Ø¹Ø± Ø§Ù„Ù…ØªØºÙŠØ±" /><Button size="sm" variant="ghost" onClick={() => setDraft((current) => ({ ...current, variants: current.variants.filter((_, itemIndex) => itemIndex !== index) }))}>Ø­Ø°Ù</Button></div>)}
             </div>
             <div className="flex items-center gap-2 sm:col-span-2">
               <Button size="sm" disabled={saving} onClick={saveProduct}>
-                <Icon name="check" size={16} /> {saving ? 'جاري الحفظ…' : 'حفظ'}
+                <Icon name="check" size={16} /> {saving ? 'Ø¬Ø§Ø±ÙŠ Ø§Ù„Ø­ÙØ¸â€¦' : 'Ø­ÙØ¸'}
               </Button>
               <Button size="sm" variant="ghost" onClick={() => setShowForm(false)} disabled={saving}>
-                إلغاء
+                Ø¥Ù„ØºØ§Ø¡
               </Button>
             </div>
           </CardContent>
@@ -401,30 +401,30 @@ export function ProductsBoard({
       {canCreateCategories ? (
         <Card>
           <CardHeader>
-            <CardTitle>التصنيفات</CardTitle>
+            <CardTitle>Ø§Ù„ØªØµÙ†ÙŠÙØ§Øª</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             <div className="flex flex-wrap items-center gap-2">
               <Input
                 value={newCategory} onChange={(e) => setNewCategory(e.target.value)}
-                placeholder="تصنيف جديد…" aria-label="اسم تصنيف جديد" maxLength={100} className="max-w-xs"
+                placeholder="ØªØµÙ†ÙŠÙ Ø¬Ø¯ÙŠØ¯â€¦" aria-label="Ø§Ø³Ù… ØªØµÙ†ÙŠÙ Ø¬Ø¯ÙŠØ¯" maxLength={100} className="max-w-xs"
               />
               <Button size="sm" variant="outline" disabled={catBusy || !newCategory.trim() || (branches.length > 1 && !createBranchId)} onClick={addCategory}>
-                <Icon name="plus" size={16} /> إضافة
+                <Icon name="plus" size={16} /> Ø¥Ø¶Ø§ÙØ©
               </Button>
             </div>
             {branches.length > 1 ? (
               <label className="flex max-w-xs flex-col gap-1 text-sm">
-                <span className="text-muted-foreground">الفرع</span>
-                <select value={createBranchId} onChange={(e) => setCreateBranchId(e.target.value)} aria-label="فرع التصنيف"
+                <span className="text-muted-foreground">Ø§Ù„ÙØ±Ø¹</span>
+                <select value={createBranchId} onChange={(e) => setCreateBranchId(e.target.value)} aria-label="ÙØ±Ø¹ Ø§Ù„ØªØµÙ†ÙŠÙ"
                   className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground">
-                  <option value="">اختر الفرع…</option>
+                  <option value="">Ø§Ø®ØªØ± Ø§Ù„ÙØ±Ø¹â€¦</option>
                   {branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
                 </select>
               </label>
             ) : null}
             {catalog.categories.length === 0 ? (
-              <p className="text-sm text-muted-foreground">لا توجد تصنيفات بعد.</p>
+              <p className="text-sm text-muted-foreground">Ù„Ø§ ØªÙˆØ¬Ø¯ ØªØµÙ†ÙŠÙØ§Øª Ø¨Ø¹Ø¯.</p>
             ) : (
               <ul className="flex flex-wrap gap-2">
                 {catalog.categories.map((c) => (
@@ -433,7 +433,7 @@ export function ProductsBoard({
                     <Badge tone="muted">{c.productsCount}</Badge>
                     {canManageCategories ? <button
                       type="button" onClick={() => deleteCategory(c.id)} disabled={catBusy}
-                      aria-label={`حذف تصنيف ${c.name}`}
+                      aria-label={`Ø­Ø°Ù ØªØµÙ†ÙŠÙ ${c.name}`}
                       className="text-muted-foreground hover:text-destructive disabled:opacity-50"
                     >
                       <Icon name="trash" size={14} />
@@ -447,7 +447,7 @@ export function ProductsBoard({
       ) : null}
 
       {rows.length === 0 ? (
-        <EmptyState icon="products" title="لا توجد منتجات مطابقة" description="جرّب بحثاً أو تصنيفاً آخر." />
+        <EmptyState icon="products" title="Ù„Ø§ ØªÙˆØ¬Ø¯ Ù…Ù†ØªØ¬Ø§Øª Ù…Ø·Ø§Ø¨Ù‚Ø©" description="Ø¬Ø±Ù‘Ø¨ Ø¨Ø­Ø«Ø§Ù‹ Ø£Ùˆ ØªØµÙ†ÙŠÙØ§Ù‹ Ø¢Ø®Ø±." />
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {rows.map((p) => (
@@ -458,7 +458,7 @@ export function ProductsBoard({
                   <span className="text-xs text-muted-foreground">{p.categoryName}</span>
                 </div>
                 <Badge tone={p.isAvailable ? 'success' : 'muted'}>
-                  {p.isAvailable ? 'متاح' : 'غير متاح'}
+                  {p.isAvailable ? 'Ù…ØªØ§Ø­' : 'ØºÙŠØ± Ù…ØªØ§Ø­'}
                 </Badge>
               </CardHeader>
               <CardContent className="flex items-center justify-between gap-2">
@@ -468,9 +468,9 @@ export function ProductsBoard({
                     {canEdit ? (
                       <Button
                         size="sm" variant="ghost" onClick={() => openEdit(p)}
-                        aria-label={`تعديل ${p.name}`}
+                        aria-label={`ØªØ¹Ø¯ÙŠÙ„ ${p.name}`}
                       >
-                        <Icon name="settings" size={14} /> تعديل
+                        <Icon name="settings" size={14} /> ØªØ¹Ø¯ÙŠÙ„
                       </Button>
                     ) : null}
                     {canToggle ? (
@@ -479,12 +479,12 @@ export function ProductsBoard({
                         onClick={() => toggle(p.id)}
                       >
                         <Icon name={p.isAvailable ? 'close' : 'check'} size={14} />
-                        {pendingId === p.id ? 'جاري الحفظ…' : p.isAvailable ? 'إخفاء' : 'إظهار'}
+                        {pendingId === p.id ? 'Ø¬Ø§Ø±ÙŠ Ø§Ù„Ø­ÙØ¸â€¦' : p.isAvailable ? 'Ø¥Ø®ÙØ§Ø¡' : 'Ø¥Ø¸Ù‡Ø§Ø±'}
                       </Button>
                     ) : null}
                     {canEdit ? (
                       <Button size="sm" variant="ghost" disabled={archivingId === p.id} onClick={() => archiveProduct(p.id)}>
-                        <Icon name="trash" size={14} /> {archivingId === p.id ? 'Archiving…' : 'Archive'}
+                        <Icon name="trash" size={14} /> {archivingId === p.id ? 'Archivingâ€¦' : 'Archive'}
                       </Button>
                     ) : null}
                   </div>
@@ -497,3 +497,5 @@ export function ProductsBoard({
     </div>
   )
 }
+
+

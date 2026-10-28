@@ -1,9 +1,9 @@
-import { forwardRef } from 'react'
+﻿import { forwardRef } from 'react'
 import { cn } from '@/lib/utils'
 import { Icon, type IconName } from '@/components/ui/icon'
 
 /**
- * Input — themed text field with an optional leading icon and RTL-safe padding.
+ * Input â€” themed text field with an optional leading icon and RTL-safe padding.
  * Uses logical padding (ps/pe) so it reads correctly in RTL and LTR.
  */
 
@@ -53,3 +53,5 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
   },
 )
 Input.displayName = 'Input'
+
+

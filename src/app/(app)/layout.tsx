@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+﻿import type { ReactNode } from 'react'
 import { redirect } from 'next/navigation'
 import { headers } from 'next/headers'
 import { AppShell } from '@/components/layout/app-shell'
@@ -20,14 +20,14 @@ async function currentPath(): Promise<{ pathname: string }> {
  * per-route checks + RLS) is the real gate.
  *
  * Bounce logic:
- *  - No Supabase session            → /login (middleware does this too).
- *  - Signed in but no `public.users` row → /login?reason=unprovisioned so the
- *    page can explain (and so middleware's "signed-in → /login" bounce does not
+ *  - No Supabase session            â†’ /login (middleware does this too).
+ *  - Signed in but no `public.users` row â†’ /login?reason=unprovisioned so the
+ *    page can explain (and so middleware's "signed-in â†’ /login" bounce does not
  *    loop back to /dashboard).
  *
  * A thrown error (e.g. DATABASE_URL missing, Prisma engine unreachable on the
  * host) is caught and rendered as an explanatory panel instead of a bare 500
- * digest — otherwise the failure is invisible without host logs.
+ * digest â€” otherwise the failure is invisible without host logs.
  */
 export default async function AppLayout({ children }: { children: ReactNode }) {
   let session
@@ -36,7 +36,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   } catch (err) {
     // Next.js throws a special "dynamic server usage" error to bail out of
     // static prerendering when a route reads `cookies()`. That signal MUST
-    // propagate — swallowing it would break static/dynamic detection. Only
+    // propagate â€” swallowing it would break static/dynamic detection. Only
     // genuine failures are rendered as a panel.
     if (isDynamicBailout(err)) throw err
     console.error('[skoon] getStaffSession failed:', (err as Error).message ?? err)
@@ -58,7 +58,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   // the URL directly is blocked here from the trusted DB role/permissions.
   const pathname = (await currentPath()).pathname
   const home = homeForRole(session.role)
-  // Never redirect a user to their own canonical home — that would be a
+  // Never redirect a user to their own canonical home â€” that would be a
   // redirect-to-self loop. canonicalHome is always allowed by canSeeRoute, so
   // this is defense-in-depth only.
   if (!canSeeRoute(session.role, session.permissions, pathname) && pathname !== home) {
@@ -68,7 +68,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   // Operational roles (waiter/kitchen/cashier) live on a full-screen board
   // without the admin sidebar. Send them straight to their board when they
   // land on an admin page they happen to be allowed to open.
-  // An operational role on a non-board page is bounced home — EXCEPT the
+  // An operational role on a non-board page is bounced home â€” EXCEPT the
   // narrow ops-shell exceptions (e.g. /shifts for the cashier, whose whole
   // station is blocked while no till is open).
   if (shouldRedirectOperationalUserToHome(session.role, pathname)) {
@@ -89,7 +89,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   }
 
   // Operational roles (cashier / kitchen / waiter) never get the admin sidebar
-  // on any page — only owner and manager see it. Those roles work full-screen
+  // on any page â€” only owner and manager see it. Those roles work full-screen
   // on their dedicated boards.
   if (isOperationalRole(session.role)) {
     return <>{children}</>
@@ -109,9 +109,9 @@ function AccountConfigurationPanel() {
   return (
     <div className="flex min-h-[60vh] items-center justify-center p-6" dir="rtl">
       <div className="w-full max-w-lg rounded-2xl border border-warning/40 bg-card p-6 text-center shadow-sm">
-        <h1 className="mb-2 text-lg font-bold">الحساب غير مهيأ للوصول</h1>
+        <h1 className="mb-2 text-lg font-bold">Ø§Ù„Ø­Ø³Ø§Ø¨ ØºÙŠØ± Ù…Ù‡ÙŠØ£ Ù„Ù„ÙˆØµÙˆÙ„</h1>
         <p className="text-sm leading-relaxed text-muted-foreground">
-          تم التحقق من تسجيل الدخول، لكن لا توجد صلاحية تطبيق نشطة مرتبطة بهذا الحساب.
+          ØªÙ… Ø§Ù„ØªØ­Ù‚Ù‚ Ù…Ù† ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¯Ø®ÙˆÙ„ØŒ Ù„ÙƒÙ† Ù„Ø§ ØªÙˆØ¬Ø¯ ØµÙ„Ø§Ø­ÙŠØ© ØªØ·Ø¨ÙŠÙ‚ Ù†Ø´Ø·Ø© Ù…Ø±ØªØ¨Ø·Ø© Ø¨Ù‡Ø°Ø§ Ø§Ù„Ø­Ø³Ø§Ø¨.
         </p>
       </div>
     </div>
@@ -132,18 +132,20 @@ function ConfigErrorPanel() {
   return (
     <div className="flex min-h-[60vh] items-center justify-center p-6" dir="rtl">
       <div className="w-full max-w-lg rounded-2xl border border-destructive/30 bg-card p-6 text-center shadow-sm">
-        <div className="mb-3 text-3xl" aria-hidden>⚠️</div>
-        <h1 className="mb-2 text-lg font-bold">تعذّر الاتصال بقاعدة البيانات</h1>
+        <div className="mb-3 text-3xl" aria-hidden>âš ï¸</div>
+        <h1 className="mb-2 text-lg font-bold">ØªØ¹Ø°Ù‘Ø± Ø§Ù„Ø§ØªØµØ§Ù„ Ø¨Ù‚Ø§Ø¹Ø¯Ø© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª</h1>
         <p className="mb-4 text-sm leading-relaxed text-muted-foreground">
-          تم تسجيل الدخول، لكن قراءة صلاحيات الموظف فشلت. يرجى مراجعة مدير النظام أو المحاولة مرة أخرى لاحقاً.
+          ØªÙ… ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¯Ø®ÙˆÙ„ØŒ Ù„ÙƒÙ† Ù‚Ø±Ø§Ø¡Ø© ØµÙ„Ø§Ø­ÙŠØ§Øª Ø§Ù„Ù…ÙˆØ¸Ù ÙØ´Ù„Øª. ÙŠØ±Ø¬Ù‰ Ù…Ø±Ø§Ø¬Ø¹Ø© Ù…Ø¯ÙŠØ± Ø§Ù„Ù†Ø¸Ø§Ù… Ø£Ùˆ Ø§Ù„Ù…Ø­Ø§ÙˆÙ„Ø© Ù…Ø±Ø© Ø£Ø®Ø±Ù‰ Ù„Ø§Ø­Ù‚Ø§Ù‹.
         </p>
         <a
           href="/login"
           className="inline-block rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition hover:opacity-90"
         >
-          الذهاب لصفحة الدخول
+          Ø§Ù„Ø°Ù‡Ø§Ø¨ Ù„ØµÙØ­Ø© Ø§Ù„Ø¯Ø®ÙˆÙ„
         </a>
       </div>
     </div>
   )
 }
+
+

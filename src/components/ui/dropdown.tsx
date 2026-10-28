@@ -1,11 +1,11 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useId, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { Icon, type IconName } from '@/components/ui/icon'
 
 /**
- * Dropdown — accessible listbox-style menu built on a real button + role="menu".
+ * Dropdown â€” accessible listbox-style menu built on a real button + role="menu".
  *
  * No external dependency. Handles click-outside, Escape, and basic keyboard
  * roving (ArrowUp/ArrowDown/Enter). RTL-safe via logical utilities only.
@@ -143,3 +143,5 @@ export function Dropdown({
     </div>
   )
 }
+
+

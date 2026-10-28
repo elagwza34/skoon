@@ -1,4 +1,4 @@
-import type { Metadata, Viewport } from 'next'
+﻿import type { Metadata, Viewport } from 'next'
 import type { ReactNode } from 'react'
 import localFont from 'next/font/local'
 import { ThemeProvider } from '@/lib/theme'
@@ -16,15 +16,15 @@ const cairo = localFont({
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://sokooncafe.com'),
-  title: 'سكون — علامة تجارية للكافيه',
-  description: 'علامة تجارية للكافيه',
+  title: 'Ø³ÙƒÙˆÙ† â€” Ø¹Ù„Ø§Ù…Ø© ØªØ¬Ø§Ø±ÙŠØ© Ù„Ù„ÙƒØ§ÙÙŠÙ‡',
+  description: 'Ø¹Ù„Ø§Ù…Ø© ØªØ¬Ø§Ø±ÙŠØ© Ù„Ù„ÙƒØ§ÙÙŠÙ‡',
   icons: {
     icon: '/logo.png',
     apple: '/logo.png',
   },
   openGraph: {
-    title: 'سكون — القهوة، نكهة الحماس',
-    description: 'اعرف منيو سكون واطلب من طاولتك بمسح رمز QR.',
+    title: 'Ø³ÙƒÙˆÙ† â€” Ø§Ù„Ù‚Ù‡ÙˆØ©ØŒ Ù†ÙƒÙ‡Ø© Ø§Ù„Ø­Ù…Ø§Ø³',
+    description: 'Ø§Ø¹Ø±Ù Ù…Ù†ÙŠÙˆ Ø³ÙƒÙˆÙ† ÙˆØ§Ø·Ù„Ø¨ Ù…Ù† Ø·Ø§ÙˆÙ„ØªÙƒ Ø¨Ù…Ø³Ø­ Ø±Ù…Ø² QR.',
     images: ['/logo.png'],
     locale: 'ar_EG',
     type: 'website',
@@ -54,3 +54,5 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     </html>
   )
 }
+
+

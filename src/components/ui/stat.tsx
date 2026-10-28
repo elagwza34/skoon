@@ -1,9 +1,9 @@
-import type { ReactNode } from 'react'
+﻿import type { ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 import { Icon, type IconName } from '@/components/ui/icon'
 
 /**
- * StatCard — a single KPI tile (icon, label, value, optional delta/trend, hint).
+ * StatCard â€” a single KPI tile (icon, label, value, optional delta/trend, hint).
  * Purely presentational; the value string is pre-formatted by the caller so
  * number/locale formatting stays in the format helpers.
  */
@@ -12,7 +12,7 @@ export interface StatCardProps {
   label: string
   value: string
   icon: IconName
-  /** Signed change, e.g. +12.4% — rendered with an up/down arrow + tone. */
+  /** Signed change, e.g. +12.4% â€” rendered with an up/down arrow + tone. */
   delta?: string
   deltaDirection?: 'up' | 'down' | 'flat'
   hint?: string
@@ -73,3 +73,5 @@ export function StatCard({
     </div>
   )
 }
+
+

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -11,14 +11,14 @@ import type { RecentOrder } from "@/lib/order-status";
 import { formatCurrency, formatRelative } from "@/lib/format";
 
 /**
- * RecentOrdersTable — demo orders with a working status filter. The status
+ * RecentOrdersTable â€” demo orders with a working status filter. The status
  * vocabulary matches the shared demo domain so Kitchen/Orders stay consistent.
  */
 
 type Filter = "all" | OrderStatusKey;
 
 const FILTERS: { value: Filter; label: string }[] = [
-  { value: "all", label: "الكل" },
+  { value: "all", label: "Ø§Ù„ÙƒÙ„" },
   ...ORDER_STATUSES.filter((s) => s !== "cancelled").map((s) => ({ value: s as Filter, label: ORDER_STATUS_META[s].label })),
 ];
 
@@ -30,26 +30,26 @@ export function RecentOrdersTable({ orders }: { orders: RecentOrder[] }) {
     <Card>
       <CardHeader className="flex-col items-start gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
         <div>
-          <CardTitle>أحدث الطلبات</CardTitle>
-          <CardDescription>آخر ما ورد في الفرع — </CardDescription>
+          <CardTitle>Ø£Ø­Ø¯Ø« Ø§Ù„Ø·Ù„Ø¨Ø§Øª</CardTitle>
+          <CardDescription>Ø¢Ø®Ø± Ù…Ø§ ÙˆØ±Ø¯ ÙÙŠ Ø§Ù„ÙØ±Ø¹ â€” </CardDescription>
         </div>
-        <Segmented options={FILTERS} value={filter} onChange={setFilter} ariaLabel="تصفية حسب الحالة" />
+        <Segmented options={FILTERS} value={filter} onChange={setFilter} ariaLabel="ØªØµÙÙŠØ© Ø­Ø³Ø¨ Ø§Ù„Ø­Ø§Ù„Ø©" />
       </CardHeader>
       <CardContent>
         {rows.length === 0 ? (
-          <EmptyState icon="orders" title="لا توجد طلبات بهذه الحالة" description="جرّب اختيار حالة أخرى." />
+          <EmptyState icon="orders" title="Ù„Ø§ ØªÙˆØ¬Ø¯ Ø·Ù„Ø¨Ø§Øª Ø¨Ù‡Ø°Ù‡ Ø§Ù„Ø­Ø§Ù„Ø©" description="Ø¬Ø±Ù‘Ø¨ Ø§Ø®ØªÙŠØ§Ø± Ø­Ø§Ù„Ø© Ø£Ø®Ø±Ù‰." />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border text-start text-xs text-muted-foreground">
-                  <th className="px-2 py-2 text-start font-medium">رقم الطلب</th>
-                  <th className="px-2 py-2 text-start font-medium">الطاولة</th>
-                  <th className="px-2 py-2 text-start font-medium">المصدر</th>
-                  <th className="px-2 py-2 text-start font-medium">الأصناف</th>
-                  <th className="px-2 py-2 text-start font-medium">الإجمالي</th>
-                  <th className="px-2 py-2 text-start font-medium">الوقت</th>
-                  <th className="px-2 py-2 text-start font-medium">الحالة</th>
+                  <th className="px-2 py-2 text-start font-medium">Ø±Ù‚Ù… Ø§Ù„Ø·Ù„Ø¨</th>
+                  <th className="px-2 py-2 text-start font-medium">Ø§Ù„Ø·Ø§ÙˆÙ„Ø©</th>
+                  <th className="px-2 py-2 text-start font-medium">Ø§Ù„Ù…ØµØ¯Ø±</th>
+                  <th className="px-2 py-2 text-start font-medium">Ø§Ù„Ø£ØµÙ†Ø§Ù</th>
+                  <th className="px-2 py-2 text-start font-medium">Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠ</th>
+                  <th className="px-2 py-2 text-start font-medium">Ø§Ù„ÙˆÙ‚Øª</th>
+                  <th className="px-2 py-2 text-start font-medium">Ø§Ù„Ø­Ø§Ù„Ø©</th>
                 </tr>
               </thead>
               <tbody>
@@ -77,3 +77,4 @@ export function RecentOrdersTable({ orders }: { orders: RecentOrder[] }) {
     </Card>
   );
 }
+

@@ -1,7 +1,7 @@
-import { Icon } from "@/components/ui/icon";
+﻿import { Icon } from "@/components/ui/icon";
 
 /**
- * DemoBanner — makes it unmistakable that the numbers on screen are fabricated
+ * DemoBanner â€” makes it unmistakable that the numbers on screen are fabricated
  * preview data, not real sales. Keeps the demo honest per the product rules.
  */
 export function DemoBanner() {
@@ -11,8 +11,9 @@ export function DemoBanner() {
         <Icon name="sparkles" size={15} />
       </span>
       <p className="text-foreground">
-        <span className="font-semibold">وضع المعاينة:</span> جميع الأرقام والطلبات أدناه بيانات تجريبية للتوضيح فقط، وليست مبيعات أو طلبات حقيقية. سيتم ربطها بقاعدة البيانات لاحقاً.
+        <span className="font-semibold">ÙˆØ¶Ø¹ Ø§Ù„Ù…Ø¹Ø§ÙŠÙ†Ø©:</span> Ø¬Ù…ÙŠØ¹ Ø§Ù„Ø£Ø±Ù‚Ø§Ù… ÙˆØ§Ù„Ø·Ù„Ø¨Ø§Øª Ø£Ø¯Ù†Ø§Ù‡ Ø¨ÙŠØ§Ù†Ø§Øª ØªØ¬Ø±ÙŠØ¨ÙŠØ© Ù„Ù„ØªÙˆØ¶ÙŠØ­ ÙÙ‚Ø·ØŒ ÙˆÙ„ÙŠØ³Øª Ù…Ø¨ÙŠØ¹Ø§Øª Ø£Ùˆ Ø·Ù„Ø¨Ø§Øª Ø­Ù‚ÙŠÙ‚ÙŠØ©. Ø³ÙŠØªÙ… Ø±Ø¨Ø·Ù‡Ø§ Ø¨Ù‚Ø§Ø¹Ø¯Ø© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ù„Ø§Ø­Ù‚Ø§Ù‹.
       </p>
     </div>
   );
 }
+

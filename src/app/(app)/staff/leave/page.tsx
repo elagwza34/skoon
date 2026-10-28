@@ -1,4 +1,4 @@
-import { requirePageAccess } from '@/lib/require-page-access'
+﻿import { requirePageAccess } from '@/lib/require-page-access'
 import { listLeaveRequests } from '@/lib/staff-leave-write'
 import { LeaveReviewBoard, type LeaveReviewRow } from '@/components/staff/leave-review-board'
 
@@ -24,3 +24,5 @@ export default async function LeaveRequestsPage() {
 
   return <LeaveReviewBoard rows={rows} canDecide={session.role === 'owner' || session.role === 'manager'} />
 }
+
+

@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState } from 'react'
 import Link from 'next/link'
@@ -45,12 +45,12 @@ export function OwnerCommandCenter({ stats, managerOperations, waiterReadiness, 
   const statusCounts = stats.statusDistribution.reduce<Record<string, number>>((acc, item) => { acc[item.key] = item.value; return acc }, {})
 
   const kpis = [
-    { label: 'المحصّل اليوم', value: formatCurrency(stats.totalSalesToday), icon: 'trendingUp', hint: 'مدفوعات مكتملة' },
-    { label: 'قيمة طلبات اليوم', value: formatCurrency(stats.orderValueToday), icon: 'orders', hint: 'طلبات غير ملغية' },
-    { label: 'عدد الطلبات', value: String(stats.ordersToday), icon: 'orders', hint: 'اليوم' },
-    { label: 'متوسط الطلب', value: formatCurrency(stats.avgOrderValue), icon: 'reports', hint: stats.paidOrdersToday ? `على ${stats.paidOrdersToday} طلب` : 'لا طلبات' },
-    { label: 'قيد التحضير', value: String(stats.ordersInPreparation), icon: 'kitchen', hint: 'طلبات نشطة' },
-    { label: 'طاولات مشغولة', value: String(stats.tableCounts.occupied), icon: 'tables', hint: `من ${stats.tables.length}` },
+    { label: 'Ø§Ù„Ù…Ø­ØµÙ‘Ù„ Ø§Ù„ÙŠÙˆÙ…', value: formatCurrency(stats.totalSalesToday), icon: 'trendingUp', hint: 'Ù…Ø¯ÙÙˆØ¹Ø§Øª Ù…ÙƒØªÙ…Ù„Ø©' },
+    { label: 'Ù‚ÙŠÙ…Ø© Ø·Ù„Ø¨Ø§Øª Ø§Ù„ÙŠÙˆÙ…', value: formatCurrency(stats.orderValueToday), icon: 'orders', hint: 'Ø·Ù„Ø¨Ø§Øª ØºÙŠØ± Ù…Ù„ØºÙŠØ©' },
+    { label: 'Ø¹Ø¯Ø¯ Ø§Ù„Ø·Ù„Ø¨Ø§Øª', value: String(stats.ordersToday), icon: 'orders', hint: 'Ø§Ù„ÙŠÙˆÙ…' },
+    { label: 'Ù…ØªÙˆØ³Ø· Ø§Ù„Ø·Ù„Ø¨', value: formatCurrency(stats.avgOrderValue), icon: 'reports', hint: stats.paidOrdersToday ? `Ø¹Ù„Ù‰ ${stats.paidOrdersToday} Ø·Ù„Ø¨` : 'Ù„Ø§ Ø·Ù„Ø¨Ø§Øª' },
+    { label: 'Ù‚ÙŠØ¯ Ø§Ù„ØªØ­Ø¶ÙŠØ±', value: String(stats.ordersInPreparation), icon: 'kitchen', hint: 'Ø·Ù„Ø¨Ø§Øª Ù†Ø´Ø·Ø©' },
+    { label: 'Ø·Ø§ÙˆÙ„Ø§Øª Ù…Ø´ØºÙˆÙ„Ø©', value: String(stats.tableCounts.occupied), icon: 'tables', hint: `Ù…Ù† ${stats.tables.length}` },
   ]
 
   return (
@@ -97,7 +97,7 @@ export function OwnerCommandCenter({ stats, managerOperations, waiterReadiness, 
         </div>
         <div className="col-span-12 lg:col-span-4">
           <QuickActionsCompact user={session} />
-          <Link href="/staff" className="flex min-h-10 items-center justify-center rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90">إدارة الموظفين وإضافة موظف</Link>
+          <Link href="/staff" className="flex min-h-10 items-center justify-center rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90">Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„Ù…ÙˆØ¸ÙÙŠÙ† ÙˆØ¥Ø¶Ø§ÙØ© Ù…ÙˆØ¸Ù</Link>
         </div>
       </div>
     </main>
@@ -106,18 +106,18 @@ export function OwnerCommandCenter({ stats, managerOperations, waiterReadiness, 
 
 function ManagerOperationsCenterCompact({ data }: { data: any }) {
   const cards = [
-    { label: 'طلبات نشطة', value: data.activeOrders, tone: 'primary' },
-    { label: 'طلبات متأخرة', value: data.delayedOrders, tone: data.delayedOrders > 0 ? 'destructive' : 'success' },
-    { label: 'بانتظار المطبخ', value: data.awaitingKitchen, tone: 'info' },
-    { label: 'جاهزة للخدمة', value: data.readyForService, tone: 'success' },
-    { label: 'طاولات نشطة', value: data.activeTables, tone: 'warning' },
-    { label: 'موظفون في وردية', value: data.employeesOnShift, tone: 'muted' },
+    { label: 'Ø·Ù„Ø¨Ø§Øª Ù†Ø´Ø·Ø©', value: data.activeOrders, tone: 'primary' },
+    { label: 'Ø·Ù„Ø¨Ø§Øª Ù…ØªØ£Ø®Ø±Ø©', value: data.delayedOrders, tone: data.delayedOrders > 0 ? 'destructive' : 'success' },
+    { label: 'Ø¨Ø§Ù†ØªØ¸Ø§Ø± Ø§Ù„Ù…Ø·Ø¨Ø®', value: data.awaitingKitchen, tone: 'info' },
+    { label: 'Ø¬Ø§Ù‡Ø²Ø© Ù„Ù„Ø®Ø¯Ù…Ø©', value: data.readyForService, tone: 'success' },
+    { label: 'Ø·Ø§ÙˆÙ„Ø§Øª Ù†Ø´Ø·Ø©', value: data.activeTables, tone: 'warning' },
+    { label: 'Ù…ÙˆØ¸ÙÙˆÙ† ÙÙŠ ÙˆØ±Ø¯ÙŠØ©', value: data.employeesOnShift, tone: 'muted' },
   ]
   return (
     <Card>
       <CardHeader className="p-3 sm:p-4">
-        <CardTitle className="text-sm sm:text-base">مركز عمليات المدير</CardTitle>
-        <p className="text-xs sm:text-sm text-muted-foreground">صورة حية للفرع من بيانات التشغيل الحالية.</p>
+        <CardTitle className="text-sm sm:text-base">Ù…Ø±ÙƒØ² Ø¹Ù…Ù„ÙŠØ§Øª Ø§Ù„Ù…Ø¯ÙŠØ±</CardTitle>
+        <p className="text-xs sm:text-sm text-muted-foreground">ØµÙˆØ±Ø© Ø­ÙŠØ© Ù„Ù„ÙØ±Ø¹ Ù…Ù† Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„ØªØ´ØºÙŠÙ„ Ø§Ù„Ø­Ø§Ù„ÙŠØ©.</p>
       </CardHeader>
       <CardContent className="p-3 sm:p-4">
         <div className="grid gap-2 sm:grid-cols-3">
@@ -133,7 +133,7 @@ function ManagerOperationsCenterCompact({ data }: { data: any }) {
         <div className="mt-3 sm:mt-4 grid gap-2 sm:grid-cols-2">
           <Card className="p-2 sm:p-3">
             <CardContent className="p-0 sm:p-1 pt-2 sm:pt-0">
-              <p className="text-[10px] sm:text-xs text-muted-foreground">محصل اليوم</p>
+              <p className="text-[10px] sm:text-xs text-muted-foreground">Ù…Ø­ØµÙ„ Ø§Ù„ÙŠÙˆÙ…</p>
               <p className="text-sm sm:text-lg font-bold">{formatCurrency(data.collectedToday)}</p>
             </CardContent>
           </Card>
@@ -147,7 +147,7 @@ function AlertsPanel({ urgent, serviceRequests }: { urgent: any[]; serviceReques
   return (
     <Card>
       <CardHeader className="p-3 sm:p-4">
-        <CardTitle className="text-sm sm:text-base">تنبيهات تشغيلية</CardTitle>
+        <CardTitle className="text-sm sm:text-base">ØªÙ†Ø¨ÙŠÙ‡Ø§Øª ØªØ´ØºÙŠÙ„ÙŠØ©</CardTitle>
       </CardHeader>
       <CardContent className="p-3 sm:p-4">
         <div className="space-y-2">
@@ -161,15 +161,15 @@ function AlertsPanel({ urgent, serviceRequests }: { urgent: any[]; serviceReques
               ))}
             </ul>
           ) : (
-            <p className="text-xs text-muted-foreground">لا توجد تنبيهات تشغيلية متأخرة.</p>
+            <p className="text-xs text-muted-foreground">Ù„Ø§ ØªÙˆØ¬Ø¯ ØªÙ†Ø¨ÙŠÙ‡Ø§Øª ØªØ´ØºÙŠÙ„ÙŠØ© Ù…ØªØ£Ø®Ø±Ø©.</p>
           )}
           {serviceRequests && (
             <div className="mt-3 sm:mt-4 grid gap-2 sm:grid-cols-2">
               {[
-                ['بانتظار', serviceRequests.pending],
-                ['شكاوى', serviceRequests.complaints],
-                ['مصعّدة', serviceRequests.escalated],
-                ['متأخرة', serviceRequests.overdue],
+                ['Ø¨Ø§Ù†ØªØ¸Ø§Ø±', serviceRequests.pending],
+                ['Ø´ÙƒØ§ÙˆÙ‰', serviceRequests.complaints],
+                ['Ù…ØµØ¹Ù‘Ø¯Ø©', serviceRequests.escalated],
+                ['Ù…ØªØ£Ø®Ø±Ø©', serviceRequests.overdue],
               ].map(([label, value]) => (
                 <Card key={label} className="p-2 sm:p-3">
                   <CardContent className="p-0 sm:p-1 pt-2 sm:pt-0">
@@ -190,15 +190,15 @@ function ResponsibilityPanel({ data }: { data: any }) {
   return (
     <Card>
       <CardHeader className="p-3 sm:p-4">
-        <CardTitle className="text-sm sm:text-base">مسؤولية الطلبات</CardTitle>
+        <CardTitle className="text-sm sm:text-base">Ù…Ø³Ø¤ÙˆÙ„ÙŠØ© Ø§Ù„Ø·Ù„Ø¨Ø§Øª</CardTitle>
       </CardHeader>
       <CardContent className="p-3 sm:p-4">
         <div className="grid gap-2 sm:grid-cols-2">
           {[
-            ['غير مسؤول', data.totalUnassigned],
-            ['تشغيلي', data.operational],
-            ['يحتاج قرار', data.ambiguous],
-            ['تاريخي', data.historical],
+            ['ØºÙŠØ± Ù…Ø³Ø¤ÙˆÙ„', data.totalUnassigned],
+            ['ØªØ´ØºÙŠÙ„ÙŠ', data.operational],
+            ['ÙŠØ­ØªØ§Ø¬ Ù‚Ø±Ø§Ø±', data.ambiguous],
+            ['ØªØ§Ø±ÙŠØ®ÙŠ', data.historical],
           ].map(([label, value]) => (
             <Card key={label} className="p-2 sm:p-3">
               <CardContent className="p-0 sm:p-1 pt-2 sm:pt-0">
@@ -222,7 +222,7 @@ function SalesCardCompact({ seriesByRange }: { seriesByRange: Record<string, { l
       <CardHeader className="p-3 sm:p-4 flex-col items-start gap-3">
         <div className="flex items-start justify-between gap-3 w-full">
           <div>
-            <CardTitle className="text-sm sm:text-base">المبيعات</CardTitle>
+            <CardTitle className="text-sm sm:text-base">Ø§Ù„Ù…Ø¨ÙŠØ¹Ø§Øª</CardTitle>
             <CardDescription className="text-[10px] sm:text-xs">{formatCurrency(total)}</CardDescription>
           </div>
         </div>
@@ -245,8 +245,8 @@ function OrderStatusDistribution({ data, total }: { data: { key: string; label: 
   return (
     <Card>
       <CardHeader className="p-3 sm:p-4">
-        <CardTitle className="text-sm sm:text-base">توزيع حالات الطلبات</CardTitle>
-        <p className="text-[10px] sm:text-xs text-muted-foreground">اليوم — من قاعدة البيانات</p>
+        <CardTitle className="text-sm sm:text-base">ØªÙˆØ²ÙŠØ¹ Ø­Ø§Ù„Ø§Øª Ø§Ù„Ø·Ù„Ø¨Ø§Øª</CardTitle>
+        <p className="text-[10px] sm:text-xs text-muted-foreground">Ø§Ù„ÙŠÙˆÙ… â€” Ù…Ù† Ù‚Ø§Ø¹Ø¯Ø© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª</p>
       </CardHeader>
       <CardContent className="p-3 sm:p-4">
         <div className="flex flex-col gap-2">
@@ -282,44 +282,44 @@ function RecentOrdersCompact({
   statusCounts: Record<string, number>
 }) {
   const FILTERS: { value: StatusFilter; label: string }[] = [
-    { value: 'all', label: 'الكل' },
-    { value: 'new', label: 'جديد' },
-    { value: 'preparing', label: 'قيد التحضير' },
-    { value: 'ready', label: 'جاهز' },
-    { value: 'served', label: 'تم التقديم' },
-    { value: 'cancelled', label: 'ملغي' },
+    { value: 'all', label: 'Ø§Ù„ÙƒÙ„' },
+    { value: 'new', label: 'Ø¬Ø¯ÙŠØ¯' },
+    { value: 'preparing', label: 'Ù‚ÙŠØ¯ Ø§Ù„ØªØ­Ø¶ÙŠØ±' },
+    { value: 'ready', label: 'Ø¬Ø§Ù‡Ø²' },
+    { value: 'served', label: 'ØªÙ… Ø§Ù„ØªÙ‚Ø¯ÙŠÙ…' },
+    { value: 'cancelled', label: 'Ù…Ù„ØºÙŠ' },
   ]
   return (
     <Card>
       <CardHeader className="p-3 sm:p-4 flex-col sm:flex-row sm:items-start sm:justify-between sm:gap-4">
         <div>
-          <CardTitle className="text-sm sm:text-base">أحدث الطلبات</CardTitle>
-          <CardDescription className="text-[10px] sm:text-xs">بحث وفلترة داخل الصفحة</CardDescription>
+          <CardTitle className="text-sm sm:text-base">Ø£Ø­Ø¯Ø« Ø§Ù„Ø·Ù„Ø¨Ø§Øª</CardTitle>
+          <CardDescription className="text-[10px] sm:text-xs">Ø¨Ø­Ø« ÙˆÙÙ„ØªØ±Ø© Ø¯Ø§Ø®Ù„ Ø§Ù„ØµÙØ­Ø©</CardDescription>
         </div>
         <div className="flex flex-wrap gap-2 mt-2 sm:mt-0">
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="ابحث عن طلب…"
+            placeholder="Ø§Ø¨Ø­Ø« Ø¹Ù† Ø·Ù„Ø¨â€¦"
             className="h-8 w-48 sm:w-64 text-xs sm:text-sm"
           />
-          <Segmented options={FILTERS.map((f) => ({ value: f.value, label: `${f.label} (${statusCounts[f.value] ?? 0})` }))} value={statusFilter} onChange={(value) => setStatusFilter(value as StatusFilter)} ariaLabel="تصفية حالة الطلب" />
+          <Segmented options={FILTERS.map((f) => ({ value: f.value, label: `${f.label} (${statusCounts[f.value] ?? 0})` }))} value={statusFilter} onChange={(value) => setStatusFilter(value as StatusFilter)} ariaLabel="ØªØµÙÙŠØ© Ø­Ø§Ù„Ø© Ø§Ù„Ø·Ù„Ø¨" />
         </div>
       </CardHeader>
       <CardContent className="p-3 sm:p-4 h-60 sm:h-72 overflow-y-auto">
         {orders.length === 0 ? (
-          <p className="text-xs text-muted-foreground">لا توجد طلبات بهذه الحالة.</p>
+          <p className="text-xs text-muted-foreground">Ù„Ø§ ØªÙˆØ¬Ø¯ Ø·Ù„Ø¨Ø§Øª Ø¨Ù‡Ø°Ù‡ Ø§Ù„Ø­Ø§Ù„Ø©.</p>
         ) : (
           <table className="w-full text-xs sm:text-sm">
             <thead>
               <tr className="border-b border-border text-[10px] sm:text-xs text-muted-foreground">
-                <th className="px-1 py-1.5 text-start">رقم الطلب</th>
-                <th className="px-1 py-1.5 text-start">الطاولة</th>
-                <th className="px-1 py-1.5 text-start">المصدر</th>
-                <th className="px-1 py-1.5 text-start">الأصناف</th>
-                <th className="px-1 py-1.5 text-start">الإجمالي</th>
-                <th className="px-1 py-1.5 text-start">الوقت</th>
-                <th className="px-1 py-1.5 text-start">الحالة</th>
+                <th className="px-1 py-1.5 text-start">Ø±Ù‚Ù… Ø§Ù„Ø·Ù„Ø¨</th>
+                <th className="px-1 py-1.5 text-start">Ø§Ù„Ø·Ø§ÙˆÙ„Ø©</th>
+                <th className="px-1 py-1.5 text-start">Ø§Ù„Ù…ØµØ¯Ø±</th>
+                <th className="px-1 py-1.5 text-start">Ø§Ù„Ø£ØµÙ†Ø§Ù</th>
+                <th className="px-1 py-1.5 text-start">Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠ</th>
+                <th className="px-1 py-1.5 text-start">Ø§Ù„ÙˆÙ‚Øª</th>
+                <th className="px-1 py-1.5 text-start">Ø§Ù„Ø­Ø§Ù„Ø©</th>
               </tr>
             </thead>
             <tbody>
@@ -329,7 +329,7 @@ function RecentOrdersCompact({
                   <tr key={o.id} className="border-b border-border/50 hover:bg-accent/40">
                     <td className="px-1 py-1.5 font-medium text-foreground">{o.number}</td>
                     <td className="px-1 py-1.5 text-muted-foreground">{o.table}</td>
-                    <td className="px-1 py-1.5 text-muted-foreground">{o.source === 'qr' ? 'QR' : o.source === 'waiter' ? 'ويتر' : 'كاشير'}</td>
+                    <td className="px-1 py-1.5 text-muted-foreground">{o.source === 'qr' ? 'QR' : o.source === 'waiter' ? 'ÙˆÙŠØªØ±' : 'ÙƒØ§Ø´ÙŠØ±'}</td>
                     <td className="px-1 py-1.5 text-muted-foreground">{o.itemsCount}</td>
                     <td className="px-1 py-1.5 font-medium text-foreground">{formatCurrency(o.total)}</td>
                     <td className="px-1 py-1.5 text-muted-foreground">{formatRelative(new Date(Date.now() - o.minutesAgo * 60000))}</td>
@@ -346,13 +346,15 @@ function RecentOrdersCompact({
 }
 
 function TopProductsCompact({ products }: { products: OwnerCommandCenterProps['stats']['topProducts'] }) {
-  return <Card><CardHeader className="p-3 sm:p-4"><CardTitle className="text-sm sm:text-base">الأصناف الأعلى</CardTitle></CardHeader><CardContent className="space-y-2 p-3 sm:p-4">{products.length ? products.slice(0, 6).map((product) => <div key={product.name} className="flex items-center justify-between gap-2 border-b pb-2"><span className="min-w-0 truncate">{product.emoji} {product.name}</span><span className="shrink-0 text-xs text-muted-foreground">{product.qty} · {formatCurrency(product.revenue)}</span></div>) : <p className="text-sm text-muted-foreground">لا توجد بيانات.</p>}</CardContent></Card>
+  return <Card><CardHeader className="p-3 sm:p-4"><CardTitle className="text-sm sm:text-base">Ø§Ù„Ø£ØµÙ†Ø§Ù Ø§Ù„Ø£Ø¹Ù„Ù‰</CardTitle></CardHeader><CardContent className="space-y-2 p-3 sm:p-4">{products.length ? products.slice(0, 6).map((product) => <div key={product.name} className="flex items-center justify-between gap-2 border-b pb-2"><span className="min-w-0 truncate">{product.emoji} {product.name}</span><span className="shrink-0 text-xs text-muted-foreground">{product.qty} Â· {formatCurrency(product.revenue)}</span></div>) : <p className="text-sm text-muted-foreground">Ù„Ø§ ØªÙˆØ¬Ø¯ Ø¨ÙŠØ§Ù†Ø§Øª.</p>}</CardContent></Card>
 }
 
 function TablesStatusCompact({ tables, tableCounts }: { tables: OwnerCommandCenterProps['stats']['tables']; tableCounts: OwnerCommandCenterProps['stats']['tableCounts'] }) {
-  return <Card><CardHeader className="p-3 sm:p-4"><CardTitle className="text-sm sm:text-base">حالة الطاولات</CardTitle><p className="text-xs text-muted-foreground">متاحة {tableCounts.available} · مشغولة {tableCounts.occupied} · تنظيف {tableCounts.cleaning}</p></CardHeader><CardContent className="grid gap-2 p-3 sm:grid-cols-2 sm:p-4">{tables.map((table) => <div key={table.number} className="rounded border p-2 text-sm"><b>طاولة {table.number}</b><p className="text-xs text-muted-foreground">{table.status} · {table.capacity} مقاعد</p></div>)}</CardContent></Card>
+  return <Card><CardHeader className="p-3 sm:p-4"><CardTitle className="text-sm sm:text-base">Ø­Ø§Ù„Ø© Ø§Ù„Ø·Ø§ÙˆÙ„Ø§Øª</CardTitle><p className="text-xs text-muted-foreground">Ù…ØªØ§Ø­Ø© {tableCounts.available} Â· Ù…Ø´ØºÙˆÙ„Ø© {tableCounts.occupied} Â· ØªÙ†Ø¸ÙŠÙ {tableCounts.cleaning}</p></CardHeader><CardContent className="grid gap-2 p-3 sm:grid-cols-2 sm:p-4">{tables.map((table) => <div key={table.number} className="rounded border p-2 text-sm"><b>Ø·Ø§ÙˆÙ„Ø© {table.number}</b><p className="text-xs text-muted-foreground">{table.status} Â· {table.capacity} Ù…Ù‚Ø§Ø¹Ø¯</p></div>)}</CardContent></Card>
 }
 
 function QuickActionsCompact({ user }: { user: OwnerCommandCenterProps['session'] }) {
-  return <Card><CardHeader className="p-3 sm:p-4"><CardTitle className="text-sm sm:text-base">جلسة المالك</CardTitle></CardHeader><CardContent className="space-y-2 p-3 text-sm sm:p-4"><p>المستخدم: <b>{user.name}</b></p><p>الدور: <b>{user.role}</b></p><p className="text-xs text-muted-foreground">هذه اللوحة للرقابة والقراءة فقط.</p></CardContent></Card>
+  return <Card><CardHeader className="p-3 sm:p-4"><CardTitle className="text-sm sm:text-base">Ø¬Ù„Ø³Ø© Ø§Ù„Ù…Ø§Ù„Ùƒ</CardTitle></CardHeader><CardContent className="space-y-2 p-3 text-sm sm:p-4"><p>Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…: <b>{user.name}</b></p><p>Ø§Ù„Ø¯ÙˆØ±: <b>{user.role}</b></p><p className="text-xs text-muted-foreground">Ù‡Ø°Ù‡ Ø§Ù„Ù„ÙˆØ­Ø© Ù„Ù„Ø±Ù‚Ø§Ø¨Ø© ÙˆØ§Ù„Ù‚Ø±Ø§Ø¡Ø© ÙÙ‚Ø·.</p></CardContent></Card>
 }
+
+

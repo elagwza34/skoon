@@ -1,4 +1,4 @@
-import { redirect } from 'next/navigation'
+﻿import { redirect } from 'next/navigation'
 import { requirePageAccess } from '@/lib/require-page-access'
 import { listStaffOrders } from '@/lib/staff-orders'
 import { hasAtLeast, ROLE, requiresOperationalShift } from '@/lib/authz'
@@ -8,7 +8,7 @@ import { OrdersBoard } from '@/components/orders/orders-board'
 export const dynamic = 'force-dynamic'
 
 /**
- * Orders — server component. Branch-scoped orders from the real DB.
+ * Orders â€” server component. Branch-scoped orders from the real DB.
  * Payment actions are permission-gated here AND re-checked on the server.
  */
 export default async function OrdersPage() {
@@ -30,3 +30,5 @@ export default async function OrdersPage() {
     />
   );
 }
+
+

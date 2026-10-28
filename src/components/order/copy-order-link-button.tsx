@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
@@ -18,8 +18,8 @@ export function CopyOrderLinkButton({ id, orderNumber }: { id: string; orderNumb
     try {
       await navigator.clipboard.writeText(url)
     } catch {
-      // Clipboard API unavailable — open a prompt so the user can copy manually.
-      window.prompt('انسخ رابط طلبك:', url)
+      // Clipboard API unavailable â€” open a prompt so the user can copy manually.
+      window.prompt('Ø§Ù†Ø³Ø® Ø±Ø§Ø¨Ø· Ø·Ù„Ø¨Ùƒ:', url)
       return
     }
     setCopied(true)
@@ -35,7 +35,9 @@ export function CopyOrderLinkButton({ id, orderNumber }: { id: string; orderNumb
       className="w-full border-white/30 bg-white/10 text-white hover:bg-white/20 hover:text-white"
     >
       <Icon name={copied ? 'check' : 'copy'} size={16} />
-      {copied ? 'اتنسخ!' : 'انسخ رابط الطلب'}
+      {copied ? 'Ø§ØªÙ†Ø³Ø®!' : 'Ø§Ù†Ø³Ø® Ø±Ø§Ø¨Ø· Ø§Ù„Ø·Ù„Ø¨'}
     </Button>
   )
 }
+
+

@@ -1,4 +1,4 @@
-import Link from 'next/link'
+﻿import Link from 'next/link'
 import Image from 'next/image'
 import { Button } from '@/components/ui/button'
 import { PublicBackdrop } from '@/components/public/public-backdrop'
@@ -24,14 +24,14 @@ export default function LandingPage() {
       {/* Full-screen brand backdrop (photo + orange/dark overlay) */}
       <PublicBackdrop />
 
-      {/* Centred content — locked to the viewport height so the landing screen
+      {/* Centred content â€” locked to the viewport height so the landing screen
           never scrolls on any screen size. */}
       <div className="relative z-10 flex h-full items-center justify-center px-4">
         <div className="max-w-4xl mx-auto text-white text-center">
           {/* Logo + title */}
           <Image
             src="/logo.png"
-            alt="شعار سكون"
+            alt="Ø´Ø¹Ø§Ø± Ø³ÙƒÙˆÙ†"
             width={160}
             height={160}
             priority
@@ -41,16 +41,16 @@ export default function LandingPage() {
 
           {/* Note: QR coming soon */}
           <p className="text-sm md:text-base text-orange-400 mb-6 md:mb-8 drop-shadow italic px-4 md:px-0 leading-relaxed">
-            الطلب من خلال ال QR سيكون متاح قريباً
+            Ø§Ù„Ø·Ù„Ø¨ Ù…Ù† Ø®Ù„Ø§Ù„ Ø§Ù„ QR Ø³ÙŠÙƒÙˆÙ† Ù…ØªØ§Ø­ Ù‚Ø±ÙŠØ¨Ø§Ù‹
           </p>
 
-          {/* CTA — disabled (not clickable) */}
+          {/* CTA â€” disabled (not clickable) */}
           <Button
             size="lg"
             disabled
             className="w-full md:w-auto rounded-lg px-6 py-4 text-base md:px-8 md:py-6 md:text-lg bg-white/30 text-white/50 cursor-not-allowed"
           >
-            ابدأ طلبك الآن
+            Ø§Ø¨Ø¯Ø£ Ø·Ù„Ø¨Ùƒ Ø§Ù„Ø¢Ù†
           </Button>
 
           {/* Shown only when this browser has a saved order ref. */}
@@ -62,3 +62,4 @@ export default function LandingPage() {
     </div>
   )
 }
+

@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -120,9 +120,9 @@ export function MenuOrderView({ menu }: { menu: PublicMenu }) {
     try {
       const response = await fetch('/api/public/service-requests', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token: menu.table.token, type }) })
       const data = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(data.error ?? 'تعذر إرسال الطلب')
-      setServiceMessage('تم إرسال طلبك للفريق.')
-    } catch (cause) { setServiceMessage(cause instanceof Error ? cause.message : 'تعذر إرسال الطلب') } finally { setServiceBusy(null) }
+      if (!response.ok) throw new Error(data.error ?? 'ØªØ¹Ø°Ø± Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„Ø·Ù„Ø¨')
+      setServiceMessage('ØªÙ… Ø¥Ø±Ø³Ø§Ù„ Ø·Ù„Ø¨Ùƒ Ù„Ù„ÙØ±ÙŠÙ‚.')
+    } catch (cause) { setServiceMessage(cause instanceof Error ? cause.message : 'ØªØ¹Ø°Ø± Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„Ø·Ù„Ø¨') } finally { setServiceBusy(null) }
   }
 
   return (
@@ -131,11 +131,11 @@ export function MenuOrderView({ menu }: { menu: PublicMenu }) {
       <PublicBackdrop />
 
       <div className="relative z-20 mx-auto flex max-w-5xl flex-wrap gap-2 px-4 pt-3 sm:px-6">
-        {([['waiter_call', 'نادِ النادل'], ['bill', 'اطلب الحساب'], ['water', 'ماء'], ['utensils', 'أدوات'], ['assistance', 'مساعدة'], ['complaint', 'شكوى']] as const).map(([type, label]) => <Button key={type} size="sm" variant="secondary" disabled={!!serviceBusy} onClick={() => void requestService(type)}>{serviceBusy === type ? 'جارٍ الإرسال…' : label}</Button>)}
+        {([['waiter_call', 'Ù†Ø§Ø¯Ù Ø§Ù„Ù†Ø§Ø¯Ù„'], ['bill', 'Ø§Ø·Ù„Ø¨ Ø§Ù„Ø­Ø³Ø§Ø¨'], ['water', 'Ù…Ø§Ø¡'], ['utensils', 'Ø£Ø¯ÙˆØ§Øª'], ['assistance', 'Ù…Ø³Ø§Ø¹Ø¯Ø©'], ['complaint', 'Ø´ÙƒÙˆÙ‰']] as const).map(([type, label]) => <Button key={type} size="sm" variant="secondary" disabled={!!serviceBusy} onClick={() => void requestService(type)}>{serviceBusy === type ? 'Ø¬Ø§Ø±Ù Ø§Ù„Ø¥Ø±Ø³Ø§Ù„â€¦' : label}</Button>)}
         {serviceMessage ? <span className="self-center text-xs">{serviceMessage}</span> : null}
       </div>
 
-      {/* Sticky basket bar — always visible at the top; tap to review + submit. */}
+      {/* Sticky basket bar â€” always visible at the top; tap to review + submit. */}
       <button
         type="button"
         onClick={() => setCartOpen(true)}
@@ -143,11 +143,11 @@ export function MenuOrderView({ menu }: { menu: PublicMenu }) {
           'sticky top-0 z-30 flex w-full items-center justify-between gap-3 px-4 py-3 text-start shadow-lg transition-colors sm:px-6',
           itemCount > 0 ? 'bg-orange-500 text-white' : 'bg-black/40 text-white/70',
         )}
-        aria-label="فتح سلة الطلب"
+        aria-label="ÙØªØ­ Ø³Ù„Ø© Ø§Ù„Ø·Ù„Ø¨"
       >
         <span className="flex items-center gap-2">
           <Icon name="cart" size={20} />
-          <span className="font-semibold">سلة الطلب</span>
+          <span className="font-semibold">Ø³Ù„Ø© Ø§Ù„Ø·Ù„Ø¨</span>
           <span
             className={cn(
               'inline-flex min-w-6 items-center justify-center rounded-full px-1.5 py-0.5 text-xs font-bold',
@@ -168,17 +168,17 @@ export function MenuOrderView({ menu }: { menu: PublicMenu }) {
         <header className="flex items-center justify-between gap-3">
           <div className="flex flex-col">
             <span className="text-xs text-white/70">{menu.table.branchName}</span>
-            <span className="text-lg font-bold">طاولة {menu.table.number} · {menu.table.capacity} مقاعد</span>
+            <span className="text-lg font-bold">Ø·Ø§ÙˆÙ„Ø© {menu.table.number} Â· {menu.table.capacity} Ù…Ù‚Ø§Ø¹Ø¯</span>
           </div>
           <Link href="/order-type" className="text-sm text-white/90 hover:underline">
-            تغيير
+            ØªØºÙŠÙŠØ±
           </Link>
         </header>
 
         {/* Search */}
         <Input
           icon="search"
-          placeholder="دور على صنف…"
+          placeholder="Ø¯ÙˆØ± Ø¹Ù„Ù‰ ØµÙ†Ùâ€¦"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           className="border-white/20 bg-white/10 text-white placeholder:text-white/60"
@@ -189,7 +189,7 @@ export function MenuOrderView({ menu }: { menu: PublicMenu }) {
           value={category}
           onChange={setCategory}
           options={[
-            { value: 'all', label: 'الكل' },
+            { value: 'all', label: 'Ø§Ù„ÙƒÙ„' },
             ...menu.categories.map((c) => ({ value: c.id, label: c.name })),
           ]}
           className="border-white/20 bg-white/10 [&>button]:text-white/70 [&>button[aria-pressed=true]]:bg-white [&>button[aria-pressed=true]]:text-purple-900"
@@ -197,7 +197,7 @@ export function MenuOrderView({ menu }: { menu: PublicMenu }) {
 
         {/* Products */}
         {visible.length === 0 ? (
-          <EmptyState title="مفيش نتائج" description="جرّب كلمة تانية أو اختار تصنيف مختلف." />
+          <EmptyState title="Ù…ÙÙŠØ´ Ù†ØªØ§Ø¦Ø¬" description="Ø¬Ø±Ù‘Ø¨ ÙƒÙ„Ù…Ø© ØªØ§Ù†ÙŠØ© Ø£Ùˆ Ø§Ø®ØªØ§Ø± ØªØµÙ†ÙŠÙ Ù…Ø®ØªÙ„Ù." />
         ) : (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {visible.map((p) => {
@@ -218,18 +218,18 @@ export function MenuOrderView({ menu }: { menu: PublicMenu }) {
                   <CardFooter className="justify-end">
                     {inCart ? (
                       <div className="flex items-center gap-2">
-                        <Button size="icon" variant="outline" onClick={() => dec(p.id)} aria-label="إنقاص" className="border-white/30 bg-white/10 text-white hover:bg-white/20">
+                        <Button size="icon" variant="outline" onClick={() => dec(p.id)} aria-label="Ø¥Ù†Ù‚Ø§Øµ" className="border-white/30 bg-white/10 text-white hover:bg-white/20">
                           <Icon name="minus" size={16} />
                         </Button>
                         <span className="w-8 text-center font-semibold">{inCart.qty}</span>
-                        <Button size="icon" variant="outline" onClick={() => add(p.id)} aria-label="زيادة" className="border-white/30 bg-white/10 text-white hover:bg-white/20">
+                        <Button size="icon" variant="outline" onClick={() => add(p.id)} aria-label="Ø²ÙŠØ§Ø¯Ø©" className="border-white/30 bg-white/10 text-white hover:bg-white/20">
                           <Icon name="plus" size={16} />
                         </Button>
                       </div>
                     ) : (
                       <Button size="sm" variant="secondary" onClick={() => add(p.id)} className="bg-white text-purple-900 hover:bg-orange-400 hover:text-purple-900">
                         <Icon name="plus" size={16} />
-                        أضف
+                        Ø£Ø¶Ù
                       </Button>
                     )}
                   </CardFooter>
@@ -240,26 +240,26 @@ export function MenuOrderView({ menu }: { menu: PublicMenu }) {
         )}
       </div>
 
-      {/* Cart popup — reviews lines + collects name (required) & phone (optional). */}
+      {/* Cart popup â€” reviews lines + collects name (required) & phone (optional). */}
       {cartOpen ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
           <button
             type="button"
-            aria-label="إغلاق"
+            aria-label="Ø¥ØºÙ„Ø§Ù‚"
             className="absolute inset-0 bg-black/60"
             onClick={() => setCartOpen(false)}
           />
           <div className="relative z-10 flex max-h-[90dvh] w-full max-w-md flex-col overflow-hidden rounded-t-2xl bg-card text-foreground shadow-xl sm:rounded-2xl">
             <div className="flex items-center justify-between border-b border-border px-4 py-3">
-              <h2 className="text-base font-bold">طلبك ({itemCount})</h2>
-              <Button size="icon" variant="ghost" onClick={() => setCartOpen(false)} aria-label="إغلاق">
+              <h2 className="text-base font-bold">Ø·Ù„Ø¨Ùƒ ({itemCount})</h2>
+              <Button size="icon" variant="ghost" onClick={() => setCartOpen(false)} aria-label="Ø¥ØºÙ„Ø§Ù‚">
                 <Icon name="close" size={18} />
               </Button>
             </div>
 
             <div className="flex flex-1 flex-col gap-3 overflow-y-auto px-4 py-3">
               {cart.length === 0 ? (
-                <p className="py-6 text-center text-sm text-muted-foreground">سلتك فاضية — ضيف أصناف من المنيو.</p>
+                <p className="py-6 text-center text-sm text-muted-foreground">Ø³Ù„ØªÙƒ ÙØ§Ø¶ÙŠØ© â€” Ø¶ÙŠÙ Ø£ØµÙ†Ø§Ù Ù…Ù† Ø§Ù„Ù…Ù†ÙŠÙˆ.</p>
               ) : (
                 cart.map((l) => {
                   const p = menu.products.find((x) => x.id === l.productId)!
@@ -267,11 +267,11 @@ export function MenuOrderView({ menu }: { menu: PublicMenu }) {
                     <div key={l.productId} className="flex items-center justify-between gap-2 text-sm">
                       <span className="truncate">{p.name}</span>
                       <span className="flex items-center gap-2">
-                        <Button size="icon" variant="outline" onClick={() => dec(l.productId)} aria-label="إنقاص" className="h-7 w-7">
+                        <Button size="icon" variant="outline" onClick={() => dec(l.productId)} aria-label="Ø¥Ù†Ù‚Ø§Øµ" className="h-7 w-7">
                           <Icon name="minus" size={14} />
                         </Button>
                         <span className="w-6 text-center font-semibold">{l.qty}</span>
-                        <Button size="icon" variant="outline" onClick={() => add(l.productId)} aria-label="زيادة" className="h-7 w-7">
+                        <Button size="icon" variant="outline" onClick={() => add(l.productId)} aria-label="Ø²ÙŠØ§Ø¯Ø©" className="h-7 w-7">
                           <Icon name="plus" size={14} />
                         </Button>
                         <span className="w-20 text-end font-medium">{egp((priceById.get(l.productId) ?? 0) * l.qty)}</span>
@@ -283,16 +283,16 @@ export function MenuOrderView({ menu }: { menu: PublicMenu }) {
 
               <div className="mt-2 flex flex-col gap-3 border-t border-border pt-3">
                 <label className="flex flex-col gap-1 text-sm">
-                  <span className="font-medium">اسمك <span className="text-destructive">*</span></span>
-                  <Input placeholder="اسمك" value={name} onChange={(e) => setName(e.target.value)} />
+                  <span className="font-medium">Ø§Ø³Ù…Ùƒ <span className="text-destructive">*</span></span>
+                  <Input placeholder="Ø§Ø³Ù…Ùƒ" value={name} onChange={(e) => setName(e.target.value)} />
                 </label>
                 <label className="flex flex-col gap-1 text-sm">
-                  <span className="font-medium">رقم الهاتف <span className="text-xs text-muted-foreground">(اختياري)</span></span>
+                  <span className="font-medium">Ø±Ù‚Ù… Ø§Ù„Ù‡Ø§ØªÙ <span className="text-xs text-muted-foreground">(Ø§Ø®ØªÙŠØ§Ø±ÙŠ)</span></span>
                   <Input icon="phone" type="tel" placeholder="01xxxxxxxxx" value={phone} onChange={(e) => setPhone(e.target.value)} />
                 </label>
                 <label className="flex flex-col gap-1 text-sm">
-                  <span className="font-medium">ملاحظة <span className="text-xs text-muted-foreground">(اختياري)</span></span>
-                  <Input placeholder="ملاحظة للطلب" value={note} onChange={(e) => setNote(e.target.value)} />
+                  <span className="font-medium">Ù…Ù„Ø§Ø­Ø¸Ø© <span className="text-xs text-muted-foreground">(Ø§Ø®ØªÙŠØ§Ø±ÙŠ)</span></span>
+                  <Input placeholder="Ù…Ù„Ø§Ø­Ø¸Ø© Ù„Ù„Ø·Ù„Ø¨" value={note} onChange={(e) => setNote(e.target.value)} />
                 </label>
               </div>
 
@@ -301,12 +301,12 @@ export function MenuOrderView({ menu }: { menu: PublicMenu }) {
 
             <div className="flex flex-col gap-3 border-t border-border px-4 py-3">
               <div className="flex items-center justify-between font-semibold">
-                <span>الإجمالي</span>
+                <span>Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠ</span>
                 <span>{egp(total)}</span>
               </div>
               <Button size="lg" onClick={submit} disabled={busy || !name.trim() || cart.length === 0}>
                 {busy ? <Icon name="clock" size={18} /> : <Icon name="check" size={18} />}
-                {busy ? 'جاري الإرسال…' : 'إرسال الطلب'}
+                {busy ? 'Ø¬Ø§Ø±ÙŠ Ø§Ù„Ø¥Ø±Ø³Ø§Ù„â€¦' : 'Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„Ø·Ù„Ø¨'}
               </Button>
             </div>
           </div>
@@ -315,3 +315,5 @@ export function MenuOrderView({ menu }: { menu: PublicMenu }) {
     </div>
   )
 }
+
+

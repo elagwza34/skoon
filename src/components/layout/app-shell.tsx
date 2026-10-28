@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
@@ -9,7 +9,7 @@ import { isOwner } from "@/lib/authz";
 import { canSeeRoute } from "@/lib/route-access";
 
 /**
- * AppShell — the shared admin frame: a sticky sidebar (off-canvas drawer on
+ * AppShell â€” the shared admin frame: a sticky sidebar (off-canvas drawer on
  * mobile), a sticky topbar, and the routed content. Closing the drawer on
  * navigation keeps mobile navigation predictable.
  */
@@ -65,3 +65,5 @@ export function AppShell({
     </div>
   );
 }
+
+

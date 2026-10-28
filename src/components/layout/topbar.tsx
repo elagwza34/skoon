@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
@@ -14,22 +14,22 @@ import { ROLE } from "@/lib/authz";
 import { logoutAction } from "@/app/login/actions";
 
 /**
- * Topbar — page title + today's date, functional branch-scoped search, a live
+ * Topbar â€” page title + today's date, functional branch-scoped search, a live
  * notifications bell, and an account menu with the real signed-in identity.
  */
 
 const ROLE_LABEL: Record<string, string> = {
-  [ROLE.OWNER]: "مالك",
-  [ROLE.MANAGER]: "مدير",
-  [ROLE.CASHIER]: "كاشير",
-  [ROLE.WAITER]: "ويتر",
-  [ROLE.KITCHEN]: "مطبخ",
+  [ROLE.OWNER]: "Ù…Ø§Ù„Ùƒ",
+  [ROLE.MANAGER]: "Ù…Ø¯ÙŠØ±",
+  [ROLE.CASHIER]: "ÙƒØ§Ø´ÙŠØ±",
+  [ROLE.WAITER]: "ÙˆÙŠØªØ±",
+  [ROLE.KITCHEN]: "Ù…Ø·Ø¨Ø®",
 };
 
 function TodayDate() {
   const [text, setText] = useState("");
   useEffect(() => setText(formatDate(new Date())), []);
-  if (!text) return <span className="text-sm text-muted-foreground">—</span>;
+  if (!text) return <span className="text-sm text-muted-foreground">â€”</span>;
   return <span className="text-sm text-muted-foreground">{text}</span>;
 }
 
@@ -45,7 +45,7 @@ export function Topbar({ onMenu, user }: TopbarProps) {
 
   // Signed-in account (server-resolved). Fallback keeps the shell usable
   // only when the layout guard is bypassed in isolation.
-  const account = user ?? { name: "—", role: "" };
+  const account = user ?? { name: "â€”", role: "" };
   const initials =
     account.name
       .split(/\s+/)
@@ -60,7 +60,7 @@ export function Topbar({ onMenu, user }: TopbarProps) {
         <button
           type="button"
           onClick={onMenu}
-          aria-label="فتح القائمة"
+          aria-label="ÙØªØ­ Ø§Ù„Ù‚Ø§Ø¦Ù…Ø©"
           className="inline-flex h-10 w-10 items-center justify-center rounded-md text-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:hidden"
         >
           <Icon name="menu" size={22} />
@@ -76,17 +76,17 @@ export function Topbar({ onMenu, user }: TopbarProps) {
             <TopbarSearch />
           </div>
 
-          {/* Notifications — live, self-fetching bell (works for every role). */}
+          {/* Notifications â€” live, self-fetching bell (works for every role). */}
           <NotificationsBell />
 
           {/* Account */}
           <Popover
-            ariaLabel="قائمة الحساب"
+            ariaLabel="Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„Ø­Ø³Ø§Ø¨"
             panelClassName="w-60"
             trigger={(p) => (
               <button
                 {...p}
-                aria-label="قائمة الحساب"
+                aria-label="Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„Ø­Ø³Ø§Ø¨"
                 className="inline-flex items-center gap-2 rounded-md p-1 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <Avatar name={account.name} initials={initials} size="md" />
@@ -109,7 +109,7 @@ export function Topbar({ onMenu, user }: TopbarProps) {
                     className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-foreground hover:bg-accent"
                   >
                     <Icon name="settings" size={16} className="text-muted-foreground" />
-                    الإعدادات
+                    Ø§Ù„Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª
                   </Link>
                   <form action={logoutAction}>
                     <button
@@ -117,7 +117,7 @@ export function Topbar({ onMenu, user }: TopbarProps) {
                       className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-destructive hover:bg-accent"
                     >
                       <Icon name="logout" size={16} />
-                      تسجيل الخروج
+                      ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø®Ø±ÙˆØ¬
                     </button>
                   </form>
                 </div>
@@ -129,3 +129,5 @@ export function Topbar({ onMenu, user }: TopbarProps) {
     </header>
   );
 }
+
+

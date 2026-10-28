@@ -1,11 +1,11 @@
-'use client'
+﻿'use client'
 
 import { cn } from '@/lib/utils'
 import { Icon } from '@/components/ui/icon'
 import { useTheme } from '@/lib/theme'
 
 /**
- * ThemeToggle — visible dark/light switch. Dark is the product default; this
+ * ThemeToggle â€” visible dark/light switch. Dark is the product default; this
  * button flips to the opposite theme and reflects the choice immediately.
  * Accessible: real <button> with aria-pressed + a clear label.
  */
@@ -33,7 +33,7 @@ export function ThemeToggle({ className, variant = 'icon' }: ThemeToggleProps) {
         )}
       >
         <Icon name={isDark ? 'moon' : 'sun'} size={18} />
-        {isDark ? 'الوضع الليلي' : 'الوضع النهاري'}
+        {isDark ? 'Ø§Ù„ÙˆØ¶Ø¹ Ø§Ù„Ù„ÙŠÙ„ÙŠ' : 'Ø§Ù„ÙˆØ¶Ø¹ Ø§Ù„Ù†Ù‡Ø§Ø±ÙŠ'}
       </button>
     )
   }
@@ -43,8 +43,8 @@ export function ThemeToggle({ className, variant = 'icon' }: ThemeToggleProps) {
       type="button"
       onClick={toggleTheme}
       aria-pressed={!isDark}
-      aria-label={isDark ? 'التبديل إلى الوضع النهاري' : 'التبديل إلى الوضع الليلي'}
-      title={isDark ? 'الوضع النهاري' : 'الوضع الليلي'}
+      aria-label={isDark ? 'Ø§Ù„ØªØ¨Ø¯ÙŠÙ„ Ø¥Ù„Ù‰ Ø§Ù„ÙˆØ¶Ø¹ Ø§Ù„Ù†Ù‡Ø§Ø±ÙŠ' : 'Ø§Ù„ØªØ¨Ø¯ÙŠÙ„ Ø¥Ù„Ù‰ Ø§Ù„ÙˆØ¶Ø¹ Ø§Ù„Ù„ÙŠÙ„ÙŠ'}
+      title={isDark ? 'Ø§Ù„ÙˆØ¶Ø¹ Ø§Ù„Ù†Ù‡Ø§Ø±ÙŠ' : 'Ø§Ù„ÙˆØ¶Ø¹ Ø§Ù„Ù„ÙŠÙ„ÙŠ'}
       className={cn(
         'inline-flex h-10 w-10 items-center justify-center rounded-md text-foreground',
         'hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
@@ -55,3 +55,5 @@ export function ThemeToggle({ className, variant = 'icon' }: ThemeToggleProps) {
     </button>
   )
 }
+
+
