@@ -11,12 +11,12 @@ export type InvoiceRow = {
   id: string; number: string; createdAt: string; branch: string; table: string; creator: string | null; cashier: string | null
   status: string; paymentStatus: string; orderType?: string; notes?: string | null; discountType?: 'percentage' | 'amount' | null; discountValue?: string; subtotal: string; itemDiscount?: string; discountEligibleBase?: string; discount: string; tax: string; total: string; paid: string; remaining: string
   cancelledAt: string | null; cancelReason: string | null
-  items: { id: string; productId: string; name: string; quantity: number; unitPrice: string; lineTotal: string; discountType: 'percentage' | 'amount' | null; discountValue: string; discountAmount: string; eligibleForInvoiceDiscount: boolean; notes?: string | null; details?: string[] }[]
+  items: { id: string; productId: string; name: string; quantity: number; unitPrice: string; lineTotal: string; discountType: 'percentage' | 'amount' | null; discountValue: string; discountAmount: string; eligibleForInvoiceDiscount: boolean; variantId: string | null; variantLabel: string | null; notes?: string | null; details?: string[] }[]
   payments: { id: string; method: string; amount: string; createdAt: string; collector: string | null }[]
 }
 
 const editSchema = z.discriminatedUnion('action', [
-  z.object({ action: z.literal('add'), productId: z.string().regex(/^\d+$/), quantity: z.coerce.number().int().min(1).max(99) }),
+  z.object({ action: z.literal('add'), productId: z.string().regex(/^\d+$/), variantId: z.string().regex(/^\d+$/).optional(), quantity: z.coerce.number().int().min(1).max(99) }),
   z.object({ action: z.literal('quantity'), orderItemId: z.string().regex(/^\d+$/), quantity: z.coerce.number().int().min(1).max(99) }),
   z.object({ action: z.literal('line_discount'), orderItemId: z.string().regex(/^\d+$/), discountType: z.enum(['percentage', 'amount', 'none']), discountValue: z.union([z.string().trim().min(1).max(32), z.number().finite()]), eligibleForInvoiceDiscount: z.boolean() }),
   z.object({ action: z.literal('financials'), discountType: z.enum(['percentage', 'amount', 'none']), discountValue: z.union([z.string().trim().min(1).max(32), z.number().finite()]), notes: z.string().trim().max(2_000).optional() }),
@@ -55,9 +55,9 @@ export async function getCashierInvoices(session: StaffSession, range: { from?: 
   const scope = session.role === ROLE.OWNER ? (range.branchId ? { branchId: range.branchId } : {}) : { branchId: BigInt(session.branchId as string) }
   const createdAt = range.from || range.to ? { ...(range.from ? { gte: range.from } : {}), ...(range.to ? { lte: range.to } : {}) } : undefined
   const orders = await prisma.order.findMany({ where: { ...scope, ...(createdAt ? { createdAt } : {}) }, orderBy: { createdAt: 'desc' }, take: 150,
-    select: { id: true, orderNumber: true, createdAt: true, cancelledAt: true, cancelReason: true, status: true, paymentStatus: true, orderType: true, notes: true, discountType: true, discountValue: true, itemsSubtotal: true, itemDiscountAmount: true, discountEligibleBase: true, discountAmount: true, taxAmount: true, total: true,
-      branch: { select: { name: true } }, cafeTable: { select: { number: true } }, createdBy: { select: { name: true } },
-      items: { where: { isVoided: false }, select: { id: true, productId: true, productName: true, quantity: true, unitPrice: true, lineTotal: true, discountType: true, discountValue: true, discountAmount: true, eligibleForInvoiceDiscount: true, notes: true, optionsSnapshot: true, productVariantSnapshot: true } },
+      select: { id: true, orderNumber: true, createdAt: true, cancelledAt: true, cancelReason: true, status: true, paymentStatus: true, orderType: true, notes: true, discountType: true, discountValue: true, itemsSubtotal: true, itemDiscountAmount: true, discountEligibleBase: true, discountAmount: true, taxAmount: true, total: true,
+        branch: { select: { name: true } }, cafeTable: { select: { number: true } }, createdBy: { select: { name: true } },
+        items: { where: { isVoided: false }, select: { id: true, productId: true, productVariantId: true, productName: true, quantity: true, unitPrice: true, lineTotal: true, discountType: true, discountValue: true, discountAmount: true, eligibleForInvoiceDiscount: true, notes: true, optionsSnapshot: true, productVariantSnapshot: true } },
       payments: { where: { status: 'completed' }, select: { id: true, method: true, amount: true, createdAt: true, paidBy: { select: { name: true } } } },
     },
   })
@@ -65,7 +65,7 @@ export async function getCashierInvoices(session: StaffSession, range: { from?: 
     const paid = o.payments.reduce((sum, p) => sum + Number(p.amount), 0)
     return { id: o.id.toString(), number: o.orderNumber, createdAt: o.createdAt.toISOString(), branch: o.branch.name, table: o.cafeTable.number, creator: o.createdBy?.name ?? null, cashier: o.payments.length > 0 ? o.payments[o.payments.length - 1]?.paidBy?.name ?? null : null, orderType: o.orderType, notes: o.notes, discountType: o.discountType === 'percentage' || o.discountType === 'amount' ? o.discountType : null, discountValue: Number(o.discountValue).toFixed(2),
       status: o.status, paymentStatus: settled(Number(o.total), paid) ? 'paid' : o.paymentStatus, subtotal: Number(o.itemsSubtotal).toFixed(2), itemDiscount: Number(o.itemDiscountAmount).toFixed(2), discountEligibleBase: Number(o.discountEligibleBase).toFixed(2), discount: Number(o.discountAmount).toFixed(2), tax: Number(o.taxAmount).toFixed(2), total: Number(o.total).toFixed(2), paid: paid.toFixed(2), remaining: Math.max(0, Number(o.total) - paid).toFixed(2), cancelledAt: o.cancelledAt?.toISOString() ?? null, cancelReason: o.cancelReason ?? null,
-      items: o.items.map((i) => ({ id: i.id.toString(), productId: i.productId.toString(), name: i.productName, quantity: i.quantity, unitPrice: Number(i.unitPrice).toFixed(2), lineTotal: Number(i.lineTotal).toFixed(2), discountType: i.discountType === 'percentage' || i.discountType === 'amount' ? i.discountType : null, discountValue: Number(i.discountValue).toFixed(2), discountAmount: Number(i.discountAmount).toFixed(2), eligibleForInvoiceDiscount: i.eligibleForInvoiceDiscount, notes: i.notes, details: snapshotLabels(i.productVariantSnapshot, i.optionsSnapshot) })),
+      items: o.items.map((i) => ({ id: i.id.toString(), productId: i.productId.toString(), variantId: i.productVariantId?.toString() ?? null, variantLabel: snapshotLabels(i.productVariantSnapshot, i.optionsSnapshot)[0] ?? null, name: i.productName, quantity: i.quantity, unitPrice: Number(i.unitPrice).toFixed(2), lineTotal: Number(i.lineTotal).toFixed(2), discountType: i.discountType === 'percentage' || i.discountType === 'amount' ? i.discountType : null, discountValue: Number(i.discountValue).toFixed(2), discountAmount: Number(i.discountAmount).toFixed(2), eligibleForInvoiceDiscount: i.eligibleForInvoiceDiscount, notes: i.notes, details: snapshotLabels(i.productVariantSnapshot, i.optionsSnapshot) })),
       payments: o.payments.map((p) => ({ id: p.id.toString(), method: p.method, amount: Number(p.amount).toFixed(2), createdAt: p.createdAt.toISOString(), collector: p.paidBy?.name ?? null })),
     }
   })
@@ -108,7 +108,17 @@ export async function editOpenInvoice(session: StaffSession, orderIdRaw: string,
     if (parsed.data.action === 'add') {
       const product = await tx.product.findFirst({ where: { id: BigInt(parsed.data.productId!), branchId: order.branchId, isActive: true, isAvailable: true, deletedAt: null }, select: { id: true, name: true, price: true } })
       if (!product) throw new InvoiceError('Product is unavailable', 422)
-      await tx.orderItem.create({ data: { orderId, productId: product.id, productName: product.name, unitPrice: product.price, quantity: parsed.data.quantity, lineTotal: (Number(product.price) * parsed.data.quantity).toFixed(2) } })
+      let unitPrice = product.price
+      let productVariantId: string | null = null
+      if (parsed.data.variantId) {
+        const variant = await tx.productVariant.findFirst({ where: { id: BigInt(parsed.data.variantId), productId: product.id, isActive: true, isAvailable: true, archivedAt: null }, select: { id: true, price: true, combinationKey: true, values: { select: { value: { select: { label: true } } } } } })
+        if (!variant) throw new InvoiceError('Product variant is unavailable', 422)
+        unitPrice = variant.price
+        productVariantId = variant.id.toString()
+        await tx.orderItem.create({ data: { orderId, productId: product.id, productVariantId: BigInt(productVariantId), productName: `${product.name} — ${variant.values[0]?.value.label ?? variant.combinationKey}`, unitPrice: variant.price, quantity: parsed.data.quantity, lineTotal: (Number(variant.price) * parsed.data.quantity).toFixed(2) } })
+      } else {
+        await tx.orderItem.create({ data: { orderId, productId: product.id, productName: product.name, unitPrice: product.price, quantity: parsed.data.quantity, lineTotal: (Number(product.price) * parsed.data.quantity).toFixed(2) } })
+      }
     } else if (parsed.data.action === 'quantity') {
       const item = await tx.orderItem.findFirst({ where: { id: BigInt(parsed.data.orderItemId!), orderId, isVoided: false }, select: { id: true, unitPrice: true } })
       if (!item) throw new InvoiceError('Invoice item not found', 404)

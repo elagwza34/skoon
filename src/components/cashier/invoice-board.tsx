@@ -3,7 +3,7 @@
 import { useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Input } from '@/components/ui/input'
 import { ThermalReceiptPreview, type ThermalPaymentResult } from './thermal-receipt-preview'
@@ -16,7 +16,7 @@ type InvoiceTab = 'open' | 'paid' | 'cancelled'
 type PaymentResult = ThermalPaymentResult & { remaining: string; invoice: InvoiceRow }
 type ReceiptPreviewState = { invoice: InvoiceRow; autoPrint?: boolean; payment?: ThermalPaymentResult }
 type InvoiceEditInput =
-  | { action: 'add'; productId: string; quantity: number }
+  | { action: 'add'; productId: string; variantId?: string; quantity: number }
   | { action: 'quantity'; orderItemId: string; quantity: number }
   | { action: 'line_discount'; orderItemId: string; discountType: 'percentage' | 'amount' | 'none'; discountValue: string; eligibleForInvoiceDiscount: boolean }
   | { action: 'financials'; discountType: 'percentage' | 'amount' | 'none'; discountValue: string | number; notes: string | null }
@@ -26,7 +26,7 @@ const dateTime = (value: string) => { const date = new Date(value); const time =
 const key = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`
 
 export function InvoiceBoard({ invoices, products, defaultTab = 'open', workspace = false }: {
-  invoices: InvoiceRow[]; products: { id: string; name: string; price: string }[]; defaultTab?: InvoiceTab; workspace?: boolean
+  invoices: InvoiceRow[]; products: { id: string; name: string; price: string; variants?: { id: string; label: string; price: string }[] }[]; defaultTab?: InvoiceTab; workspace?: boolean
 }) {
   const router = useRouter(); const [query, setQuery] = useState(''); const [selectedId, setSelectedId] = useState<string | null>(null)
   const [preview, setPreview] = useState<ReceiptPreviewState | null>(null); const [received, setReceived] = useState(''); const [method, setMethod] = useState('cash'); const [electronicPaymentConfirmed, setElectronicPaymentConfirmed] = useState(false); const [receivedNotice, setReceivedNotice] = useState<string | null>(null)
@@ -88,7 +88,7 @@ function InvoiceList({ rows, tab, selectedId, onSelect, onPreview }: { rows: Inv
   return <div className={tab === 'open' ? 'space-y-2' : 'overflow-x-auto'}>{tab === 'open' ? rows.map((invoice) => <button key={invoice.id} onClick={() => onSelect?.(invoice)} className={`w-full rounded-xl border p-3 text-right ${selectedId === invoice.id ? 'border-primary bg-accent/40' : 'border-border bg-card'}`}><div className="flex justify-between gap-3"><strong>{invoice.number}</strong><span>{money(invoice.total)}</span></div><div className="mt-1 flex justify-between text-xs text-muted-foreground"><span>{invoice.creator ?? '—'} · {dateTime(invoice.createdAt)}</span><span>المتبقي {money(invoice.remaining)}</span></div></button>) : <table className="w-full min-w-[760px] text-right text-sm"><thead className="border-b text-muted-foreground"><tr><th className="p-3">الفاتورة</th><th>التاريخ</th><th>الطاولة</th><th>المنشئ</th><th>الإجمالي</th><th>الحالة</th><th>الإجراء</th></tr></thead><tbody>{rows.map((invoice) => <tr key={invoice.id} className="border-b border-border/60"><td className="p-3 font-medium">{invoice.number}</td><td>{dateTime(invoice.createdAt)}</td><td>{invoice.table}</td><td>{invoice.creator ?? '—'}</td><td>{money(invoice.total)}</td><td>{tab === 'paid' ? invoice.payments.map(p => p.method).join(' / ') || 'مدفوعة' : 'ملغاة'}</td><td><Button size="sm" variant="outline" onClick={() => onPreview?.(invoice)}>طباعة</Button></td></tr>)}</tbody></table>}</div>
 }
 
-function InvoiceSettlementModal({ invoice, products, editable, pending, received, method, electronicPaymentConfirmed, reason, setReceived, setMethod, setElectronicPaymentConfirmed, setReason, edit, collect, cancel, onPrint, onClose }: { invoice: InvoiceRow; products: { id: string; name: string; price: string }[]; editable: boolean; pending: boolean; received: string; method: string; electronicPaymentConfirmed: boolean; reason: string; setReceived: (v: string) => void; setMethod: (v: string) => void; setElectronicPaymentConfirmed: (v: boolean) => void; setReason: (v: string) => void; edit: (input: InvoiceEditInput) => void; collect: () => void; cancel: () => void; onPrint: () => void; onClose: () => void }) {
+function InvoiceSettlementModal({ invoice, products, editable, pending, received, method, electronicPaymentConfirmed, reason, setReceived, setMethod, setElectronicPaymentConfirmed, setReason, edit, collect, cancel, onPrint, onClose }: { invoice: InvoiceRow; products: { id: string; name: string; price: string; variants?: { id: string; label: string; price: string }[] }[]; editable: boolean; pending: boolean; received: string; method: string; electronicPaymentConfirmed: boolean; reason: string; setReceived: (v: string) => void; setMethod: (v: string) => void; setElectronicPaymentConfirmed: (v: boolean) => void; setReason: (v: string) => void; edit: (input: InvoiceEditInput) => void; collect: () => void; cancel: () => void; onPrint: () => void; onClose: () => void }) {
   return <div role="dialog" aria-modal="true" aria-labelledby="invoice-settlement-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-2 sm:p-4" dir="rtl">
     <Card className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden shadow-2xl">
       <header className="sticky top-0 z-10 flex shrink-0 items-start justify-between gap-3 border-b bg-card px-4 py-3 sm:px-6">
@@ -129,17 +129,18 @@ function InvoiceLineEditor({ item, editable, pending, edit }: { item: InvoiceRow
     edit({ action: 'line_discount', orderItemId: item.id, discountType, discountValue: discountType === 'none' ? '0' : discountValue.trim(), eligibleForInvoiceDiscount })
   }
   return <div className="grid gap-2 border-b py-3 sm:grid-cols-[minmax(0,1fr)_auto]">
-    <div className="min-w-0"><div className="flex items-center justify-between gap-3"><span className="font-medium">{item.name} × {item.quantity}</span><strong>{money(item.lineTotal)}</strong></div>{Number(item.discountAmount) > 0 ? <p className="mt-1 text-xs text-black">خصم الصنف: -{money(item.discountAmount)}</p> : null}</div>
+    <div className="min-w-0"><div className="flex items-center justify-between gap-3"><span className="font-medium">{item.variantLabel ? `${item.name} — ${item.variantLabel}` : item.name} × {item.quantity}</span><strong>{money(item.lineTotal)}</strong></div>{Number(item.discountAmount) > 0 ? <p className="mt-1 text-xs text-black">خصم الصنف: -{money(item.discountAmount)}</p> : null}</div>
     {editable && <div className="flex flex-wrap items-center gap-1.5"><select value={discountType} onChange={(event) => setDiscountType(event.target.value as 'none' | 'percentage' | 'amount')} className="h-8 rounded border bg-background px-1 text-xs"><option value="none">بدون خصم</option><option value="percentage">نسبة %</option><option value="amount">مبلغ</option></select><Input value={discountValue} disabled={discountType === 'none'} onChange={(event) => setDiscountValue(event.target.value)} inputMode="decimal" placeholder="القيمة" className="h-8 w-20 text-xs" /><label className="flex items-center gap-1 whitespace-nowrap text-[11px]"><input type="checkbox" checked={eligibleForInvoiceDiscount} onChange={(event) => setEligibleForInvoiceDiscount(event.target.checked)} />خصم عام</label><Button size="sm" variant="secondary" disabled={pending} onClick={applyItemDiscount}>تطبيق</Button><Button size="sm" variant="secondary" disabled={pending || item.quantity <= 1} onClick={() => edit({ action: 'quantity', orderItemId: item.id, quantity: item.quantity - 1 })}>−</Button><Button size="sm" variant="secondary" disabled={pending} onClick={() => edit({ action: 'quantity', orderItemId: item.id, quantity: item.quantity + 1 })}>+</Button>{error && <p className="basis-full text-xs text-destructive">{error}</p>}</div>}
   </div>
 }
 
-function InvoiceEditor({ invoice, products, editable, pending, received, method, electronicPaymentConfirmed, reason, setReceived, setMethod, setElectronicPaymentConfirmed, setReason, edit, collect, cancel, onPrint, modal = false }: { invoice: InvoiceRow; products: { id: string; name: string; price: string }[]; editable: boolean; pending: boolean; received: string; method: string; electronicPaymentConfirmed: boolean; reason: string; setReceived: (v: string) => void; setMethod: (v: string) => void; setElectronicPaymentConfirmed: (v: boolean) => void; setReason: (v: string) => void; edit: (input: InvoiceEditInput) => void; collect: () => void; cancel: () => void; onPrint: () => void; modal?: boolean }) {
+function InvoiceEditor({ invoice, products, editable, pending, received, method, electronicPaymentConfirmed, reason, setReceived, setMethod, setElectronicPaymentConfirmed, setReason, edit, collect, cancel, onPrint, modal = false }: { invoice: InvoiceRow; products: { id: string; name: string; price: string; variants?: { id: string; label: string; price: string }[] }[]; editable: boolean; pending: boolean; received: string; method: string; electronicPaymentConfirmed: boolean; reason: string; setReceived: (v: string) => void; setMethod: (v: string) => void; setElectronicPaymentConfirmed: (v: boolean) => void; setReason: (v: string) => void; edit: (input: InvoiceEditInput) => void; collect: () => void; cancel: () => void; onPrint: () => void; modal?: boolean }) {
   const cancellable = (invoice.status === 'new' || invoice.status === 'preparing') && Number(invoice.paid) === 0
   const [discountType, setDiscountType] = useState<'none' | 'percentage' | 'amount'>(invoice.discountType ?? 'none')
   const [discountValue, setDiscountValue] = useState(invoice.discountType ? invoice.discountValue ?? '' : '')
   const [invoiceNotes, setInvoiceNotes] = useState(invoice.notes ?? '')
   const [financialNotice, setFinancialNotice] = useState<string | null>(null)
+  const [variantModal, setVariantModal] = useState<{ product: { id: string; name: string; price: string; variants: { id: string; label: string; price: string }[] }; onConfirm: (variantId: string, qty: number) => void } | null>(null)
   function applyFinancials() {
     if (!editable) return
     const val = discountValue.trim()
@@ -153,17 +154,59 @@ function InvoiceEditor({ invoice, products, editable, pending, received, method,
     setFinancialNotice(null)
     edit({ action: 'financials', discountType, discountValue: val, notes: invoiceNotes.trim() || null })
   }
+  function addProduct(productId: string) {
+    const product = products.find((p) => p.id === productId)
+    if (!product) return
+    if ((product.variants ?? []).length > 0) {
+      setVariantModal({
+        product: { ...product, variants: product.variants ?? [] },
+        onConfirm: (variantId, qty) => {
+          edit({ action: 'add', productId, variantId, quantity: qty })
+          setVariantModal(null)
+        },
+      })
+      return
+    }
+    edit({ action: 'add', productId, quantity: 1 })
+  }
   return <Card className={modal ? 'border-0 p-0 shadow-none' : 'p-4'} dir="rtl">
     {!modal && <div className="mb-3 flex justify-between"><div><h3 className="font-bold">{invoice.number}</h3><p className="text-xs text-muted-foreground">{dateTime(invoice.createdAt)}</p></div><span>{invoice.status}</span></div>}
     <div className="space-y-1">{invoice.items.map((item) => <InvoiceLineEditor key={item.id} item={item} editable={editable} pending={pending} edit={edit} />)}</div>
-    {editable && <select className="mt-3 w-full rounded-lg border bg-background p-2 text-sm" defaultValue="" onChange={(event) => { if (event.target.value) { edit({ action: 'add', productId: event.target.value, quantity: 1 }); event.currentTarget.value = '' } }}><option value="">إضافة صنف من الكتالوج…</option>{products.map((product) => <option key={product.id} value={product.id}>{product.name} — {money(product.price)}</option>)}</select>}
+    {editable && <select className="mt-3 w-full rounded-lg border bg-background p-2 text-sm" defaultValue="" onChange={(event) => { if (event.target.value) { addProduct(event.target.value); event.currentTarget.value = '' } }}><option value="">إضافة صنف من الكتالوج…</option>{products.map((product) => <option key={product.id} value={product.id}>{product.name} — {money(product.price)}</option>)}</select>}
     <Totals invoice={invoice} />
     {editable && <div className="mt-3 space-y-2 rounded-lg border border-amber-200/70 p-3"><div className="flex flex-wrap gap-2"><select value={discountType} onChange={(event) => setDiscountType(event.target.value as 'none' | 'percentage' | 'amount')} className="rounded-lg border bg-background p-2 text-sm"><option value="none">بدون خصم للفاتورة</option><option value="percentage">نسبة مئوية (%)</option><option value="amount">مبلغ ثابت</option></select><Input value={discountValue} disabled={discountType === 'none'} onChange={(event) => setDiscountValue(event.target.value)} inputMode="decimal" placeholder="قيمة خصم الفاتورة" className="max-w-44" /></div><Input value={invoiceNotes} onChange={(event) => setInvoiceNotes(event.target.value)} placeholder="ملاحظات الفاتورة…" />{financialNotice && <p className="text-xs text-destructive">{financialNotice}</p>}<Button disabled={pending} onClick={applyFinancials}>تطبيق خصم الفاتورة</Button></div>}
     {(editable || cancellable) && <div className={modal ? 'sticky bottom-0 z-10 mt-4 grid gap-2 border-t bg-card py-3 sm:grid-cols-2' : 'mt-4 grid gap-2 sm:grid-cols-2'}>{editable && <><select value={method} onChange={(event) => setMethod(event.target.value)} className="rounded-lg border bg-background p-2" aria-label="طريقة الدفع"><option value="cash">نقدي</option><option value="mobile_wallet">محفظة إلكترونية</option><option value="instapay">إنستا باي</option></select>{method === 'cash' ? <Input value={received} onChange={(event) => setReceived(event.target.value)} inputMode="decimal" placeholder={`المستلم (المطلوب ${invoice.remaining})`} /> : <label className="flex min-h-10 items-center gap-2 rounded-lg border bg-muted/30 px-3 text-sm"><input type="checkbox" checked={electronicPaymentConfirmed} onChange={(event) => setElectronicPaymentConfirmed(event.target.checked)} disabled={pending} />أؤكد استلام الدفع الإلكتروني بالقيمة النهائية للفاتورة</label>}<Button disabled={pending || (method !== 'cash' && !electronicPaymentConfirmed)} onClick={collect}>تحصيل</Button><Button variant="secondary" onClick={onPrint}>طباعة / معاينة</Button></>}{cancellable && <div className="sm:col-span-2 rounded-lg border border-rose-200 p-3"><Input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="سبب الإلغاء (مطلوب)" /><Button className="mt-2" variant="destructive" disabled={pending} onClick={cancel}>إلغاء الفاتورة</Button></div>}</div>}
-  </Card>
-}
+      {variantModal && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4">
+          <Card className="w-full max-w-md">
+            <CardHeader>
+              <CardTitle>اختر متغير لـ {variantModal.product.name}</CardTitle>
+            </CardHeader>
+            <CardContent className="p-4">
+              <div className="space-y-3">
+                {variantModal.product.variants.map((v) => (
+                  <div key={v.id} className="border rounded-lg p-3">
+                    <div className="flex justify-between items-start gap-2 mb-2">
+                      <span className="text-sm font-medium">{v.label}</span>
+                      <span className="text-sm font-semibold text-primary">{formatMoney(Number(v.price))}</span>
+                    </div>
+                    <Button variant="outline" size="sm" className="w-full" onClick={() => variantModal.onConfirm(v.id, 1)}>
+                      إضافة
+                    </Button>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-4 flex justify-end">
+                <Button variant="outline" onClick={() => setVariantModal(null)}>إلغاء</Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+    </Card>
+  }
 
-function LegacyInvoiceEditor({ invoice, products, editable, pending, received, method, reason, setReceived, setMethod, setReason, edit, collect, cancel, onPrint, modal = false }: { invoice: InvoiceRow; products: { id: string; name: string; price: string }[]; editable: boolean; pending: boolean; received: string; method: string; reason: string; setReceived: (v: string) => void; setMethod: (v: string) => void; setReason: (v: string) => void; edit: (input: InvoiceEditInput) => void; collect: () => void; cancel: () => void; onPrint: () => void; modal?: boolean }) {
+function LegacyInvoiceEditor({ invoice, products, editable, pending, received, method, reason, setReceived, setMethod, setReason, edit, collect, cancel, onPrint, modal = false }: { invoice: InvoiceRow; products: { id: string; name: string; price: string; variants?: { id: string; label: string; price: string }[] }[]; editable: boolean; pending: boolean; received: string; method: string; reason: string; setReceived: (v: string) => void; setMethod: (v: string) => void; setReason: (v: string) => void; edit: (input: InvoiceEditInput) => void; collect: () => void; cancel: () => void; onPrint: () => void; modal?: boolean }) {
  const cancellable = (invoice.status === 'new' || invoice.status === 'preparing') && Number(invoice.paid) === 0
   const [discountType, setDiscountType] = useState<'none' | 'percentage' | 'amount'>('none')
   const [discountValue, setDiscountValue] = useState('')

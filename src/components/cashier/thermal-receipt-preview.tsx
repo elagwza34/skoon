@@ -108,7 +108,7 @@ export function ThermalReceiptPreview({ invoice, payment, autoPrint = false, onC
           </header>
           <div className="py-2 text-xs">
             {invoice.items.map((item) => <div key={item.id} className="receipt-item grid grid-cols-[minmax(0,1fr)_auto] gap-x-2 border-b border-dashed border-black/40 py-1.5">
-              <div className="min-w-0"><p className="break-words text-[13px] font-bold leading-5">{item.name}</p><p className="text-[11px]" dir="ltr">{item.quantity} × {money(item.unitPrice)}</p>{item.details?.length ? <p className="mt-0.5 break-words text-[11px] leading-4">{item.details.join(' · ')}</p> : null}{item.notes?.trim() ? <p className="mt-0.5 break-words text-[11px] leading-4">{item.notes.trim()}</p> : null}</div>
+              <div className="min-w-0"><p className="break-words text-[13px] font-bold leading-5">{item.variantLabel ? `${item.name} — ${item.variantLabel}` : item.name}</p><p className="text-[11px]" dir="ltr">{item.quantity} × {money(item.unitPrice)}</p>{item.details?.length ? <p className="mt-0.5 break-words text-[11px] leading-4">{item.details.join(' · ')}</p> : null}{item.notes?.trim() ? <p className="mt-0.5 break-words text-[11px] leading-4">{item.notes.trim()}</p> : null}</div>
               <div className="self-start whitespace-nowrap pt-0.5 text-left" dir="ltr"><strong className="text-[12px]">{money(item.lineTotal)}</strong>{Number(item.discountAmount) > 0 ? <p className="mt-0.5 text-[10px] font-medium text-black">خصم -{money(item.discountAmount)}</p> : null}</div>
             </div>)}
           </div>

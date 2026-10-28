@@ -28,7 +28,7 @@ const tabs: { value: Tab; label: string }[] = [
 
 export function CashierWorkspace({ session, board, branchName, invoices, products, catalog, sharedFloat }: {
   session: StaffSession; board: ShiftBoardData; branchName: string | null; invoices: InvoiceRow[]
-  products: { id: string; name: string; price: string }[]; catalog: PosCatalog; sharedFloat: SharedFloatSummary
+  products: { id: string; name: string; price: string; variants?: { id: string; label: string; price: string }[] }[]; catalog: PosCatalog; sharedFloat: SharedFloatSummary
 }) {
   const router = useRouter(); const [, startTransition] = useTransition()
   const [tab, setTab] = useState<Tab>('pos'); const [openModal, setOpenModal] = useState(false)
