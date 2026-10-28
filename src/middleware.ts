@@ -20,7 +20,7 @@ import { isStaffApiPath, unauthenticatedStaffResponse } from '@/lib/api-auth-res
  */
 
 /** Paths (prefixes) that are public — no session required. */
-const PUBLIC_PREFIXES = [
+export const PUBLIC_PREFIXES = [
   '/', // landing
   '/login', // sign-in
   '/order-type', // guest flow
@@ -32,9 +32,10 @@ const PUBLIC_PREFIXES = [
   '/favicon.ico',
   '/robots.txt',
   '/logo.png', // static brand asset (public/ — must be reachable without a session)
+  '/receipt-logo.png', // receipt image is fetched by the browser print preview
 ]
 
-function isPublicPath(pathname: string): boolean {
+export function isPublicPath(pathname: string): boolean {
   return PUBLIC_PREFIXES.some((p) => (p === '/' ? pathname === '/' : pathname === p || pathname.startsWith(p + '/')))
 }
 

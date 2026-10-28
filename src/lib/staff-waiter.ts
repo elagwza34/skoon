@@ -80,6 +80,23 @@ export function isWaiterTableOrderActive(status: string): boolean {
   return status === 'new' || status === 'preparing' || status === 'ready'
 }
 
+/** A deployment/schema fault, not an authorization or shift failure. */
+export class WaiterSchemaError extends Error {
+  constructor() {
+    super('Waiter handover schema is unavailable. Apply the approved database migration before using waiter operations.')
+    this.name = 'WaiterSchemaError'
+  }
+}
+
+/** Keeps the database fault explicit without exposing a database stack trace. */
+export function isMissingWaiterHandoverTableError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const prismaError = error as { code?: unknown; meta?: { table?: unknown; modelName?: unknown } }
+  if (prismaError.code !== 'P2021') return false
+  const target = `${String(prismaError.meta?.table ?? '')} ${String(prismaError.meta?.modelName ?? '')}`.toLowerCase()
+  return target.includes('waiter_shift_handovers') || target.includes('waitershifthandover')
+}
+
 export async function getWaiterWorkspace(session: StaffSession): Promise<WaiterWorkspace> {
   // Waiter must have an open shift before performing waiter duties.
   if (session.branchId === null) throw new ShiftError('غير مصرح — لا فرع مرتبط بالمستخدم', 403)
@@ -88,45 +105,16 @@ export async function getWaiterWorkspace(session: StaffSession): Promise<WaiterW
 
   const branchScope =
     session.role === ROLE.OWNER ? {} : { branchId: BigInt(session.branchId as string) }
+  const branchId = BigInt(session.branchId)
 
-  const [branch, tables, orders, categories, products, incomingHandovers] = await Promise.all([
-    prisma.cafeBranch.findUnique({ where: { id: BigInt(session.branchId) }, select: { name: true } }),
-    prisma.cafeTable.findMany({
-      where: { ...branchScope, isActive: true, deletedAt: null },
-      orderBy: [{ sortOrder: 'asc' }, { number: 'asc' }],
-      select: { id: true, number: true, name: true, capacity: true },
-    }),
-    prisma.order.findMany({
-      where: { ...branchScope, status: { in: ['new', 'preparing', 'ready', 'cancelled'] } },
-      orderBy: { createdAt: 'desc' },
-      take: 100,
-      select: {
-        id: true, orderNumber: true, status: true, paymentStatus: true, total: true, customerName: true,
-        source: true, notes: true, createdAt: true, sentToKitchenAt: true, cancelReason: true, responsibleWaiterId: true,
-        responsibleWaiter: { select: { name: true } },
-        cafeTable: { select: { number: true } },
-        items: {
-          where: { isVoided: false }, orderBy: { id: 'asc' },
-          select: { id: true, productId: true, productName: true, quantity: true, servedQuantity: true, preparedQuantity: true, preparationStartedAt: true, unitPrice: true, notes: true },
-        },
-      },
-    }),
-    prisma.category.findMany({
-      where: { ...branchScope, isActive: true, deletedAt: null },
-      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
-      select: { id: true, name: true },
-    }),
-    prisma.product.findMany({
-      where: { ...branchScope, isActive: true, deletedAt: null },
-      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
-      select: { id: true, name: true, price: true, categoryId: true, isAvailable: true },
-    }),
-    prisma.waiterShiftHandover.findMany({
-      where: { recipientWaiterId: session.id, branchId: BigInt(session.branchId), status: 'pending' },
-      orderBy: { createdAt: 'asc' },
-      select: { id: true, requestedById: true, createdAt: true, notes: true, requestedBy: { select: { name: true } } },
-    }),
-  ])
+  let loaded: Awaited<ReturnType<typeof loadWaiterWorkspaceData>>
+  try {
+    loaded = await loadWaiterWorkspaceData(session, branchScope, branchId)
+  } catch (error) {
+    if (isMissingWaiterHandoverTableError(error)) throw new WaiterSchemaError()
+    throw error
+  }
+  const [branch, tables, orders, categories, products, incomingHandovers] = loaded
 
   const openByTable = new Map<string, number>()
   for (const o of orders) {
@@ -171,6 +159,47 @@ export async function getWaiterWorkspace(session: StaffSession): Promise<WaiterW
       })),
     })),
   }
+}
+
+function loadWaiterWorkspaceData(session: StaffSession, branchScope: { branchId: bigint } | {}, branchId: bigint) {
+  return Promise.all([
+    prisma.cafeBranch.findUnique({ where: { id: branchId }, select: { name: true } }),
+    prisma.cafeTable.findMany({
+      where: { ...branchScope, isActive: true, deletedAt: null },
+      orderBy: [{ sortOrder: 'asc' }, { number: 'asc' }],
+      select: { id: true, number: true, name: true, capacity: true },
+    }),
+    prisma.order.findMany({
+      where: { ...branchScope, status: { in: ['new', 'preparing', 'ready', 'cancelled'] } },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+      select: {
+        id: true, orderNumber: true, status: true, paymentStatus: true, total: true, customerName: true,
+        source: true, notes: true, createdAt: true, sentToKitchenAt: true, cancelReason: true, responsibleWaiterId: true,
+        responsibleWaiter: { select: { name: true } },
+        cafeTable: { select: { number: true } },
+        items: {
+          where: { isVoided: false }, orderBy: { id: 'asc' },
+          select: { id: true, productId: true, productName: true, quantity: true, servedQuantity: true, preparedQuantity: true, preparationStartedAt: true, unitPrice: true, notes: true },
+        },
+      },
+    }),
+    prisma.category.findMany({
+      where: { ...branchScope, isActive: true, deletedAt: null },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+      select: { id: true, name: true },
+    }),
+    prisma.product.findMany({
+      where: { ...branchScope, isActive: true, deletedAt: null },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+      select: { id: true, name: true, price: true, categoryId: true, isAvailable: true },
+    }),
+    prisma.waiterShiftHandover.findMany({
+      where: { recipientWaiterId: session.id, branchId, status: 'pending' },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, requestedById: true, createdAt: true, notes: true, requestedBy: { select: { name: true } } },
+    }),
+  ])
 }
 
 
