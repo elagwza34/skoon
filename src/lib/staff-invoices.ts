@@ -65,7 +65,7 @@ export async function getCashierInvoices(session: StaffSession, range: { from?: 
     const paid = o.payments.reduce((sum, p) => sum + Number(p.amount), 0)
     return { id: o.id.toString(), number: o.orderNumber, createdAt: o.createdAt.toISOString(), branch: o.branch.name, table: o.cafeTable.number, creator: o.createdBy?.name ?? null, cashier: o.payments.length > 0 ? o.payments[o.payments.length - 1]?.paidBy?.name ?? null : null, orderType: o.orderType, notes: o.notes, discountType: o.discountType === 'percentage' || o.discountType === 'amount' ? o.discountType : null, discountValue: Number(o.discountValue).toFixed(2),
       status: o.status, paymentStatus: settled(Number(o.total), paid) ? 'paid' : o.paymentStatus, subtotal: Number(o.itemsSubtotal).toFixed(2), itemDiscount: Number(o.itemDiscountAmount).toFixed(2), discountEligibleBase: Number(o.discountEligibleBase).toFixed(2), discount: Number(o.discountAmount).toFixed(2), tax: Number(o.taxAmount).toFixed(2), total: Number(o.total).toFixed(2), paid: paid.toFixed(2), remaining: Math.max(0, Number(o.total) - paid).toFixed(2), cancelledAt: o.cancelledAt?.toISOString() ?? null, cancelReason: o.cancelReason ?? null,
-      items: o.items.map((i) => ({ id: i.id.toString(), productId: i.productId.toString(), variantId: i.productVariantId?.toString() ?? null, variantLabel: i.productVariant?.values[0]?.value.label ?? snapshotLabels(i.productVariantSnapshot, i.optionsSnapshot)[0] ?? null, name: i.productName, quantity: i.quantity, unitPrice: Number(i.unitPrice).toFixed(2), lineTotal: Number(i.lineTotal).toFixed(2), discountType: i.discountType === 'percentage' || i.discountType === 'amount' ? i.discountType : null, discountValue: Number(i.discountValue).toFixed(2), discountAmount: Number(i.discountAmount).toFixed(2), eligibleForInvoiceDiscount: i.eligibleForInvoiceDiscount, notes: i.notes, details: snapshotLabels(i.productVariantSnapshot, i.optionsSnapshot) })),
+      items: o.items.map((i) => { const details = resolveVariantLabels(i.productVariant?.values.map((entry) => entry.value.label) ?? [], i.productVariantSnapshot, i.optionsSnapshot); return { id: i.id.toString(), productId: i.productId.toString(), variantId: i.productVariantId?.toString() ?? null, variantLabel: details.length ? details.join(' · ') : null, name: i.productName, quantity: i.quantity, unitPrice: Number(i.unitPrice).toFixed(2), lineTotal: Number(i.lineTotal).toFixed(2), discountType: i.discountType === 'percentage' || i.discountType === 'amount' ? i.discountType : null, discountValue: Number(i.discountValue).toFixed(2), discountAmount: Number(i.discountAmount).toFixed(2), eligibleForInvoiceDiscount: i.eligibleForInvoiceDiscount, notes: i.notes, details } }),
       payments: o.payments.map((p) => ({ id: p.id.toString(), method: p.method, amount: Number(p.amount).toFixed(2), createdAt: p.createdAt.toISOString(), collector: p.paidBy?.name ?? null })),
     }
   })
@@ -83,6 +83,12 @@ function snapshotLabels(...snapshots: unknown[]): string[] {
   }
   snapshots.forEach(visit)
   return [...labels]
+}
+
+/** Immutable relation labels first, then stored snapshots for historical rows. */
+export function resolveVariantLabels(relationLabels: readonly string[], ...snapshots: unknown[]): string[] {
+  const labels = relationLabels.map((value) => value.trim()).filter(Boolean)
+  return labels.length ? [...new Set(labels)] : snapshotLabels(...snapshots)
 }
 
 /** Add a catalog item or change an existing line while the invoice is unsettled. */

@@ -61,7 +61,7 @@ import {
 import { floatMovementSchema } from '../src/lib/staff-float'
 import { financialShiftLockName } from '../src/lib/financial-shift-lock'
 import { assertRefundAmount, assertRefundReservation, refundAffectsTill, remainingRefundableCents, remainingReservableRefundCents } from '../src/lib/refund-accounting'
-import { recalculateInvoiceTotals, splitInvoices, type InvoiceRow } from '../src/lib/staff-invoices'
+import { recalculateInvoiceTotals, resolveVariantLabels, splitInvoices, type InvoiceRow } from '../src/lib/staff-invoices'
 import { receiptInvoiceForSettlement, receiptSettlementBreakdown } from '../src/lib/receipt-settlement'
 import { posDraftKey, restorePosDraft } from '../src/lib/pos-draft'
 import { posOrderSchema } from '../src/lib/staff-pos'
@@ -1894,6 +1894,11 @@ test('receipt settlement uses the persisted discounted invoice, never a pre-paym
   assert.equal(receiptInvoiceForSettlement('77', persisted), persisted)
   const breakdown = receiptSettlementBreakdown(persisted, { paid: '81.00', change: '19.00', method: 'cash' })
   assert.deepEqual(breakdown, { subtotal: '100.00', itemDiscount: '10.00', generalDiscount: '9.00', generalDiscountPercent: 10, finalTotal: '81.00', paid: '81.00', method: 'cash', change: '19.00' })
+})
+
+test('invoice variants: all persisted variant labels are available to settlement and receipt views', () => {
+  assert.deepEqual(resolveVariantLabels(['Large', 'Oat milk'], { label: 'ignored snapshot' }), ['Large', 'Oat milk'])
+  assert.deepEqual(resolveVariantLabels([], { values: [{ label: 'Large' }, { label: 'Oat milk' }] }), ['Large', 'Oat milk'])
 })
 
 test('POS drafts are isolated by cashier and branch and discard stale catalog lines', () => {
