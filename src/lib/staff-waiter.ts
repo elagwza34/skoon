@@ -4,6 +4,8 @@ import type { StaffSession } from '@/lib/session'
 import type { StaffOrderRow } from '@/lib/staff-orders'
 import { getOpenShift, ShiftError } from '@/lib/staff-shifts'
 import { orderedVariantLabels, resolveOrderItemVariantLabels } from '@/lib/order-item-variant'
+import { modifierSnapshotLabels } from '@/lib/order-item-options'
+import type { PosCatalogProduct } from '@/lib/staff-pos'
 
 /**
  * Waiter workspace — branch tables + open orders + POS catalog.
@@ -53,7 +55,7 @@ export interface WaiterWorkspace {
   tables: { id: string; number: string; name: string | null; capacity: number; openOrders: number }[]
   openOrders: WaiterOrderRow[]
   categories: { id: string; name: string }[]
-  products: { id: string; name: string; price: string; categoryId: string; isAvailable: boolean }[]
+  products: Omit<PosCatalogProduct, 'categoryName'>[]
   incomingHandovers: IncomingWaiterHandover[]
   incomingTableTransfers: IncomingTableTransfer[]
   outgoingTableTransfers: OutgoingTableTransfer[]
@@ -166,13 +168,30 @@ export async function getWaiterWorkspace(session: StaffSession): Promise<WaiterW
       cancelReason: o.cancelReason ?? null,
       responsibleWaiterId: o.responsibleWaiterId,
       responsibleWaiterName: o.responsibleWaiter?.name ?? null,
-      items: o.items.map((i) => { const labels = i.productVariantId || i.productVariantSnapshot ? resolveOrderItemVariantLabels(i.productVariantSnapshot, orderedVariantLabels(i.productVariant?.values.map((entry) => entry.value) ?? [])) : []; return { id: i.id.toString(), productId: i.productId.toString(), name: i.productName, variantLabel: labels.length ? labels.join(' · ') : null, qty: i.quantity, servedQty: i.servedQuantity, preparedQty: i.preparedQuantity, preparationStartedAt: i.preparationStartedAt?.toISOString() ?? null, unitPrice: Number(i.unitPrice), note: i.notes } }),
+      items: o.items.map((i) => { const labels = i.productVariantId || i.productVariantSnapshot ? resolveOrderItemVariantLabels(i.productVariantSnapshot, orderedVariantLabels(i.productVariant?.values.map((entry) => entry.value) ?? [])) : []; return { id: i.id.toString(), productId: i.productId.toString(), name: i.productName, variantLabel: labels.length ? labels.join(' · ') : null, details: modifierSnapshotLabels(i.optionsSnapshot), qty: i.quantity, servedQty: i.servedQuantity, preparedQty: i.preparedQuantity, preparationStartedAt: i.preparationStartedAt?.toISOString() ?? null, unitPrice: Number(i.unitPrice), note: i.notes } }),
       itemsCount: o.items.reduce((n, i) => n + i.quantity, 0),
     })),
     categories: categories.map((c) => ({ id: c.id.toString(), name: c.name })),
     products: products.map((p) => ({
       id: p.id.toString(), name: p.name, price: p.price.toString(),
       categoryId: p.categoryId.toString(), isAvailable: p.isAvailable,
+      variants: p.variants.map((variant) => ({
+        id: variant.id.toString(),
+        label: orderedVariantLabels(variant.values.map((entry) => entry.value), variant.combinationKey).join(' · '),
+        price: variant.price.toString(),
+        priceAdjustment: (Number(variant.price) - Number(p.price)).toFixed(2),
+        isAvailable: variant.isAvailable,
+      })),
+      modifierGroups: p.optionAssignments
+        .filter((assignment) => assignment.productOption.isActive)
+        .map((assignment) => ({
+          id: assignment.productOption.id.toString(), name: assignment.productOption.name,
+          description: assignment.productOption.description,
+          isRequired: assignment.productOption.isRequired, minSelections: assignment.productOption.minSelections,
+          maxSelections: assignment.productOption.type === 'single' ? 1 : assignment.productOption.maxSelections,
+          sortOrder: assignment.sortOrder,
+          options: assignment.productOption.values.map((option) => ({ id: option.id.toString(), label: option.value, priceAdjustment: option.priceAdjustment.toFixed(2), isActive: option.isActive })),
+        })),
     })),
     incomingHandovers: incomingHandovers.map((handover) => ({
       id: handover.id.toString(), senderName: handover.requestedBy.name,
@@ -214,7 +233,7 @@ function loadWaiterWorkspaceData(session: StaffSession, branchScope: { branchId:
         cafeTable: { select: { number: true } },
         items: {
           where: { isVoided: false }, orderBy: { id: 'asc' },
-          select: { id: true, productId: true, productName: true, productVariantId: true, productVariantSnapshot: true, productVariant: { select: { values: { select: { value: { select: { label: true, attribute: { select: { sortOrder: true } } } } } } } }, quantity: true, servedQuantity: true, preparedQuantity: true, preparationStartedAt: true, unitPrice: true, notes: true },
+          select: { id: true, productId: true, productName: true, productVariantId: true, productVariantSnapshot: true, optionsSnapshot: true, productVariant: { select: { values: { select: { value: { select: { label: true, attribute: { select: { sortOrder: true } } } } } } } }, quantity: true, servedQuantity: true, preparedQuantity: true, preparationStartedAt: true, unitPrice: true, notes: true },
         },
       },
     }),
@@ -226,7 +245,20 @@ function loadWaiterWorkspaceData(session: StaffSession, branchScope: { branchId:
     prisma.product.findMany({
       where: { ...branchScope, isActive: true, deletedAt: null },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
-      select: { id: true, name: true, price: true, categoryId: true, isAvailable: true },
+      select: {
+        id: true, name: true, price: true, categoryId: true, isAvailable: true,
+        variants: {
+          where: { isActive: true, isAvailable: true, archivedAt: null }, orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+          select: { id: true, combinationKey: true, price: true, isAvailable: true, values: { select: { value: { select: { label: true, attribute: { select: { sortOrder: true } } } } } } },
+        },
+        optionAssignments: {
+          orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+          select: { sortOrder: true, productOption: { select: {
+            id: true, name: true, description: true, type: true, isRequired: true, minSelections: true, maxSelections: true, isActive: true,
+            values: { where: { isActive: true, deletedAt: null }, orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }], select: { id: true, value: true, priceAdjustment: true, isActive: true } },
+          } } },
+        },
+      },
     }),
     prisma.waiterShiftHandover.findMany({
       where: { recipientWaiterId: session.id, branchId, status: 'pending' },

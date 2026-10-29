@@ -69,6 +69,7 @@ export function PosCheckout({ catalog, initialTableId, takeawayOrders = [], mode
     variantId?: string
     onConfirm: (variantId: string | undefined, modifierSelections: Record<string, string[]>, qty: number) => void
   } | null>(null)
+  const [modifierVariantId, setModifierVariantId] = useState('')
   const submissionKey = useRef<string | null>(null)
   const paymentKey = useRef<string | null>(null)
   const skipDraftPersist = useRef(false)
@@ -115,7 +116,15 @@ export function PosCheckout({ catalog, initialTableId, takeawayOrders = [], mode
     return catalog.products.filter((p) => (category === 'all' || p.categoryId === category) && (!q || p.name.includes(q)))
   }, [catalog.products, category, query])
 
-  const subtotal = cart.reduce((s, l) => s + (variantPriceById.get(`${l.id}:${l.variantId}`) ?? priceById.get(l.id) ?? 0) * l.qty, 0)
+  function modifierPrice(productId: string, selections: Record<string, string[]>): number {
+    const product = catalog.products.find((candidate) => candidate.id === productId)
+    if (!product) return 0
+    return Object.entries(selections).reduce((sum, [groupId, optionIds]) => {
+      const group = product.modifierGroups.find((candidate) => candidate.id === groupId)
+      return sum + optionIds.reduce((optionSum, optionId) => optionSum + Number(group?.options.find((option) => option.id === optionId)?.priceAdjustment ?? 0), 0)
+    }, 0)
+  }
+  const subtotal = cart.reduce((s, l) => s + ((variantPriceById.get(`${l.id}:${l.variantId}`) ?? priceById.get(l.id) ?? 0) + modifierPrice(l.id, l.modifierSelections)) * l.qty, 0)
   const itemCount = cart.reduce((s, l) => s + l.qty, 0)
 
   function add(id: string) {
@@ -126,6 +135,7 @@ export function PosCheckout({ catalog, initialTableId, takeawayOrders = [], mode
       const initialSelections: Record<string, string[]> = {}
       product.modifierGroups.forEach((g) => { initialSelections[g.id] = [] })
       setModifierSelectionsState(initialSelections)
+      setModifierVariantId('')
       setModifierModal({
         product,
         onConfirm: (variantId, modifierSelections, qty) => {
@@ -190,6 +200,7 @@ export function PosCheckout({ catalog, initialTableId, takeawayOrders = [], mode
 
   function getModifierModalReady(): boolean {
     if (!modifierModal) return false
+    if (modifierModal.product.variants.length > 0 && !modifierVariantId) return false
     for (const group of modifierModal.product.modifierGroups) {
       const selected = modifierSelectionsState[group.id] ?? []
       if (group.isRequired && selected.length < group.minSelections) return false
@@ -205,7 +216,7 @@ export function PosCheckout({ catalog, initialTableId, takeawayOrders = [], mode
     Object.keys(selections).forEach((k) => {
       if (!selections[k]?.length) delete selections[k]
     })
-    modifierModal.onConfirm(modifierModal.variantId, selections, 1)
+    modifierModal.onConfirm(modifierVariantId || modifierModal.variantId, selections, 1)
     setModifierSelectionsState({})
     setModifierModal(null)
   }
@@ -441,13 +452,13 @@ export function PosCheckout({ catalog, initialTableId, takeawayOrders = [], mode
               {cart.map((l) => {
                 const p = catalog.products.find((x) => x.id === l.id)!
                 const v = l.variantId ? p.variants.find((x) => x.id === l.variantId) : null
-                const unitPrice = v ? Number(v.price) : Number(p.price)
+                const unitPrice = (v ? Number(v.price) : Number(p.price)) + modifierPrice(l.id, l.modifierSelections)
                 const label = v ? `${p.name} â€” ${v.label}` : p.name
                 const modifierLabels = Object.entries(l.modifierSelections).flatMap(([groupId, valueIds]) => {
                   const group = p.modifierGroups.find((g) => g.id === groupId)
                   if (!group) return []
-                  return valueIds.map((vid) => {
-                    const opt = group.options.find((o) => o.id === vid)
+                  return valueIds.map((vid: string) => {
+                    const opt = group.options.find((o: { id: string }) => o.id === vid)
                     return opt ? `${group.name}: ${opt.label}` : ''
                   }).filter(Boolean)
                 })
@@ -589,6 +600,7 @@ export function PosCheckout({ catalog, initialTableId, takeawayOrders = [], mode
             </CardHeader>
             <CardContent className="p-4">
               <div className="space-y-4">
+                {modifierModal.product.variants.length ? <div className="rounded-lg border p-3"><p className="mb-2 text-sm font-medium">المتغير</p><select className="h-10 w-full rounded border bg-background px-3" value={modifierVariantId} onChange={(event) => setModifierVariantId(event.target.value)}><option value="">اختر المتغير</option>{modifierModal.product.variants.map((variant) => <option key={variant.id} value={variant.id}>{variant.label} — {formatCurrency(Number(variant.price))}</option>)}</select></div> : null}
                 {modifierModal.product.modifierGroups.map((group) => {
                   const selected = modifierSelectionsState[group.id] ?? []
                   return (
@@ -598,7 +610,7 @@ export function PosCheckout({ catalog, initialTableId, takeawayOrders = [], mode
                           <span className="text-sm font-medium text-foreground">{group.name}</span>
                           {group.description && <p className="text-xs text-muted-foreground">{group.description}</p>}
                         </div>
-                        <Badge tone="destructive">مطلوب</Badge>
+                        {group.isRequired ? <Badge tone="destructive">مطلوب</Badge> : <Badge tone="muted">اختياري</Badge>}
                       </div>
                       {group.maxSelections === 1 ? (
                         <div className="space-y-2">

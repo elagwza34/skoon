@@ -17,6 +17,17 @@ export interface PosCatalogVariant {
   isAvailable: boolean
 }
 
+export interface PosCatalogModifierGroup {
+  id: string
+  name: string
+  description: string | null
+  isRequired: boolean
+  minSelections: number
+  maxSelections: number
+  sortOrder: number
+  options: { id: string; label: string; priceAdjustment: string; isActive: boolean }[]
+}
+
 export interface PosCatalogProduct {
   id: string
   name: string
@@ -67,6 +78,23 @@ export async function getPosCatalog(session: StaffSession): Promise<PosCatalog> 
           orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
           select: { id: true, combinationKey: true, price: true, isAvailable: true, values: { select: { value: { select: { label: true, attribute: { select: { sortOrder: true } } } } } } },
         },
+        optionAssignments: {
+          orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+          select: {
+            sortOrder: true,
+            productOption: {
+              select: {
+                id: true, name: true, description: true, type: true, isRequired: true,
+                minSelections: true, maxSelections: true, isActive: true,
+                values: {
+                  where: { isActive: true, deletedAt: null },
+                  orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+                  select: { id: true, value: true, priceAdjustment: true, isActive: true },
+                },
+              },
+            },
+          },
+        },
       },
     }),
     prisma.cafeTable.findMany({
@@ -78,18 +106,33 @@ export async function getPosCatalog(session: StaffSession): Promise<PosCatalog> 
   return {
     draftScope: { userId: session.id, branchId: session.branchId },
     categories: categories.map((c) => ({ id: c.id.toString(), name: c.name })),
-    products: products.map((p) => ({
-      id: p.id.toString(), name: p.name, price: p.price.toString(),
-      categoryId: p.categoryId.toString(), categoryName: p.category.name,
-      isAvailable: p.isAvailable,
-      variants: p.variants.map((v) => ({
-        id: v.id.toString(),
-        label: orderedVariantLabels(v.values.map((entry) => entry.value), v.combinationKey).join(' · '),
-        price: v.price.toString(),
-        priceAdjustment: (Number(v.price) - Number(p.price)).toFixed(2),
-        isAvailable: v.isAvailable,
-      })),
-    })),
+    products: products.map((p) => {
+      const modifierGroups: PosCatalogModifierGroup[] = p.optionAssignments
+        .filter((assignment) => assignment.productOption.isActive)
+        .map((assignment) => {
+        const group = assignment.productOption
+        return {
+          id: group.id.toString(), name: group.name, description: group.description,
+          isRequired: group.isRequired, minSelections: group.minSelections,
+          maxSelections: group.type === 'single' ? 1 : group.maxSelections,
+          sortOrder: assignment.sortOrder,
+          options: group.values.map((option) => ({ id: option.id.toString(), label: option.value, priceAdjustment: option.priceAdjustment.toFixed(2), isActive: option.isActive })),
+        }
+      })
+      return {
+        id: p.id.toString(), name: p.name, price: p.price.toString(),
+        categoryId: p.categoryId.toString(), categoryName: p.category.name,
+        isAvailable: p.isAvailable,
+        variants: p.variants.map((v) => ({
+          id: v.id.toString(),
+          label: orderedVariantLabels(v.values.map((entry) => entry.value), v.combinationKey).join(' · '),
+          price: v.price.toString(),
+          priceAdjustment: (Number(v.price) - Number(p.price)).toFixed(2),
+          isAvailable: v.isAvailable,
+        })),
+        modifierGroups,
+      }
+    }),
     tables: tables.map((t) => ({ id: t.id.toString(), number: t.number, name: t.name })),
   }
 }
@@ -97,6 +140,10 @@ export async function getPosCatalog(session: StaffSession): Promise<PosCatalog> 
 export const posItemSchema = z.object({
   productId: z.string().regex(/^\d+$/, 'Invalid product id'),
   variantId: z.string().regex(/^\d+$/, 'Invalid variant id').optional(),
+  modifierSelections: z.array(z.object({
+    groupId: z.string().regex(/^\d+$/),
+    valueIds: z.array(z.string().regex(/^\d+$/)).max(20),
+  })).max(20).default([]),
   qty: z.number().int().min(1).max(20),
   note: z.string().max(255).optional(),
   discountType: z.enum(['percentage', 'amount']).optional(),

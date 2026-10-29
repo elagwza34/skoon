@@ -67,6 +67,8 @@ import { captureReceiptPrintTimestamp, formatReceiptPrintTime, receiptOrderTypeL
 import { posDraftKey, restorePosDraft } from '../src/lib/pos-draft'
 import { posOrderSchema } from '../src/lib/staff-pos'
 import { createOrderItemVariantSnapshot, orderedVariantLabels, resolveOrderItemVariantLabels } from '../src/lib/order-item-variant'
+import { modifierSnapshotLabels } from '../src/lib/order-item-options'
+import { modifierMutationSchema } from '../src/lib/staff-product-modifiers'
 import { canVoidOrderItemForOrder, orderItemVoidBlocker } from '../src/lib/staff-order-item-void'
 import { isKitchenTicketVisible, itemPreparationState, OrderError, takeawayDispatchBlocker, transitionOrderStatus } from '../src/lib/staff-orders'
 import { canTransitionOrder } from '../src/lib/staff-orders'
@@ -1039,7 +1041,7 @@ test('invoices: authoritative totals recalculate discount and tax', () => {
 
 test('pos order input ignores client prices while preserving the authoritative order type', () => {
   const parsed = posOrderSchema.parse({ tableId: '7', customerName: 'Guest', total: 0.01, items: [{ productId: '11', qty: 2, price: 0.01 }] })
-  assert.deepEqual(parsed, { orderType: 'dine_in', tableId: '7', customerName: 'Guest', items: [{ productId: '11', qty: 2 }] })
+  assert.deepEqual(parsed, { orderType: 'dine_in', tableId: '7', customerName: 'Guest', items: [{ productId: '11', modifierSelections: [], qty: 2 }] })
   assert.equal(posOrderSchema.safeParse({ tableId: '7', items: [] }).success, false)
   assert.equal(posOrderSchema.safeParse({ tableId: '7', items: [{ productId: '11', qty: 21 }] }).success, false)
 })
@@ -1950,17 +1952,41 @@ test('invoice variants: products without variants keep a normal product name fal
   assert.deepEqual(orderedVariantLabels([], ''), [])
 })
 
+test('product modifiers: POS input preserves structured selections and ignores client prices', () => {
+  const parsed = posOrderSchema.parse({
+    tableId: '7',
+    items: [{ productId: '11', variantId: '21', qty: 2, price: 0.01, modifierSelections: [{ groupId: '31', valueIds: ['41', '42'] }] }],
+  })
+  assert.deepEqual(parsed.items[0], { productId: '11', variantId: '21', modifierSelections: [{ groupId: '31', valueIds: ['41', '42'] }], qty: 2 })
+})
+
+test('product modifiers: immutable snapshots retain historical labels for invoices and receipts', () => {
+  const snapshot = { version: 1, groups: [
+    { groupId: '31', groupName: 'Milk', optionId: '41', optionLabel: 'Oat milk', priceAdjustment: '10.00' },
+    { groupId: '32', groupName: 'Extras', optionId: '42', optionLabel: 'Extra shot', priceAdjustment: '15.00' },
+  ] }
+  assert.deepEqual(modifierSnapshotLabels(snapshot), ['Oat milk', 'Extra shot'])
+  assert.deepEqual(modifierSnapshotLabels({ groups: [{ optionLabel: '  اسم إضافة عربي طويل للاختبار  ' }] }), ['اسم إضافة عربي طويل للاختبار'])
+})
+
+test('product modifiers: owner mutation schema validates reusable groups and assignments', () => {
+  assert.equal(modifierMutationSchema.safeParse({ action: 'group.create', branchId: '1', name: 'Milk', type: 'single', isRequired: true, minSelections: 1, maxSelections: 1 }).success, true)
+  assert.equal(modifierMutationSchema.safeParse({ action: 'option.create', groupId: '31', label: 'Oat', priceAdjustment: 10 }).success, true)
+  assert.equal(modifierMutationSchema.safeParse({ action: 'assignment.set', productId: '11', groupIds: ['31', '32'] }).success, true)
+  assert.equal(modifierMutationSchema.safeParse({ action: 'assignment.set', productId: '11', groupIds: ['not-an-id'] }).success, false)
+})
+
 test('POS drafts are isolated by cashier and branch and discard stale catalog lines', () => {
   assert.notEqual(posDraftKey('cashier-a', '1'), posDraftKey('cashier-b', '1'))
   assert.notEqual(posDraftKey('cashier-a', '1'), posDraftKey('cashier-a', '2'))
   const draft = restorePosDraft(JSON.stringify({ cart: [{ id: 'product-a', qty: 2, note: 'no sugar' }, { id: 'removed-product', qty: 1 }], tableId: 'table-1', customerName: 'Customer', customerPhone: '+20 100 000 0000' }), new Set(['product-a']), new Set(['table-1']))
-  assert.deepEqual(draft, { cart: [{ id: 'product-a', qty: 2, note: 'no sugar' }], tableId: 'table-1', customerName: 'Customer', customerPhone: '+20 100 000 0000' })
+  assert.deepEqual(draft, { cart: [{ id: 'product-a', modifierSelections: {}, qty: 2, note: 'no sugar' }], tableId: 'table-1', customerName: 'Customer', customerPhone: '+20 100 000 0000' })
 })
 
 test('POS drafts preserve selected variants across refresh and reject stale variant identities', () => {
   const raw = JSON.stringify({ cart: [{ id: 'latte', variantId: 'large', qty: 2 }, { id: 'latte', variantId: 'removed', qty: 1 }], tableId: 'table-1' })
   const restored = restorePosDraft(raw, new Set(['latte']), new Set(['table-1']), new Set(['latte:large']))
-  assert.deepEqual(restored?.cart, [{ id: 'latte', variantId: 'large', qty: 2 }])
+  assert.deepEqual(restored?.cart, [{ id: 'latte', variantId: 'large', modifierSelections: {}, qty: 2 }])
 })
 
 test('order item removal authorization is cashier or responsible/explicitly permitted waiter only', () => {

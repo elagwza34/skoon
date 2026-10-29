@@ -85,7 +85,7 @@ function OrderCards({
                 <div className="space-y-2 text-sm">
                   {order.items.map((item) => (
                     <div key={item.id} className="flex items-center justify-between gap-2">
-                      <span className="truncate">{item.name}</span>
+                      <span className="min-w-0"><span className="block truncate">{item.variantLabel ? `${item.name} — ${item.variantLabel}` : item.name}</span>{item.details.length ? <small className="block whitespace-normal text-primary">{item.details.join(' · ')}</small> : null}</span>
                       <span className="text-muted-foreground">{item.servedQty} / {item.qty}</span>
                       <div className="flex gap-1">
                         {!isPending && item.preparedQty > item.servedQty && (
@@ -617,7 +617,7 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
   const catalog = useMemo(() => ({
     draftScope: { userId: workspace.currentUserId, branchId: workspace.branchId },
     categories: workspace.categories,
-    products: workspace.products.map((product) => ({ ...product, categoryName: workspace.categories.find((category) => category.id === product.categoryId)?.name ?? '—', variants: [], modifierGroups: [] })),
+    products: workspace.products.map((product) => ({ ...product, categoryName: workspace.categories.find((category) => category.id === product.categoryId)?.name ?? '—' })),
     tables: workspace.tables.map(({ id, number, name }) => ({ id, number, name })),
   }), [workspace])
   const selectedTable = workspace.tables.find((table) => table.id === selectedTableId) ?? null

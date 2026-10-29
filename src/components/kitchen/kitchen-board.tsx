@@ -211,6 +211,7 @@ export function KitchenBoard({ orders, readOnly = false }: { orders: StaffOrderR
                             <span>
                               <b>{item.qty}×</b> {item.name}
                               {item.variantLabel ? ` (${item.variantLabel})` : ''}
+                              {item.details.length ? <small className="block text-primary">{item.details.join(' · ')}</small> : null}
                               {item.note ? <small className="block text-warning">ملاحظة: {item.note}</small> : null}
                             </span>
                             <div className="flex items-center gap-2">

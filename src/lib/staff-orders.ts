@@ -7,6 +7,7 @@ import { getOpenShift, ShiftError } from '@/lib/staff-shifts'
 import { recalculateInvoiceTotals } from '@/lib/staff-invoices'
 import { consumeOrderReservations, markOrderPreparation, releaseOrderReservations, reserveOrderInventory, serveOrderItemInventory, StockError } from '@/lib/staff-inventory-engine'
 import { orderedVariantLabels, resolveOrderItemVariantLabels } from '@/lib/order-item-variant'
+import { modifierSnapshotLabels } from '@/lib/order-item-options'
 
 /**
  * Staff order lifecycle — server-only.
@@ -74,7 +75,7 @@ export interface StaffOrderRow {
   orderNotes: string | null
   tableNumber: string
   createdAt: string
-  items: { id: string; productId: string; name: string; variantLabel: string | null; qty: number; servedQty: number; preparedQty: number; preparationStartedAt: string | null; unitPrice: number; note: string | null }[]
+  items: { id: string; productId: string; name: string; variantLabel: string | null; details: string[]; qty: number; servedQty: number; preparedQty: number; preparationStartedAt: string | null; unitPrice: number; note: string | null }[]
   itemsCount: number
   /** Set once the waiter has pushed the order to the kitchen ("إرسال للمطبخ"). */
   sentToKitchen: boolean
@@ -114,7 +115,7 @@ export async function listStaffOrders(
       items: {
         where: { isVoided: false },
         orderBy: { id: 'asc' },
-        select: { id: true, productId: true, productName: true, productVariantId: true, productVariantSnapshot: true, productVariant: { select: { values: { select: { value: { select: { label: true, attribute: { select: { sortOrder: true } } } } } } } }, quantity: true, servedQuantity: true, preparedQuantity: true, preparationStartedAt: true, unitPrice: true, notes: true },
+        select: { id: true, productId: true, productName: true, productVariantId: true, productVariantSnapshot: true, optionsSnapshot: true, productVariant: { select: { values: { select: { value: { select: { label: true, attribute: { select: { sortOrder: true } } } } } } } }, quantity: true, servedQuantity: true, preparedQuantity: true, preparationStartedAt: true, unitPrice: true, notes: true },
       },
     },
   })
@@ -133,7 +134,7 @@ export async function listStaffOrders(
     sentToKitchen: o.sentToKitchenAt != null,
     sentToKitchenAt: o.sentToKitchenAt?.toISOString() ?? null,
     cancelReason: o.cancelReason ?? null,
-    items: o.items.map((i) => { const labels = i.productVariantId || i.productVariantSnapshot ? resolveOrderItemVariantLabels(i.productVariantSnapshot, orderedVariantLabels(i.productVariant?.values.map((entry) => entry.value) ?? [])) : []; return { id: i.id.toString(), productId: i.productId.toString(), name: i.productName, variantLabel: labels.length ? labels.join(' · ') : null, qty: i.quantity, servedQty: i.servedQuantity, preparedQty: i.preparedQuantity, preparationStartedAt: i.preparationStartedAt?.toISOString() ?? null, unitPrice: Number(i.unitPrice), note: i.notes } }),
+    items: o.items.map((i) => { const labels = i.productVariantId || i.productVariantSnapshot ? resolveOrderItemVariantLabels(i.productVariantSnapshot, orderedVariantLabels(i.productVariant?.values.map((entry) => entry.value) ?? [])) : []; return { id: i.id.toString(), productId: i.productId.toString(), name: i.productName, variantLabel: labels.length ? labels.join(' · ') : null, details: modifierSnapshotLabels(i.optionsSnapshot), qty: i.quantity, servedQty: i.servedQuantity, preparedQty: i.preparedQuantity, preparationStartedAt: i.preparationStartedAt?.toISOString() ?? null, unitPrice: Number(i.unitPrice), note: i.notes } }),
     itemsCount: o.items.reduce((n, i) => n + i.quantity, 0),
   }))
 }
@@ -162,7 +163,7 @@ export async function listKitchenOrders(session: StaffSession, limit = 100): Pro
       id: true, orderNumber: true, status: true, paymentStatus: true, orderType: true, total: true, customerName: true,
       source: true, notes: true, createdAt: true, sentToKitchenAt: true, cancelReason: true,
       cafeTable: { select: { number: true } },
-      items: { where: { isVoided: false }, orderBy: { id: 'asc' }, select: { id: true, productId: true, productName: true, productVariantId: true, productVariantSnapshot: true, productVariant: { select: { values: { select: { value: { select: { label: true, attribute: { select: { sortOrder: true } } } } } } } }, quantity: true, servedQuantity: true, preparedQuantity: true, preparationStartedAt: true, unitPrice: true, notes: true } },
+      items: { where: { isVoided: false }, orderBy: { id: 'asc' }, select: { id: true, productId: true, productName: true, productVariantId: true, productVariantSnapshot: true, optionsSnapshot: true, productVariant: { select: { values: { select: { value: { select: { label: true, attribute: { select: { sortOrder: true } } } } } } } }, quantity: true, servedQuantity: true, preparedQuantity: true, preparationStartedAt: true, unitPrice: true, notes: true } },
     },
   })
   return orders.map((o) => ({
@@ -170,7 +171,7 @@ export async function listKitchenOrders(session: StaffSession, limit = 100): Pro
     total: Number(o.total), customerName: o.customerName, source: o.source, orderNotes: o.notes, tableNumber: o.cafeTable.number,
     createdAt: o.createdAt.toISOString(), sentToKitchen: o.sentToKitchenAt != null,
     sentToKitchenAt: o.sentToKitchenAt?.toISOString() ?? null, cancelReason: o.cancelReason ?? null,
-    items: o.items.map((i) => { const labels = i.productVariantId || i.productVariantSnapshot ? resolveOrderItemVariantLabels(i.productVariantSnapshot, orderedVariantLabels(i.productVariant?.values.map((entry) => entry.value) ?? [])) : []; return { id: i.id.toString(), productId: i.productId.toString(), name: i.productName, variantLabel: labels.length ? labels.join(' · ') : null, qty: i.quantity, servedQty: i.servedQuantity, preparedQty: i.preparedQuantity, preparationStartedAt: i.preparationStartedAt?.toISOString() ?? null, unitPrice: Number(i.unitPrice), note: i.notes } }),
+    items: o.items.map((i) => { const labels = i.productVariantId || i.productVariantSnapshot ? resolveOrderItemVariantLabels(i.productVariantSnapshot, orderedVariantLabels(i.productVariant?.values.map((entry) => entry.value) ?? [])) : []; return { id: i.id.toString(), productId: i.productId.toString(), name: i.productName, variantLabel: labels.length ? labels.join(' · ') : null, details: modifierSnapshotLabels(i.optionsSnapshot), qty: i.quantity, servedQty: i.servedQuantity, preparedQty: i.preparedQuantity, preparationStartedAt: i.preparationStartedAt?.toISOString() ?? null, unitPrice: Number(i.unitPrice), note: i.notes } }),
     itemsCount: o.items.reduce((n, i) => n + i.quantity, 0),
   }))
 }

@@ -6,6 +6,7 @@ import { getOpenShift } from '@/lib/staff-shifts'
 import type { DiscountKind } from '@/lib/invoice-discounts'
 import { createOrderItemVariantSnapshot, orderedVariantLabels, resolveOrderItemVariantLabels } from '@/lib/order-item-variant'
 import { recalculateOpenOrderInvoice } from '@/lib/invoice-recalculation'
+import { modifierSnapshotLabels } from '@/lib/order-item-options'
 
 export class InvoiceError extends Error { constructor(message: string, readonly status = 400) { super(message); this.name = 'InvoiceError' } }
 
@@ -65,7 +66,8 @@ export async function getCashierInvoices(session: StaffSession, range: { from?: 
       items: o.items.map((i) => {
         const relationLabels = orderedVariantLabels(i.productVariant?.values.map((entry) => entry.value) ?? [])
         const variantLabels = i.productVariantId || i.productVariantSnapshot ? resolveVariantLabels(relationLabels, i.productVariantSnapshot) : []
-        const details = snapshotLabels(i.optionsSnapshot)
+        const persistedModifierLabels = modifierSnapshotLabels(i.optionsSnapshot)
+        const details = persistedModifierLabels.length ? persistedModifierLabels : snapshotLabels(i.optionsSnapshot)
         return { id: i.id.toString(), productId: i.productId.toString(), variantId: i.productVariantId?.toString() ?? null, variantLabel: variantLabels.length ? variantLabels.join(' · ') : null, name: i.productName, quantity: i.quantity, unitPrice: Number(i.unitPrice).toFixed(2), lineTotal: Number(i.lineTotal).toFixed(2), discountType: i.discountType === 'percentage' || i.discountType === 'amount' ? i.discountType : null, discountValue: Number(i.discountValue).toFixed(2), discountAmount: Number(i.discountAmount).toFixed(2), eligibleForInvoiceDiscount: i.eligibleForInvoiceDiscount, notes: i.notes, details }
       }),
       payments: o.payments.map((p) => ({ id: p.id.toString(), method: p.method, amount: Number(p.amount).toFixed(2), createdAt: p.createdAt.toISOString(), collector: p.paidBy?.name ?? null })),
