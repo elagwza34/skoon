@@ -611,6 +611,9 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [editing, setEditing] = useState<WaiterWorkspace['openOrders'][number] | null>(null)
+  const [showingTableOrderModal, setShowingTableOrderModal] = useState<{ orderId: string; tableNumber: string } | null>(null)
+  const [showingProductPicker, setShowingProductPicker] = useState<{ orderId: string; tableNumber: string } | null>(null)
+  const [productSearch, setProductSearch] = useState('')
   const [transferDialog, setTransferDialog] = useState<{ tableId: string; tableNumber: string } | null>(null)
   const [transferRecipient, setTransferRecipient] = useState<string>('')
   const [transferNotes, setTransferNotes] = useState('')
@@ -859,6 +862,30 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
     }
   }
 
+  async function addProductToOrder(orderId: string, items: { productId: string; qty: number; note?: string }[]) {
+    setPendingId(orderId)
+    setError(null)
+    try {
+      const res = await fetch(`/api/staff/orders/${orderId}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ items }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || 'فشل إضافة المنتج')
+      }
+      setSuccess('تم إضافة المنتج للطلب.')
+      setShowingProductPicker(null)
+      setShowingTableOrderModal(null)
+      startTransition(() => router.refresh())
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'حدث في إضافة المنتج')
+    } finally {
+      setPendingId(null)
+    }
+  }
+
   return (
     <div className="flex h-full min-w-0 flex-col overflow-x-hidden bg-background">
       <header className="sticky top-0 z-30 flex flex-col border-b border-border bg-background/95 backdrop-blur px-4 py-3 lg:px-6">
@@ -915,11 +942,20 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
                 {workspace.tables.map((table) => {
                   const isMyActive = myActiveTableNumbers.has(table.number)
+                  const tableOrders = workspace.openOrders.filter((o) => o.tableNumber === table.number)
                   return (
                     <button
                       key={table.id}
                       type="button"
-                      onClick={() => setSelectedTableId(table.id)}
+                      onClick={() => {
+                        const activeOrder = tableOrders.find((o) => ['new', 'preparing', 'ready'].includes(o.status))
+                        if (activeOrder) {
+                          setShowingTableOrderModal({ orderId: activeOrder.id, tableNumber: table.number })
+                        } else {
+                          setShowingTableOrderModal(null)
+                          setShowingProductPicker(null)
+                        }
+                      }}
                       className={cn(
                         'rounded-lg border bg-card p-4 text-right transition-colors hover:bg-accent',
                         isMyActive ? 'border-primary/40 ring-2 ring-primary' : 'border-success/40',
@@ -1065,6 +1101,223 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
           ) : null}
         </div>
       </main>
+
+      {showingTableOrderModal && (
+        <TableOrderModal
+          orderId={showingTableOrderModal.orderId}
+          tableNumber={showingTableOrderModal.tableNumber}
+          onClose={() => setShowingTableOrderModal(null)}
+          onAddProduct={() => {
+            const order = workspace.openOrders.find((o) => o.id === showingTableOrderModal.orderId)
+            setShowingTableOrderModal(null)
+            setShowingProductPicker({ orderId: showingTableOrderModal.orderId, tableNumber: showingTableOrderModal.tableNumber })
+          }}
+        />
+      )}
+
+      {showingProductPicker && (
+        <ProductPickerModal
+          orderId={showingProductPicker.orderId}
+          tableNumber={showingProductPicker.tableNumber}
+          products={catalog.products}
+          categories={catalog.categories}
+          onClose={() => setShowingProductPicker(null)}
+          onAdd={(items) => addProductToOrder(showingProductPicker.orderId, items)}
+        />
+      )}
+
+    </div>
+  )
+}
+
+function TableOrderModal({
+  orderId,
+  tableNumber,
+  onClose,
+  onAddProduct,
+}: {
+  orderId: string
+  tableNumber: string
+  onClose: () => void
+  onAddProduct: () => void
+}) {
+  return (
+    <div role="dialog" aria-modal="true" aria-label="تفاصيل الطلب" className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-4 sm:p-6">
+      <Card className="mx-auto my-6 w-full max-w-2xl">
+        <CardHeader className="flex-row items-center justify-between">
+          <div>
+            <CardTitle>طلب الطاولة {tableNumber}</CardTitle>
+            <p className="mt-1 text-sm text-muted-foreground">رقم الطلب: {orderId}</p>
+          </div>
+          <Button variant="ghost" size="sm" onClick={onClose}>إغلاق</Button>
+        </CardHeader>
+        <CardContent className="p-4">
+          <p className="text-sm text-muted-foreground">اختر إجراء للطلب:</p>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" onClick={() => { onClose(); setEditing(workspace.openOrders.find((o) => o.id === orderId) ?? null) }}>
+              تعديل الطلب
+            </Button>
+            <Button size="sm" onClick={onAddProduct}>
+              <Icon name="plus" size={14} /> إضافة منتج
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+function ProductPickerModal({
+  orderId,
+  tableNumber,
+  products,
+  categories,
+  onClose,
+  onAdd,
+}: {
+  orderId: string
+  tableNumber: string
+  products: NonNullable<WaiterWorkspace['products']>
+  categories: WaiterWorkspace['categories']
+  onClose: () => void
+  onAdd: (items: { productId: string; qty: number; note?: string }[]) => void
+}) {
+  const [search, setSearch] = useState('')
+  const [selectedCategory, setSelectedCategory] = useState('all')
+  const [cart, setCart] = useState<{ productId: string; qty: number; note: string }[]>([])
+  const [busy, setBusy] = useState(false)
+
+  const filteredProducts = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return products.filter((p) =>
+      (selectedCategory === 'all' || p.categoryId === selectedCategory) &&
+      (!q || p.name.toLowerCase().includes(q))
+    )
+  }, [products, search, selectedCategory])
+
+  const previewTotal = cart.reduce((total, line) => total + Number(products.find((p) => p.id === line.productId)?.price ?? 0) * line.qty, 0)
+
+  function addProduct(productId: string) {
+    setCart((prev) => {
+      const existing = prev.find((l) => l.productId === productId)
+      if (existing) return prev.map((l) => (l.productId === productId ? { ...l, qty: Math.min(20, l.qty + 1) } : l))
+      return [...prev, { productId, qty: 1, note: '' }]
+    })
+  }
+
+  function removeProduct(productId: string) {
+    setCart((prev) => prev.filter((l) => l.productId !== productId))
+  }
+
+  function changeQty(productId: string, delta: number) {
+    setCart((prev) =>
+      prev
+        .map((l) => (l.productId === productId ? { ...l, qty: Math.max(1, Math.min(20, l.qty + delta)) } : l))
+        .filter((l) => l.qty > 0)
+    )
+  }
+
+  async function confirm() {
+    setBusy(true)
+    try {
+      await onAdd(cart.map((l) => ({ productId: l.productId, qty: l.qty, note: l.note.trim() || undefined })))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div role="dialog" aria-modal="true" aria-label="اختيار منتج" className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-4 sm:p-6">
+      <Card className="mx-auto my-6 w-full max-w-3xl">
+        <CardHeader className="flex-row items-center justify-between">
+          <div>
+            <CardTitle>إضافة منتج - الطاولة {tableNumber}</CardTitle>
+            <p className="mt-1 text-sm text-muted-foreground">الطلب: {orderId}</p>
+          </div>
+          <Button variant="ghost" size="sm" onClick={onClose}>إغلاق</Button>
+        </CardHeader>
+        <CardContent className="p-4">
+          <div className="grid gap-2 sm:grid-cols-3">
+            <div className="flex-1">
+              <Input
+                placeholder="ابحث عن منتج..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="h-10"
+              />
+            </div>
+            <div className="flex-1">
+              <select value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)} className="h-10 rounded border bg-background px-3">
+                <option value="all">جميع الأقسام</option>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex-1 text-right text-sm text-muted-foreground">
+              المجموع المؤقت: {formatCurrency(previewTotal)}
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+            {filteredProducts.length === 0 ? (
+              <p className="col-span-full text-sm text-muted-foreground text-center py-4">لا توجد منتجات مطابقة.</p>
+            ) : (
+              filteredProducts.map((product) => (
+                <button
+                  key={product.id}
+                  type="button"
+                  onClick={() => addProduct(product.id)}
+                  disabled={!product.isAvailable}
+                  className={cn(
+                    'flex flex-col items-center gap-2 rounded-lg border p-3 text-center transition-colors',
+                    product.isAvailable ? 'hover:bg-accent/40 border-border' : 'cursor-not-allowed opacity-50',
+                  )}
+                >
+                  <span className="text-sm font-medium truncate">{product.name}</span>
+                  <span className="text-xs text-muted-foreground">{formatCurrency(Number(product.price))}</span>
+                  {!product.isAvailable ? <span className="mt-1 text-xs text-destructive">غير متوفر</span> : null}
+                </button>
+              ))
+            )}
+          </div>
+
+          {cart.length > 0 && (
+            <div className="mt-6 rounded-lg border bg-card p-3">
+              <div className="flex justify-between mb-3"><span className="font-medium">المنتجات المختارة:</span><span className="font-bold">{formatCurrency(previewTotal)}</span></div>
+              <ul className="space-y-2 max-h-40 overflow-y-auto">
+                {cart.map((line) => {
+                  const product = products.find((p) => p.id === line.productId)
+                  return (
+                    <li key={line.productId} className="flex items-center justify-between gap-2 rounded border p-2">
+                      <div className="flex-1 min-w-0">
+                        <span className="text-sm truncate">{product?.name ?? 'منتج'}</span>
+                        <span className="text-xs text-muted-foreground">{formatCurrency(Number(product?.price ?? 0) * line.qty)}</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Button size="icon" variant="outline" className="h-7 w-7" onClick={() => changeQty(line.productId, -1)}>
+                          <Icon name="minus" size={12} />
+                        </Button>
+                        <span className="w-6 text-center">{line.qty}</span>
+                        <Button size="icon" variant="outline" className="h-7 w-7" onClick={() => changeQty(line.productId, 1)}>
+                          <Icon name="plus" size={12} />
+                        </Button>
+                        <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => removeProduct(line.productId)}>
+                          <Icon name="trash" size={12} />
+                        </Button>
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+              <div className="flex justify-end mt-3">
+                <Button variant="outline" onClick={onClose}>إلغاء</Button>
+                <Button disabled={busy} onClick={confirm}>{busy ? 'جاري الإضافة...' : 'إضافة للطلب'}</Button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   )
 }
