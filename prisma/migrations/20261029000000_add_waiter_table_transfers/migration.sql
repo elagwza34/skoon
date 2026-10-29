@@ -17,7 +17,7 @@ CREATE TABLE "waiter_table_transfers" (
   "updated_at"        TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT now(),
 
   CONSTRAINT "waiter_table_transfers_branch_id_fkey"
-    FOREIGN KEY ("branch_id") REFERENCES "cafe_branches"("id") ON DELETE RESTRICT,
+    FOREIGN KEY ("branch_id") REFERENCES "branches"("id") ON DELETE RESTRICT,
   CONSTRAINT "waiter_table_transfers_table_id_fkey"
     FOREIGN KEY ("table_id") REFERENCES "cafe_tables"("id") ON DELETE RESTRICT,
   CONSTRAINT "waiter_table_transfers_sender_waiter_id_fkey"
