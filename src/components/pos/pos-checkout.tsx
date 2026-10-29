@@ -20,7 +20,7 @@ import type { InvoiceRow } from '@/lib/staff-invoices'
 import type { StaffOrderRow } from '@/lib/staff-orders'
 
 /**
- * POS checkout â€” real branch catalog + tables from the DB.
+ * POS checkout — real branch catalog + tables from the DB.
  * Pricing is re-computed server-side on submit; client totals are a preview.
  */
 export function PosCheckout({ catalog, initialTableId, takeawayOrders = [], mode = "cashier" }: { catalog: PosCatalog; initialTableId?: string; takeawayOrders?: StaffOrderRow[]; mode?: "cashier" | "waiter" }) {
@@ -64,12 +64,14 @@ export function PosCheckout({ catalog, initialTableId, takeawayOrders = [], mode
     product: NonNullable<typeof catalog.products>[number]
     onConfirm: (variantId: string, qty: number) => void
   } | null>(null)
+  const [variantQuantity, setVariantQuantity] = useState(1)
   const [modifierModal, setModifierModal] = useState<{
     product: NonNullable<typeof catalog.products>[number]
     variantId?: string
     onConfirm: (variantId: string | undefined, modifierSelections: Record<string, string[]>, qty: number) => void
   } | null>(null)
   const [modifierVariantId, setModifierVariantId] = useState('')
+  const [modifierQuantity, setModifierQuantity] = useState(1)
   const submissionKey = useRef<string | null>(null)
   const paymentKey = useRef<string | null>(null)
   const skipDraftPersist = useRef(false)
@@ -136,6 +138,7 @@ export function PosCheckout({ catalog, initialTableId, takeawayOrders = [], mode
       product.modifierGroups.forEach((g) => { initialSelections[g.id] = [] })
       setModifierSelectionsState(initialSelections)
       setModifierVariantId('')
+      setModifierQuantity(1)
       setModifierModal({
         product,
         onConfirm: (variantId, modifierSelections, qty) => {
@@ -150,6 +153,7 @@ export function PosCheckout({ catalog, initialTableId, takeawayOrders = [], mode
       return
     }
     if (product.variants.length > 0) {
+      setVariantQuantity(1)
       setVariantModal({
         product,
         onConfirm: (variantId, qty) => {
@@ -216,7 +220,7 @@ export function PosCheckout({ catalog, initialTableId, takeawayOrders = [], mode
     Object.keys(selections).forEach((k) => {
       if (!selections[k]?.length) delete selections[k]
     })
-    modifierModal.onConfirm(modifierVariantId || modifierModal.variantId, selections, 1)
+    modifierModal.onConfirm(modifierVariantId || modifierModal.variantId, selections, modifierQuantity)
     setModifierSelectionsState({})
     setModifierModal(null)
   }
@@ -266,7 +270,7 @@ export function PosCheckout({ catalog, initialTableId, takeawayOrders = [], mode
   async function checkout() {
     if (cart.length === 0 || busy) return
     if (orderType === 'dine_in' && !tableId) {
-      setError('Ø§Ø®ØªØ± Ø§Ù„Ø·Ø§ÙˆÙ„Ø©')
+      setError('اختر الطاولة')
       return
     }
     setBusy(true)
@@ -300,7 +304,7 @@ export function PosCheckout({ catalog, initialTableId, takeawayOrders = [], mode
         }),
       })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data?.error ?? 'ÙØ´Ù„ Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ø·Ù„Ø¨')
+      if (!res.ok) throw new Error(data?.error ?? 'فشل إنشاء الطلب')
       if (orderType === 'takeaway') {
         const payIdempotencyKey = paymentKey.current ?? crypto.randomUUID()
         paymentKey.current = payIdempotencyKey
@@ -313,13 +317,13 @@ export function PosCheckout({ catalog, initialTableId, takeawayOrders = [], mode
           body: JSON.stringify(buildPaymentRequestPayload(paymentMethod, received, electronicConfirmed)),
         })
         const payment = await paymentResponse.json().catch(() => ({}))
-        if (!paymentResponse.ok) throw new Error(payment.error ?? 'ÙØ´Ù„ ØªØ­ØµÙŠÙ„ Ø·Ù„Ø¨ Ø§Ù„ØªÙŠÙƒ Ø£ÙˆØ§ÙŠØ› Ù„Ù… ÙŠÙØ±Ø³Ù„ Ù„Ù„Ù…Ø·Ø¨Ø®')
+        if (!paymentResponse.ok) throw new Error(payment.error ?? 'فشل تحصيل طلب التيك أواي؛ لم يُرسل للمطبخ')
         if (payment.invoice) setReceipt(payment.invoice as InvoiceRow)
         const dispatchResponse = await fetch(`/api/staff/orders/${data.id}/send`, { method: 'POST' })
         const dispatch = await dispatchResponse.json().catch(() => ({}))
         if (!dispatchResponse.ok) {
           setDispatchRetry({ id: data.id, number: data.orderNumber })
-          setError(`ØªÙ… Ø§Ù„Ø¯ÙØ¹ Ø¨Ù†Ø¬Ø§Ø­ØŒ Ù„ÙƒÙ† ØªØ¹Ø°Ø± Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„Ø·Ù„Ø¨ Ù„Ù„Ù…Ø·Ø¨Ø®: ${dispatch.error ?? 'Ø£Ø¹Ø¯ Ø§Ù„Ù…Ø­Ø§ÙˆÙ„Ø©'}`)
+          setError(`تم الدفع بنجاح، لكن تعذر إرسال الطلب للمطبخ: ${dispatch.error ?? 'أعد المحاولة'}`)
         } else setDispatchRetry(null)
         paymentKey.current = null
       }
@@ -333,7 +337,7 @@ export function PosCheckout({ catalog, initialTableId, takeawayOrders = [], mode
       submissionKey.current = null
       router.refresh()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'ÙØ´Ù„ Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ø·Ù„Ø¨')
+      setError(e instanceof Error ? e.message : 'فشل إنشاء الطلب')
     } finally {
       setBusy(false)
     }
@@ -345,11 +349,11 @@ export function PosCheckout({ catalog, initialTableId, takeawayOrders = [], mode
     try {
       const response = await fetch(`/api/staff/orders/${dispatchRetry.id}/send`, { method: 'POST' })
       const body = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(body.error ?? 'ØªØ¹Ø°Ø± Ø¥Ø¹Ø§Ø¯Ø© Ø§Ù„Ø¥Ø±Ø³Ø§Ù„')
+      if (!response.ok) throw new Error(body.error ?? 'تعذر إعادة الإرسال')
       setDispatchRetry(null)
       router.refresh()
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'ØªØ¹Ø°Ø± Ø¥Ø¹Ø§Ø¯Ø© Ø§Ù„Ø¥Ø±Ø³Ø§Ù„')
+      setError(cause instanceof Error ? cause.message : 'تعذر إعادة الإرسال')
     } finally {
       setBusy(false)
     }
@@ -365,25 +369,25 @@ export function PosCheckout({ catalog, initialTableId, takeawayOrders = [], mode
         body: JSON.stringify({ action: 'serve_items', items: order.items.map((item) => ({ orderItemId: item.id, quantity: item.qty - item.servedQty })) }),
       })
       const body = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(body.error ?? 'ØªØ¹Ø°Ø± ØªØ£ÙƒÙŠØ¯ ØªØ³Ù„ÙŠÙ… Ø§Ù„Ø·Ù„Ø¨')
+      if (!response.ok) throw new Error(body.error ?? 'تعذر تأكيد تسليم الطلب')
       router.refresh()
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'ØªØ¹Ø°Ø± ØªØ£ÙƒÙŠØ¯ ØªØ³Ù„ÙŠÙ… Ø§Ù„Ø·Ù„Ø¨')
+      setError(cause instanceof Error ? cause.message : 'تعذر تأكيد تسليم الطلب')
     } finally {
       setBusy(false)
     }
   }
-  const categoryOptions = [{ value: 'all', label: 'Ø§Ù„ÙƒÙ„' }, ...catalog.categories.map((c) => ({ value: c.id, label: c.name }))]
+  const categoryOptions = [{ value: 'all', label: 'الكل' }, ...catalog.categories.map((c) => ({ value: c.id, label: c.name }))]
   const tableOptions = catalog.tables.map((t) => ({
     value: t.id,
-    label: t.name ? `${t.number} Â· ${t.name}` : `Ø·Ø§ÙˆÙ„Ø© ${t.number}`,
+    label: t.name ? `${t.number} · ${t.name}` : `طاولة ${t.number}`,
     icon: 'tables' as const,
   }))
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
       <div className="flex flex-col gap-3">
-        <Input icon="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Ø§Ø¨Ø­Ø« Ø¹Ù† Ù…Ù†ØªØ¬â€¦" aria-label="Ø¨Ø­Ø« Ø§Ù„Ù…Ù†ØªØ¬Ø§Øª" />
+        <Input icon="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="ابحث عن منتج…" aria-label="بحث المنتجات" />
         <div className="no-scrollbar -mx-1 flex gap-2 overflow-x-auto px-1">
           {categoryOptions.map((c) => (
             <button key={c.value} type="button" onClick={() => setCategory(c.value)} aria-pressed={category === c.value} className={cn('shrink-0 rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors', category === c.value ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card text-muted-foreground hover:bg-accent')}>
@@ -393,7 +397,7 @@ export function PosCheckout({ catalog, initialTableId, takeawayOrders = [], mode
         </div>
 
         {visible.length === 0 ? (
-          <EmptyState icon="products" title="Ù„Ø§ ØªÙˆØ¬Ø¯ Ù…Ù†ØªØ¬Ø§Øª Ù…Ø·Ø§Ø¨Ù‚Ø©" description="Ø¬Ø±Ù‘Ø¨ Ø¨Ø­Ø«Ø§Ù‹ Ø£Ùˆ ØªØµÙ†ÙŠÙØ§Ù‹ Ø¢Ø®Ø±." />
+          <EmptyState icon="products" title="لا توجد منتجات مطابقة" description="جرّب بحثاً أو تصنيفاً آخر." />
         ) : (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
             {visible.map((p) => {
@@ -401,9 +405,9 @@ export function PosCheckout({ catalog, initialTableId, takeawayOrders = [], mode
               return (
                 <button key={p.id} type="button" disabled={!p.isAvailable} onClick={() => add(p.id)} className={cn('flex flex-col items-center gap-1.5 rounded-lg border border-border bg-card p-4 text-center', p.isAvailable ? 'hover:border-primary/50 hover:bg-accent/40' : 'cursor-not-allowed opacity-50')}>
                   <span className="text-sm font-medium text-foreground">{p.name}</span>
-                  {p.variants.length > 0 ? <span className="text-xs text-muted-foreground">Ø§Ø®ØªØ± Ù…ØªØºÙŠØ±</span> : <span className="text-xs text-muted-foreground">{p.categoryName}</span>}
+                  {p.variants.length > 0 ? <span className="text-xs text-muted-foreground">اختر متغير</span> : <span className="text-xs text-muted-foreground">{p.categoryName}</span>}
                   <span className="text-sm font-semibold text-primary">{formatCurrency(variantPrice)}</span>
-                  {!p.isAvailable ? <Badge tone="muted">ØºÙŠØ± Ù…ØªÙˆÙØ±</Badge> : null}
+                  {!p.isAvailable ? <Badge tone="muted">غير متوفر</Badge> : null}
                 </button>
               )
             })}
@@ -413,47 +417,47 @@ export function PosCheckout({ catalog, initialTableId, takeawayOrders = [], mode
 
       <Card className="flex h-fit flex-col lg:sticky lg:top-24">
         <CardHeader className="flex-row items-center justify-between">
-          <CardTitle>Ø§Ù„Ø³Ù„Ø©</CardTitle>
+          <CardTitle>السلة</CardTitle>
           {cart.length ? (
             <Button variant="ghost" size="sm" onClick={clear} className="text-destructive">
-              <Icon name="trash" size={16} /> Ø¥ÙØ±Ø§Øº
+              <Icon name="trash" size={16} /> إفراغ
             </Button>
           ) : null}
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <Segmented
             options={[
-              { value: 'dine_in', label: 'Ø¯Ø§Ø®Ù„ Ø§Ù„ÙƒØ§ÙÙŠÙ‡' },
-              { value: 'takeaway', label: 'ØªÙŠÙƒ Ø£ÙˆØ§ÙŠ' },
+              { value: 'dine_in', label: 'داخل الكافيه' },
+              { value: 'takeaway', label: 'تيك أواي' },
             ]}
             value={orderType}
             onChange={(value) => setOrderType(value as 'dine_in' | 'takeaway')}
-            ariaLabel="Ù†ÙˆØ¹ Ø§Ù„Ø·Ù„Ø¨"
+            ariaLabel="نوع الطلب"
           />
-          {orderType === 'dine_in' ? <Dropdown label="Ø§Ù„Ø·Ø§ÙˆÙ„Ø©" options={tableOptions} value={tableId} onChange={setTableId} className="w-full" /> : <Badge tone="warning">ØªÙŠÙƒ Ø£ÙˆØ§ÙŠ Â· Ø§Ù„Ø¯ÙØ¹ Ø¥Ù„Ø²Ø§Ù…ÙŠ Ù‚Ø¨Ù„ Ø§Ù„Ù…Ø·Ø¨Ø®</Badge>}
-          <Input icon="customers" value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Ø§Ø³Ù… Ø§Ù„Ø¹Ù…ÙŠÙ„ (Ø§Ø®ØªÙŠØ§Ø±ÙŠ)" aria-label="Ø§Ø³Ù… Ø§Ù„Ø¹Ù…ÙŠÙ„" />
-          <Input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} inputMode="tel" autoComplete="tel" maxLength={30} placeholder="Ø±Ù‚Ù… Ø§Ù„Ù‡Ø§ØªÙ (Ø§Ø®ØªÙŠØ§Ø±ÙŠ)" aria-label="Ø±Ù‚Ù… Ø§Ù„Ù‡Ø§ØªÙ (Ø§Ø®ØªÙŠØ§Ø±ÙŠ)" />
-          <Input value={orderNotes} onChange={(event) => setOrderNotes(event.target.value)} maxLength={2000} placeholder="Ù…Ù„Ø§Ø­Ø¸Ø§Øª Ø§Ù„Ø·Ù„Ø¨ (Ø§Ø®ØªÙŠØ§Ø±ÙŠ)" />
+          {orderType === 'dine_in' ? <Dropdown label="الطاولة" options={tableOptions} value={tableId} onChange={setTableId} className="w-full" /> : <Badge tone="warning">تيك أواي · الدفع إلزامي قبل المطبخ</Badge>}
+          <Input icon="customers" value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="اسم العميل (اختياري)" aria-label="اسم العميل" />
+          <Input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} inputMode="tel" autoComplete="tel" maxLength={30} placeholder="رقم الهاتف (اختياري)" aria-label="رقم الهاتف (اختياري)" />
+          <Input value={orderNotes} onChange={(event) => setOrderNotes(event.target.value)} maxLength={2000} placeholder="ملاحظات الطلب (اختياري)" />
           {dispatchRetry ? (
             <Button variant="secondary" disabled={busy} onClick={() => void retryDispatch()}>
-              Ø¥Ø¹Ø§Ø¯Ø© Ø¥Ø±Ø³Ø§Ù„ {dispatchRetry.number} Ù„Ù„Ù…Ø·Ø¨Ø® Ø¨Ø¯ÙˆÙ† Ø¯ÙØ¹ Ø¬Ø¯ÙŠØ¯
+              إعادة إرسال {dispatchRetry.number} للمطبخ بدون دفع جديد
             </Button>
           ) : null}
           {placed ? (
             <p className="rounded-md bg-success/10 px-3 py-2 text-sm text-success">
-              ØªÙ… Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ø·Ù„Ø¨ {placed.orderNumber} Â· {formatCurrency(Number(placed.total))}
+              تم إنشاء الطلب {placed.orderNumber} · {formatCurrency(Number(placed.total))}
             </p>
           ) : null}
           {error ? <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}
           {cart.length === 0 ? (
-            <EmptyState icon="pos" title="Ø§Ù„Ø³Ù„Ø© ÙØ§Ø±ØºØ©" description="Ø§Ø®ØªØ± Ù…Ù†ØªØ¬Ø§Øª Ù„Ø¥Ø¶Ø§ÙØªÙ‡Ø§." />
+            <EmptyState icon="pos" title="السلة فارغة" description="اختر منتجات لإضافتها." />
           ) : (
             <ul className="flex flex-col gap-2">
               {cart.map((l) => {
                 const p = catalog.products.find((x) => x.id === l.id)!
                 const v = l.variantId ? p.variants.find((x) => x.id === l.variantId) : null
                 const unitPrice = (v ? Number(v.price) : Number(p.price)) + modifierPrice(l.id, l.modifierSelections)
-                const label = v ? `${p.name} â€” ${v.label}` : p.name
+                const label = v ? `${p.name} — ${v.label}` : p.name
                 const modifierLabels = Object.entries(l.modifierSelections).flatMap(([groupId, valueIds]) => {
                   const group = p.modifierGroups.find((g) => g.id === groupId)
                   if (!group) return []
@@ -462,31 +466,31 @@ export function PosCheckout({ catalog, initialTableId, takeawayOrders = [], mode
                     return opt ? `${group.name}: ${opt.label}` : ''
                   }).filter(Boolean)
                 })
-                const fullLabel = modifierLabels.length ? `${label} â€” ${modifierLabels.join(', ')}` : label
+                const fullLabel = modifierLabels.length ? `${label} — ${modifierLabels.join(', ')}` : label
                 return (
                   <li key={`${l.id}:${l.variantId ?? 'base'}:${JSON.stringify(l.modifierSelections)}`} className="flex items-center gap-2 rounded-md border border-border p-2">
                     <div className="flex min-w-0 flex-1 flex-col gap-1 leading-tight">
                       <span className="truncate text-sm font-medium text-foreground">{fullLabel}</span>
                       <span className="text-xs text-muted-foreground">{formatCurrency(unitPrice * l.qty)}</span>
-                      <Input value={l.note ?? ''} onChange={(e) => setNote(l.id, l.variantId, l.modifierSelections, e.target.value)} maxLength={255} placeholder="Ù…Ù„Ø§Ø­Ø¸Ø© Ù„Ù„ØµÙ†Ù (Ø§Ø®ØªÙŠØ§Ø±ÙŠ)" aria-label={`Ù…Ù„Ø§Ø­Ø¸Ø© ${label}`} className="h-8 text-xs" />
+                      <Input value={l.note ?? ''} onChange={(e) => setNote(l.id, l.variantId, l.modifierSelections, e.target.value)} maxLength={255} placeholder="ملاحظة للصنف (اختياري)" aria-label={`ملاحظة ${label}`} className="h-8 text-xs" />
                       <div className="grid grid-cols-2 gap-1">
-                        <select value={l.discountType ?? 'none'} onChange={(event) => setLineDiscount(l.id, l.variantId, l.modifierSelections, event.target.value as 'none' | 'percentage' | 'amount', String(l.discountValue ?? ''))} className="h-8 rounded border bg-background px-2 text-xs" aria-label={`Ø®ØµÙ… ${label}`}>
-                          <option value="none">Ø¨Ø¯ÙˆÙ† Ø®ØµÙ…</option>
-                          <option value="percentage">Ø®ØµÙ… %</option>
-                          <option value="amount">Ø®ØµÙ… Ù…Ø¨Ù„Øº</option>
+                        <select value={l.discountType ?? 'none'} onChange={(event) => setLineDiscount(l.id, l.variantId, l.modifierSelections, event.target.value as 'none' | 'percentage' | 'amount', String(l.discountValue ?? ''))} className="h-8 rounded border bg-background px-2 text-xs" aria-label={`خصم ${label}`}>
+                          <option value="none">بدون خصم</option>
+                          <option value="percentage">خصم %</option>
+                          <option value="amount">خصم مبلغ</option>
                         </select>
                         {l.discountType ? <Input value={String(l.discountValue ?? '')} onChange={(event) => setLineDiscount(l.id, l.variantId, l.modifierSelections, l.discountType ?? 'none', event.target.value)} inputMode="decimal" className="h-8 text-xs" /> : null}
                       </div>
                     </div>
                     <div className="flex items-center gap-1">
-                      <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => dec(l.id, l.variantId, l.modifierSelections)} aria-label="Ø¥Ù†Ù‚Ø§Øµ">
+                      <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => dec(l.id, l.variantId, l.modifierSelections)} aria-label="إنقاص">
                         <Icon name="minus" size={14} />
                       </Button>
                       <span className="w-6 text-center text-sm font-semibold">{l.qty}</span>
-                      <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => inc(l.id, l.variantId, l.modifierSelections)} aria-label="Ø²ÙŠØ§Ø¯Ø©">
+                      <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => inc(l.id, l.variantId, l.modifierSelections)} aria-label="زيادة">
                         <Icon name="plus" size={14} />
                       </Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => remove(l.id, l.variantId, l.modifierSelections)} aria-label={`Ø¥Ø²Ø§Ù„Ø© ${fullLabel} Ù…Ù† Ø§Ù„Ø³Ù„Ø©`}>
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => remove(l.id, l.variantId, l.modifierSelections)} aria-label={`إزالة ${fullLabel} من السلة`}>
                         <Icon name="trash" size={14} />
                       </Button>
                     </div>
@@ -496,16 +500,16 @@ export function PosCheckout({ catalog, initialTableId, takeawayOrders = [], mode
             </ul>
           )}
           <div className="flex items-center justify-between border-t border-border pt-3 text-base font-bold">
-            <span className="text-foreground">Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠ</span>
+            <span className="text-foreground">الإجمالي</span>
             <span className="text-primary">{formatCurrency(subtotal)}</span>
           </div>
           <div className="grid grid-cols-2 gap-2">
             <select value={discountType} onChange={(event) => setDiscountType(event.target.value as typeof discountType)} className="rounded-lg border bg-background p-2 text-sm">
-              <option value="none">Ø¨Ø¯ÙˆÙ† Ø®ØµÙ… Ø¹Ø§Ù…</option>
-              <option value="percentage">Ø®ØµÙ… Ø¹Ø§Ù… %</option>
-              <option value="amount">Ø®ØµÙ… Ø¹Ø§Ù… Ù…Ø¨Ù„Øº</option>
+              <option value="none">بدون خصم عام</option>
+              <option value="percentage">خصم عام %</option>
+              <option value="amount">خصم عام مبلغ</option>
             </select>
-            {discountType !== 'none' ? <Input value={discountValue} onChange={(event) => setDiscountValue(event.target.value)} inputMode="decimal" placeholder="Ù‚ÙŠÙ…Ø© Ø§Ù„Ø®ØµÙ…" /> : null}
+            {discountType !== 'none' ? <Input value={discountValue} onChange={(event) => setDiscountValue(event.target.value)} inputMode="decimal" placeholder="قيمة الخصم" /> : null}
           </div>
           {orderType === 'takeaway' ? (
             <div className="space-y-2 rounded-lg border p-3">
@@ -517,43 +521,43 @@ export function PosCheckout({ catalog, initialTableId, takeawayOrders = [], mode
                 }}
                 className="w-full rounded-lg border bg-background p-2"
               >
-                <option value="cash">Ù†Ù‚Ø¯ÙŠ</option>
-                <option value="mobile_wallet">Ù…Ø­ÙØ¸Ø© Ø¥Ù„ÙƒØªØ±ÙˆÙ†ÙŠØ©</option>
-                <option value="instapay">Ø¥Ù†Ø³ØªØ§ Ø¨Ø§ÙŠ</option>
+                <option value="cash">نقدي</option>
+                <option value="mobile_wallet">محفظة إلكترونية</option>
+                <option value="instapay">إنستا باي</option>
               </select>
               {paymentMethod === 'cash' ? (
-                <Input value={received} onChange={(event) => setReceived(event.target.value)} inputMode="decimal" placeholder="Ø§Ù„Ù…Ø¨Ù„Øº Ø§Ù„Ù…Ø³ØªÙ„Ù…" />
+                <Input value={received} onChange={(event) => setReceived(event.target.value)} inputMode="decimal" placeholder="المبلغ المستلم" />
               ) : (
                 <label className="flex items-center gap-2 text-sm">
                   <input type="checkbox" checked={electronicConfirmed} onChange={(event) => setElectronicConfirmed(event.target.checked)} />
-                  Ø£Ø¤ÙƒØ¯ Ø§Ø³ØªÙ„Ø§Ù… Ø§Ù„Ø¯ÙØ¹ Ø§Ù„Ø¥Ù„ÙƒØªØ±ÙˆÙ†ÙŠ
+                  أؤكد استلام الدفع الإلكتروني
                 </label>
               )}
             </div>
           ) : null}
           <Button size="lg" className="w-full" disabled={!cart.length || busy} onClick={checkout}>
             <Icon name="check" size={18} />
-            {busy ? 'Ø¬Ø§Ø±ÙŠ Ø§Ù„Ø­ÙØ¸â€¦' : 'ØªØ£ÙƒÙŠØ¯ Ø§Ù„Ø·Ù„Ø¨'}
+            {busy ? 'جاري الحفظ…' : 'تأكيد الطلب'}
           </Button>
-          <p className="text-center text-[11px] text-muted-foreground">{formatNumber(itemCount)} ØµÙ†Ù Â· Ø§Ù„Ø³Ø¹Ø± Ø§Ù„Ù†Ù‡Ø§Ø¦ÙŠ ÙŠÙØ­Ø³Ø¨ Ù…Ù† Ù‚Ø§Ø¹Ø¯Ø© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª</p>
+          <p className="text-center text-[11px] text-muted-foreground">{formatNumber(itemCount)} صنف · السعر النهائي يُحسب من قاعدة البيانات</p>
         </CardContent>
       </Card>
-      <section className="rounded-xl border bg-card p-4 lg:col-span-2" aria-label="Ù…ØªØ§Ø¨Ø¹Ø© Ø·Ù„Ø¨Ø§Øª Ø§Ù„ØªÙŠÙƒ Ø£ÙˆØ§ÙŠ">
-          <h2 className="mb-3 font-bold">Ù…ØªØ§Ø¨Ø¹Ø© Ø·Ù„Ø¨Ø§Øª Ø§Ù„ØªÙŠÙƒ Ø£ÙˆØ§ÙŠ</h2>
+      <section className="rounded-xl border bg-card p-4 lg:col-span-2" aria-label="متابعة طلبات التيك أواي">
+          <h2 className="mb-3 font-bold">متابعة طلبات التيك أواي</h2>
           {takeawayOrders.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Ù„Ø§ ØªÙˆØ¬Ø¯ Ø·Ù„Ø¨Ø§Øª ØªÙŠÙƒ Ø£ÙˆØ§ÙŠ Ù…Ø¯ÙÙˆØ¹Ø© Ø­Ø§Ù„ÙŠÙ‹Ø§.</p>
+            <p className="text-sm text-muted-foreground">لا توجد طلبات تيك أواي مدفوعة حاليًا.</p>
           ) : (
             <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
               {takeawayOrders.map((order) => (
                 <div key={order.id} className="rounded-lg border p-3">
                   <div className="flex justify-between gap-2">
                     <strong>{order.number}</strong>
-                    <Badge tone={order.status === 'ready' ? 'success' : order.status === 'preparing' ? 'warning' : 'muted'}>{order.status === 'new' ? 'Ø¨Ø§Ù†ØªØ¸Ø§Ø± Ø§Ù„ØªØ­Ø¶ÙŠØ±' : order.status === 'preparing' ? 'Ù‚ÙŠØ¯ Ø§Ù„ØªØ­Ø¶ÙŠØ±' : order.status === 'ready' ? 'Ø¬Ø§Ù‡Ø² Ù„Ù„Ø§Ø³ØªÙ„Ø§Ù…' : 'ØªÙ… Ø§Ù„ØªØ³Ù„ÙŠÙ…'}</Badge>
+                    <Badge tone={order.status === 'ready' ? 'success' : order.status === 'preparing' ? 'warning' : 'muted'}>{order.status === 'new' ? 'بانتظار التحضير' : order.status === 'preparing' ? 'قيد التحضير' : order.status === 'ready' ? 'جاهز للاستلام' : 'تم التسليم'}</Badge>
                   </div>
                   {order.customerName ? <p className="mt-1 text-xs text-muted-foreground">{order.customerName}</p> : null}
                   {order.status === 'ready' ? (
                     <Button className="mt-2 w-full" size="sm" disabled={busy} onClick={() => void handover(order)}>
-                      ØªØ£ÙƒÙŠØ¯ Ø§Ù„ØªØ³Ù„ÙŠÙ… Ù„Ù„Ø¹Ù…ÙŠÙ„
+                      تأكيد التسليم للعميل
                     </Button>
                   ) : null}
                 </div>
@@ -563,29 +567,27 @@ export function PosCheckout({ catalog, initialTableId, takeawayOrders = [], mode
         </section>
 
       {variantModal && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4">
-          <Card className="w-full max-w-md">
-            <CardHeader>
-              <CardTitle>Ø§Ø®ØªØ± Ù…ØªØºÙŠØ± Ù„Ù€ {variantModal.product.name}</CardTitle>
+        <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/40 p-3 sm:p-4" dir="rtl">
+          <Card className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-lg flex-col overflow-hidden sm:max-h-[calc(100dvh-2rem)]">
+            <CardHeader className="shrink-0 border-b">
+              <CardTitle className="break-words">اختر متغيرًا لـ {variantModal.product.name}</CardTitle>
             </CardHeader>
-            <CardContent className="p-4">
-              <div className="space-y-3">
+            <CardContent className="min-h-0 overflow-y-auto p-4">
+              <label className="mb-4 flex items-center justify-between gap-3 rounded-lg bg-muted/50 p-3 text-sm">
+                <span className="font-medium">الكمية</span>
+                <Input type="number" inputMode="numeric" min="1" max="20" value={variantQuantity} onChange={(event) => setVariantQuantity(Math.max(1, Math.min(20, Number(event.target.value) || 1)))} className="h-9 w-24 text-center" aria-label="كمية المنتج" />
+              </label>
+              <div className="grid gap-2 sm:grid-cols-2">
                 {variantModal.product.variants.map((v) => (
-                  <div key={v.id} className="border rounded-lg p-3">
-                    <div className="flex justify-between items-start gap-2 mb-2">
-                      <span className="text-sm font-medium">{v.label}</span>
-                      <span className="text-sm font-semibold text-primary">{formatCurrency(Number(v.price))}</span>
-                    </div>
-                    <Input type="number" inputMode="numeric" min="1" max="20" value="1" onChange={() => {}} className="w-20 h-8 text-sm" aria-label={`ÙƒÙ…ÙŠØ© ${v.label}`} />
-                    <Button variant="outline" size="sm" className="w-auto mt-2" onClick={() => variantModal.onConfirm(v.id, 1)}>
-                      Ø¥Ø¶Ø§ÙØ©
-                    </Button>
-                  </div>
+                  <button key={v.id} type="button" className="flex min-w-0 items-center justify-between gap-3 rounded-lg border p-3 text-right transition-colors hover:border-primary hover:bg-primary/5" onClick={() => variantModal.onConfirm(v.id, variantQuantity)}>
+                    <span className="min-w-0 break-words text-sm font-medium">{v.label}</span>
+                    <span className="shrink-0 text-sm font-semibold text-primary">{formatCurrency(Number(v.price))}</span>
+                  </button>
                 ))}
               </div>
-              <div className="mt-4 flex justify-end">
+              <div className="sticky bottom-0 mt-4 flex justify-end border-t bg-card pt-3">
                 <Button variant="outline" onClick={() => setVariantModal(null)}>
-                  Ø¥Ù„ØºØ§Ø¡
+                  إلغاء
                 </Button>
               </div>
             </CardContent>
@@ -593,13 +595,14 @@ export function PosCheckout({ catalog, initialTableId, takeawayOrders = [], mode
         </div>
       )}
       {modifierModal && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4">
-          <Card className="w-full max-w-md">
-            <CardHeader>
-              <CardTitle>Ø§Ø®ØªØ± Ø§Ù„Ø®ØµØ§Ø¦Øµ Ù„Ù€ {modifierModal.product.name}</CardTitle>
+        <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/40 p-3 sm:p-4" dir="rtl">
+          <Card className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-lg flex-col overflow-hidden sm:max-h-[calc(100dvh-2rem)]">
+            <CardHeader className="shrink-0 border-b">
+              <CardTitle className="break-words">اختر الخصائص لـ {modifierModal.product.name}</CardTitle>
             </CardHeader>
-            <CardContent className="p-4">
+            <CardContent className="min-h-0 overflow-y-auto p-4">
               <div className="space-y-4">
+                <label className="flex items-center justify-between gap-3 rounded-lg bg-muted/50 p-3 text-sm"><span className="font-medium">الكمية</span><Input type="number" inputMode="numeric" min="1" max="20" value={modifierQuantity} onChange={(event) => setModifierQuantity(Math.max(1, Math.min(20, Number(event.target.value) || 1)))} className="h-9 w-24 text-center" aria-label="كمية المنتج" /></label>
                 {modifierModal.product.variants.length ? <div className="rounded-lg border p-3"><p className="mb-2 text-sm font-medium">المتغير</p><select className="h-10 w-full rounded border bg-background px-3" value={modifierVariantId} onChange={(event) => setModifierVariantId(event.target.value)}><option value="">اختر المتغير</option>{modifierModal.product.variants.map((variant) => <option key={variant.id} value={variant.id}>{variant.label} — {formatCurrency(Number(variant.price))}</option>)}</select></div> : null}
                 {modifierModal.product.modifierGroups.map((group) => {
                   const selected = modifierSelectionsState[group.id] ?? []
@@ -659,12 +662,12 @@ export function PosCheckout({ catalog, initialTableId, takeawayOrders = [], mode
                   )
                 })}
               </div>
-              <div className="mt-4 flex justify-end gap-2">
+              <div className="sticky bottom-0 mt-4 flex justify-end gap-2 border-t bg-card pt-3">
                 <Button variant="outline" onClick={() => setModifierModal(null)}>
-                  Ø¥Ù„ØºØ§Ø¡
+                  إلغاء
                 </Button>
                 <Button onClick={confirmModifier} disabled={!getModifierModalReady()}>
-                  Ø¥Ø¶Ø§ÙØ©
+                  إضافة
                 </Button>
               </div>
             </CardContent>
