@@ -4,7 +4,7 @@ import { ROLE } from '@/lib/authz'
 import type { StaffSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { canManageEmployeeLifecycle, canReadEmployeeDirectory, employeeDeactivationBlocker } from '@/lib/hr-authz'
-import { usernameFromStaffEmail } from '@/lib/staff-username'
+import { usernameFromStaffEmail, normalizeStaffUsername } from '@/lib/staff-username'
 
 export class EmployeeHrError extends Error {
   constructor(message: string, readonly status = 400) {
@@ -19,6 +19,7 @@ const optionalText = (max: number) => z.union([z.string().trim().max(max), z.nul
 
 const profileSchema = z.object({
   name: z.string().trim().min(2).max(100).optional(),
+  username: z.string().trim().min(3, 'اسم المستخدم قصير جداً').max(40).optional(),
   phone: optionalText(20),
   personalEmail: optionalText(150),
   personalPhone: optionalText(30),
@@ -37,6 +38,13 @@ const profileSchema = z.object({
   }
   if (value.probationStart && value.probationEnd && value.probationEnd < value.probationStart) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['probationEnd'], message: 'Probation end cannot precede its start' })
+  }
+  // Normalize and validate username if provided
+  if (value.username !== undefined && value.username !== null && value.username !== '') {
+    const normalized = normalizeStaffUsername(value.username)
+    if (!normalized) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['username'], message: 'اسم المستخدم يجب أن يحتوي أحرفاً إنجليزية صغيرة أو أرقاماً أو . _ - فقط' })
+    }
   }
 })
 
@@ -168,9 +176,24 @@ export async function updateEmployeeProfile(session: StaffSession, id: string, i
   if (!parsed.success) throw new EmployeeHrError(parsed.error.issues[0]?.message ?? 'Invalid employee profile', 400)
   try {
     return await prisma.$transaction(async (tx) => {
-      const employee = await tx.user.findFirst({ where: { id, deletedAt: null }, select: { id: true, branchId: true } })
+      const employee = await tx.user.findFirst({ where: { id, deletedAt: null }, select: { id: true, branchId: true, username: true, email: true, name: true, role: { select: { slug: true } } } })
       if (!employee) throw new EmployeeHrError('Employee not found', 404)
       const value = parsed.data
+
+      // Username change: normalize, validate uniqueness, preserve Auth identity and user ID.
+      let normalizedUsername: string | null = null
+      if (value.username !== undefined) {
+        normalizedUsername = value.username ? normalizeStaffUsername(value.username) : null
+        if (value.username && !normalizedUsername) throw new EmployeeHrError('اسم المستخدم غير صالح', 400)
+        if (normalizedUsername && normalizedUsername !== (employee.username ?? null)) {
+          const duplicate = await tx.user.findFirst({
+            where: { username: { equals: normalizedUsername, mode: 'insensitive' } },
+            select: { id: true },
+          })
+          if (duplicate) throw new EmployeeHrError('اسم المستخدم مستخدم بالفعل', 409)
+        }
+      }
+
       const profile = await tx.employeeProfile.upsert({
         where: { userId: id },
         create: {
@@ -194,8 +217,12 @@ export async function updateEmployeeProfile(session: StaffSession, id: string, i
           ...(value.probationDecision !== undefined ? { probationDecision: value.probationDecision, probationReviewedAt: value.probationDecision ? new Date() : null } : {}),
         },
       })
-      if (value.name !== undefined || value.phone !== undefined) await tx.user.update({ where: { id }, data: { ...(value.name !== undefined ? { name: value.name } : {}), ...(value.phone !== undefined ? { phone: value.phone } : {}) } })
-      await tx.auditLog.create({ data: { userId: session.id, branchId: employee.branchId, action: 'hr.employee_profile.update', entityType: 'employee_profile', entityId: profile.id, newValues: { employeeId: id } } })
+      const userUpdates: Record<string, unknown> = {}
+      if (value.name !== undefined) userUpdates.name = value.name
+      if (value.phone !== undefined) userUpdates.phone = value.phone
+      if (normalizedUsername !== null) userUpdates.username = normalizedUsername
+      if (Object.keys(userUpdates).length > 0) await tx.user.update({ where: { id }, data: userUpdates })
+      await tx.auditLog.create({ data: { userId: session.id, branchId: employee.branchId, action: 'hr.employee_profile.update', entityType: 'employee_profile', entityId: profile.id, newValues: { employeeId: id, ...(value.name !== undefined ? { name: value.name } : {}), ...(normalizedUsername !== null ? { username: normalizedUsername } : {}), ...(value.phone !== undefined ? { phone: value.phone } : {}) } } })
       return profile
     })
   } catch (error) { return hrSchemaError(error) }

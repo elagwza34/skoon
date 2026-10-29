@@ -4,10 +4,11 @@ import { useCallback, useEffect, useState, useTransition } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { Switch } from '@/components/ui/switch'
 
 type EmployeeRow = { id: string; name: string; email: string | null; username?: string | null; roleName: string; role: string; active: boolean; status: string; hireDate: string | null; probationStatus: string | null }
 type EmployeeDetail = {
-  id: string; name: string; email?: string | null; username?: string | null; phone?: string | null; active: boolean; status?: string
+  id: string; name: string; email?: string | null; username?: string | null; phone?: string | null; active: boolean; status?: string; branchId?: string | null; branchName?: string | null
   role?: { slug: string; name: string }; roleName?: string
   employeeProfile?: {
     employmentStatus: string; employmentType: string | null; hireDate: string | null; personalEmail: string | null; personalPhone: string | null; address: string | null
@@ -16,6 +17,14 @@ type EmployeeDetail = {
     compensationRates: Array<{ id: bigint | string; compensationType: string; paymentFrequency: string; amount: { toString(): string } | string | number; currency: string; effectiveFrom: string; effectiveUntil: string | null }>
   }
 }
+
+// Canonical staff roles assignable through Owner editing (Owner excluded — cannot be granted via this flow).
+const EDITABLE_ROLES = [
+  { slug: 'manager', name: 'المدير' },
+  { slug: 'cashier', name: 'الكاشير' },
+  { slug: 'waiter', name: 'النادل' },
+  { slug: 'kitchen', name: 'المطبخ' },
+] as const
 
 const dateInput = (value: string | null | undefined) => value ? value.slice(0, 10) : ''
 
@@ -107,8 +116,14 @@ export function EmployeeManagementBoard({ canManage }: { canManage: boolean }) {
 
 function EmployeeDetailPanel({ employee, canManage, onClose, onChanged, onArchive, onReactivate, onTerminate, post, setError }: { employee: EmployeeDetail; canManage: boolean; onClose: () => void; onChanged: () => void; onArchive: () => void; onReactivate: () => void; onTerminate: () => void; post: (path: string, body?: unknown) => Promise<unknown>; setError: (value: string | null) => void }) {
   const p = employee.employeeProfile
-  const [name, setName] = useState(employee.name)
+  const [name, setName] = useState(employee.name ?? '')
+  const [username, setUsername] = useState(employee.username ?? '')
   const [phone, setPhone] = useState(employee.phone ?? '')
+  const [roleSlug, setRoleSlug] = useState(employee.role?.slug ?? '')
+  const [branchId, setBranchId] = useState(employee.branchId ?? null)
+  const [isActive, setIsActive] = useState(employee.active)
+  const [branches, setBranches] = useState<Array<{ id: string; name: string; code: string }>>([])
+  const [branchesLoading, setBranchesLoading] = useState(false)
   const [employmentType, setEmploymentType] = useState(p?.employmentType ?? '')
   const [hireDate, setHireDate] = useState(dateInput(p?.hireDate))
   const [personalEmail, setPersonalEmail] = useState(p?.personalEmail ?? '')
@@ -121,13 +136,36 @@ function EmployeeDetailPanel({ employee, canManage, onClose, onChanged, onArchiv
   const [probationStatus, setProbationStatus] = useState(p?.probationStatus ?? '')
   const [busy, setBusy] = useState(false)
 
-  async function save() {
+  useEffect(() => {
+    if (!employee.id) return
+    setBranchesLoading(true)
+    fetch('/api/staff/branches')
+      .then(async (r) => {
+        if (!r.ok) throw new Error('تعذر تحميل الفروع')
+        const data = await r.json()
+        setBranches(data.branches ?? [])
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : 'تعذر تحميل الفروع'))
+      .finally(() => setBranchesLoading(false))
+  }, [employee.id, setError])
+
+  async function saveProfile() {
     setBusy(true); setError(null)
     try {
-      const response = await fetch(`/api/staff/employees/${employee.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, phone: phone || null, employmentType: employmentType || null, hireDate: hireDate || null, personalEmail: personalEmail || null, personalPhone: personalPhone || null, address: address || null, emergencyContactName: emergencyName || null, emergencyContactPhone: emergencyPhone || null, probationStart: probationStart || null, probationEnd: probationEnd || null, probationStatus: probationStatus || null }) })
+      const response = await fetch(`/api/staff/employees/${employee.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, username: username || null, phone: phone || null, employmentType: employmentType || null, hireDate: hireDate || null, personalEmail: personalEmail || null, personalPhone: personalPhone || null, address: address || null, emergencyContactName: emergencyName || null, emergencyContactPhone: emergencyPhone || null, probationStart: probationStart || null, probationEnd: probationEnd || null, probationStatus: probationStatus || null }) })
       const data = await response.json().catch(() => ({})); if (!response.ok) throw new Error(data.error ?? 'تعذر حفظ الملف')
       onChanged()
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'تعذر حفظ الملف') }
+    finally { setBusy(false) }
+  }
+
+  async function saveAccount() {
+    setBusy(true); setError(null)
+    try {
+      const response = await fetch(`/api/staff/users/${employee.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ role: roleSlug || undefined, branchId: branchId || null, isActive }) })
+      const data = await response.json().catch(() => ({})); if (!response.ok) throw new Error(data.error ?? 'تعذر حفظ الحساب')
+      onChanged()
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'تعذر حفظ الحساب') }
     finally { setBusy(false) }
   }
 
@@ -136,13 +174,20 @@ function EmployeeDetailPanel({ employee, canManage, onClose, onChanged, onArchiv
     {!canManage ? <p className="text-sm text-muted-foreground">هذه بيانات تشغيلية فقط. البيانات الشخصية والتعويضات والعقود متاحة للمالك فقط.</p> : <>
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="text-sm">الاسم<Input value={name} onChange={(event) => setName(event.target.value)} /></label>
+        <label className="text-sm">اسم المستخدم<Input value={username} onChange={(event) => setUsername(event.target.value)} placeholder="اسم مستخدم الدخول" /></label>
+        <label className="text-sm">البريد الإلكتروني<Input type="email" value={employee.email ?? ''} readOnly className="bg-muted/50" /><span className="text-xs text-muted-foreground mt-1 block">يتم تحديث البريد عبر عملية منفصلة لمزامنة هوية الدخول</span></label>
         <label className="text-sm">هاتف العمل<Input value={phone} onChange={(event) => setPhone(event.target.value)} /></label>
+        <label className="text-sm">الدور<select value={roleSlug} onChange={(event) => setRoleSlug(event.target.value)} className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-3 text-foreground">{EDITABLE_ROLES.map((r) => <option key={r.slug} value={r.slug}>{r.name}</option>)}</select></label>
+        <label className="text-sm">الفرع<select value={branchId ?? ''} onChange={(event) => setBranchId(event.target.value || null)} className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-3 text-foreground"><option value="">بدون فرع</option>{branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select></label>
+        <label className="text-sm flex items-center gap-2"><Switch checked={isActive} onChange={setIsActive} /><span>{isActive ? 'نشط' : 'موقف'}</span></label>
+      </div>
+      <div className="flex flex-wrap gap-2"><Button onClick={() => void saveProfile()} disabled={busy}>حفظ الملف الشخصي</Button><Button onClick={() => void saveAccount()} disabled={busy}>حفظ الحساب (الدور، الفرع، الحالة)</Button>{p?.employmentStatus === 'archived' || p?.employmentStatus === 'terminated' ? <Button variant="outline" onClick={() => void onReactivate()}>إعادة التفعيل</Button> : <><Button variant="outline" onClick={() => void onTerminate()}>إنهاء الخدمة</Button><Button variant="destructive" onClick={() => void onArchive()}>أرشفة</Button></>}</div>
+      <div className="grid gap-3 rounded-lg border border-border bg-background p-3 sm:grid-cols-2">
         <label className="text-sm">نوع التوظيف<Input value={employmentType} onChange={(event) => setEmploymentType(event.target.value)} placeholder="مباشر أو تحت التجربة" /></label>
         <label className="text-sm">تاريخ البداية<Input type="date" value={hireDate} onChange={(event) => setHireDate(event.target.value)} /></label>
         <label className="text-sm">اسم جهة الطوارئ<Input value={emergencyName} onChange={(event) => setEmergencyName(event.target.value)} /></label>
         <label className="text-sm">هاتف جهة الطوارئ<Input value={emergencyPhone} onChange={(event) => setEmergencyPhone(event.target.value)} /></label>
       </div>
-      <div className="flex flex-wrap gap-2"><Button onClick={() => void save()} disabled={busy}>حفظ الملف</Button>{p?.employmentStatus === 'archived' || p?.employmentStatus === 'terminated' ? <Button variant="outline" onClick={() => void onReactivate()}>إعادة التفعيل</Button> : <><Button variant="outline" onClick={() => void onTerminate()}>إنهاء الخدمة</Button><Button variant="destructive" onClick={() => void onArchive()}>أرشفة</Button></>}</div>
       <div className="grid gap-3 rounded-lg border border-border bg-background p-3 sm:grid-cols-2">
         <label className="text-sm">البريد الشخصي<Input type="email" value={personalEmail} onChange={(event) => setPersonalEmail(event.target.value)} /></label>
         <label className="text-sm">الهاتف الشخصي<Input value={personalPhone} onChange={(event) => setPersonalPhone(event.target.value)} /></label>
@@ -151,7 +196,7 @@ function EmployeeDetailPanel({ employee, canManage, onClose, onChanged, onArchiv
         <label className="text-sm">نهاية فترة التجربة<Input type="date" value={probationEnd} onChange={(event) => setProbationEnd(event.target.value)} /></label>
         <label className="text-sm">حالة فترة التجربة<select value={probationStatus} onChange={(event) => setProbationStatus(event.target.value)} className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-3 text-foreground"><option value="">غير محددة</option><option value="active">قيد التجربة</option><option value="passed">تم التثبيت</option><option value="failed">لم يجتز</option><option value="cancelled">ملغاة</option></select></label>
       </div>
-      <div><Button onClick={() => void save()} disabled={busy}>حفظ بيانات HR</Button></div>
+      <div><Button onClick={() => void saveProfile()} disabled={busy}>حفظ بيانات HR</Button></div>
       <HistoryPanels employee={employee} post={post} onChanged={onChanged} setError={setError} />
     </>}
   </aside>

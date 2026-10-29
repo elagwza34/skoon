@@ -1979,3 +1979,60 @@ test('order item removal blocks paid, served, terminal, and final-item invoices'
   assert.equal(orderItemVoidBlocker({ status: 'preparing', paymentStatus: 'unpaid', completedPayments: 0, servedQuantity: 0, activeItems: 1 }), 'last_item')
 })
 
+// --- Employee edit regression tests (offline: authorization + validation only) ---
+
+test('employee edit: Owner can manage lifecycle, Manager and below cannot', () => {
+  assert.equal(canManageEmployeeLifecycle(ROLE.OWNER), true)
+  assert.equal(canManageEmployeeLifecycle(ROLE.MANAGER), false)
+  assert.equal(canManageEmployeeLifecycle(ROLE.CASHIER), false)
+  assert.equal(canManageEmployeeLifecycle(ROLE.WAITER), false)
+  assert.equal(canManageEmployeeLifecycle(ROLE.KITCHEN), false)
+})
+
+test('employee edit: deactivation blockers protect self, last owner, and open shift', () => {
+  const base = { actorId: 'admin-1', targetId: 'emp-1', targetRole: ROLE.CASHIER, activeOwnerCount: 2, hasOpenShift: false }
+  assert.equal(employeeDeactivationBlocker(base), null)
+  assert.equal(employeeDeactivationBlocker({ ...base, targetId: 'admin-1' }), 'SELF')
+  assert.equal(employeeDeactivationBlocker({ ...base, targetRole: ROLE.OWNER, activeOwnerCount: 1 }), 'LAST_OWNER')
+  assert.equal(employeeDeactivationBlocker({ ...base, hasOpenShift: true }), 'OPEN_SHIFT')
+})
+
+test('employee edit: only known canonical roles are assignable', () => {
+  assert.equal(isKnownRole(ROLE.OWNER), true)
+  assert.equal(isKnownRole(ROLE.MANAGER), true)
+  assert.equal(isKnownRole(ROLE.CASHIER), true)
+  assert.equal(isKnownRole(ROLE.WAITER), true)
+  assert.equal(isKnownRole(ROLE.KITCHEN), true)
+  assert.equal(isKnownRole('accountant'), false)
+  assert.equal(isKnownRole(''), false)
+})
+
+test('employee edit: username normalization accepts valid staff usernames', () => {
+  assert.equal(normalizeStaffUsername('ahmed.saleh'), 'ahmed.saleh')
+  assert.equal(normalizeStaffUsername('Ahmed_Saleh'), 'ahmed_saleh')
+  assert.equal(normalizeStaffUsername('user-1'), 'user-1')
+  assert.equal(normalizeStaffUsername(' a.b-c '), 'a.b-c')
+})
+
+test('employee edit: username normalization rejects invalid formats', () => {
+  assert.equal(normalizeStaffUsername(''), null)
+  assert.equal(normalizeStaffUsername('a'), null)
+  assert.equal(normalizeStaffUsername('ahmed@cafe'), null)
+  assert.equal(normalizeStaffUsername('user!'), null)
+})
+
+test('employee edit: staff username email mapping is reversible', () => {
+  const username = 'ahmed.saleh'
+  const email = staffUsernameEmail(username)
+  assert.equal(email, `${username}@accounts.skoon.invalid`)
+  assert.equal(usernameFromStaffEmail(email), username)
+  assert.equal(usernameFromStaffEmail('regular@cafe.com'), null)
+})
+
+test('employee edit: staff login email resolves username or email', () => {
+  assert.equal(staffLoginEmail('ahmed.saleh'), 'ahmed.saleh@accounts.skoon.invalid')
+  assert.equal(staffLoginEmail('AHMED.SALEH'), 'ahmed.saleh@accounts.skoon.invalid')
+  assert.equal(staffLoginEmail('ahmed@cafe.com'), 'ahmed@cafe.com')
+  assert.equal(staffLoginEmail(''), null)
+})
+
