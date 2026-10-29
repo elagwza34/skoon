@@ -38,7 +38,7 @@ function responseError(data: unknown, fallback: string) {
   return data && typeof data === 'object' && 'error' in data && typeof data.error === 'string' ? data.error : fallback
 }
 
-export function WaiterTableWorkspace({ workspace, table }: { workspace: WaiterWorkspace; table: Table }) {
+export function WaiterTableWorkspace({ workspace, table, initialOrderId }: { workspace: WaiterWorkspace; table: Table; initialOrderId?: string }) {
   const router = useRouter()
   const [, startTransition] = useTransition()
   const orders = useMemo(() => workspace.openOrders.filter((order) => order.tableNumber === table.number && ['new', 'preparing', 'ready'].includes(order.status)), [table.number, workspace.openOrders])
@@ -48,8 +48,8 @@ export function WaiterTableWorkspace({ workspace, table }: { workspace: WaiterWo
   const [removedItemIds, setRemovedItemIds] = useState<string[]>([])
   const [pending, setPending] = useState<PendingLine[]>([])
   const [modalOpen, setModalOpen] = useState(false)
-  const [cartOpen, setCartOpen] = useState(false)
-  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
+  const [cartOpen, setCartOpen] = useState(Boolean(initialOrderId))
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(initialOrderId ?? null)
   const [quantityTargets, setQuantityTargets] = useState<Record<string, number>>({})
   const [variantTargets, setVariantTargets] = useState<Record<string, string>>({})
   const [variantQuantities, setVariantQuantities] = useState<Record<string, number>>({})

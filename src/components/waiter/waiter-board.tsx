@@ -44,6 +44,14 @@ function statusTone(status: string): 'muted' | 'info' | 'warning' | 'success' | 
   }
 }
 
+function formatWaiterDateTime(value: string): string {
+  return new Intl.DateTimeFormat('ar-EG', {
+    dateStyle: 'short',
+    timeStyle: 'short',
+    timeZone: 'Africa/Cairo',
+  }).format(new Date(value))
+}
+
 
 function OrderCards({
   orders,
@@ -78,14 +86,15 @@ function OrderCards({
                   <p className="text-xs text-muted-foreground">
                     الطاولة {order.tableNumber} · {order.source === 'qr' ? 'QR' : 'الحضور المباشر'}
                   </p>
+                  <p className="text-xs text-muted-foreground">{formatWaiterDateTime(order.createdAt)} · {formatCurrency(order.total)}</p>
                 </div>
-                <Badge tone={statusTone(order.status)}>{statusLabel(order.status)}</Badge>
+                <div className="flex flex-wrap justify-end gap-1"><Badge tone={statusTone(order.status)}>{statusLabel(order.status)}</Badge><Badge tone={order.sentToKitchen ? 'success' : 'muted'}>{order.sentToKitchen ? 'أُرسل للمطبخ' : 'لم يُرسل'}</Badge></div>
               </CardHeader>
               <CardContent className="pt-2">
                 <div className="space-y-2 text-sm">
                   {order.items.map((item) => (
                     <div key={item.id} className="flex items-center justify-between gap-2">
-                      <span className="min-w-0"><span className="block truncate">{item.variantLabel ? `${item.name} — ${item.variantLabel}` : item.name}</span>{item.details.length ? <small className="block whitespace-normal text-primary">{item.details.join(' · ')}</small> : null}</span>
+                      <span className="min-w-0"><span className="block truncate">{item.variantLabel ? `${item.name} — ${item.variantLabel}` : item.name}</span>{item.details.length ? <small className="block whitespace-normal text-primary">{item.details.join(' · ')}</small> : null}{item.note ? <small className="block whitespace-normal text-muted-foreground">ملاحظة: {item.note}</small> : null}</span>
                       <span className="text-muted-foreground">{item.servedQty} / {item.qty}</span>
                       <div className="flex gap-1">
                         {!isPending && item.preparedQty > item.servedQty && (
@@ -120,7 +129,7 @@ function OrderCards({
                   )}
                   {!isPending && isMine && (
                     <Button size="sm" variant="outline" onClick={() => onEdit(order)}>
-                      تغيير
+                      عرض وتعديل الطلب
                     </Button>
                   )}
                   {!isPending && isMine && (
@@ -134,45 +143,6 @@ function OrderCards({
           )
         })
       )}
-    </div>
-  )
-}
-
-
-function ReadyItemServeList({
-  orders,
-  onServe,
-}: {
-  orders: { id: string; number: string; tableNumber: string; items: { id: string; productName: string; quantity: number; servedQuantity: number; preparedQuantity: number }[] }[]
-  onServe: (orderId: string, items: { orderItemId: string; quantity: number }[]) => Promise<void>
-}) {
-  const readyLines = orders.flatMap((order) =>
-    order.items.filter((i) => i.preparedQuantity > i.servedQuantity).map((i) => ({ ...i, orderId: order.id, orderNumber: order.number, tableNumber: order.tableNumber }))
-  )
-
-  if (readyLines.length === 0) {
-    return <p className="text-sm text-muted-foreground">لا توجد مواد جاهزة للتقديم.</p>
-  }
-
-  return (
-    <div className="space-y-2">
-      {readyLines.map((line) => (
-        <Card key={line.id} className="border rounded-lg p-3">
-          <CardHeader className="flex-row items-center justify-between gap-2">
-            <div>
-              <CardTitle className="text-sm">{line.orderNumber}</CardTitle>
-              <p className="text-xs text-muted-foreground">الطاولة {line.tableNumber} · {line.productName}</p>
-            </div>
-            <Badge tone="warning">جاهز</Badge>
-          </CardHeader>
-          <CardContent className="pt-2">
-            <p className="text-sm">{line.servedQuantity} / {line.quantity} تم التقديم</p>
-            <Button size="sm" onClick={() => void onServe(line.orderId, [{ orderItemId: line.id, quantity: line.preparedQuantity - line.servedQuantity }] )}>
-              تقديم الأصناف
-            </Button>
-          </CardContent>
-        </Card>
-      ))}
     </div>
   )
 }
@@ -603,8 +573,9 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
   const router = useRouter()
   const [, startTransition] = useTransition()
   const [tab, setTab] = useState<WorkspaceTab>('pos')
-  const [filter, setFilter] = useState('new')
+  const [filter, setFilter] = useState('all')
   const [orderScope, setOrderScope] = useState<'mine' | 'all'>('all')
+  const [orderSearch, setOrderSearch] = useState('')
   const [clock, setClock] = useState<number | null>(null)
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null)
   const [pendingId, setPendingId] = useState<string | null>(null)
@@ -632,8 +603,17 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
     ? workspace.openOrders.filter((order) => order.responsibleWaiterId === workspace.currentUserId)
     : workspace.openOrders,
   [orderScope, workspace.currentUserId, workspace.openOrders])
-  const visible = useMemo(() => scopedOrders.filter((order) => order.status === filter), [scopedOrders, filter])
-  const ready = useMemo(() => workspace.openOrders.filter((order) => ['preparing', 'ready'].includes(order.status) && order.items.some((item) => item.preparedQty > item.servedQty)), [workspace.openOrders])
+  const visible = useMemo(() => {
+    const query = orderSearch.trim().toLocaleLowerCase('ar')
+    return scopedOrders.filter((order) => {
+      if (filter !== 'all' && order.status !== filter) return false
+      if (!query) return true
+      return order.number.toLocaleLowerCase('ar').includes(query)
+        || order.tableNumber.toLocaleLowerCase('ar').includes(query)
+        || (order.customerName?.toLocaleLowerCase('ar').includes(query) ?? false)
+        || order.items.some((item) => item.name.toLocaleLowerCase('ar').includes(query) || (item.variantLabel?.toLocaleLowerCase('ar').includes(query) ?? false))
+    })
+  }, [filter, orderSearch, scopedOrders])
   const qrOrders = useMemo(() => workspace.openOrders.filter((order) => order.source === 'qr'), [workspace.openOrders])
   const incomingTableTransfers = workspace.incomingTableTransfers
   const outgoingTableTransfers = workspace.outgoingTableTransfers
@@ -651,6 +631,15 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
   }, [])
 
   const posCartTable = workspace.tables.find((table) => table.id === posCartSummary.tableId)
+
+  function openOrderWorkspace(order: WaiterWorkspace['openOrders'][number]) {
+    const table = workspace.tables.find((candidate) => candidate.number === order.tableNumber)
+    if (!table) {
+      setError('تعذر تحديد طاولة الطلب.')
+      return
+    }
+    router.push(`/waiter/tables/${table.id}?orderId=${order.id}`)
+  }
 
   async function act(id: string, action: 'send_to_kitchen' | 'status' | 'serve_items', to?: 'ready' | 'served', items?: { orderItemId: string; quantity: number }[], interventionReason?: string) {
     if (pendingId === id) return
@@ -938,6 +927,7 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
             cartOpen={cartOpen}
             onCartOpenChange={setCartOpen}
             onCartSummaryChange={setPosCartSummary}
+            onOrderCreated={() => setTab('orders')}
           />
 
           {tab === 'tables' ? (
@@ -987,6 +977,7 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
 
             <>
               <div className="mb-3 flex flex-col gap-2">
+                <Input icon="search" value={orderSearch} onChange={(event) => setOrderSearch(event.target.value)} placeholder="ابحث برقم الطلب أو الطاولة أو الصنف…" aria-label="بحث الطلبات" />
                 <Segmented
                   options={[
                     { value: 'all', label: 'جميع الطلبات' },
@@ -998,6 +989,7 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
                 />
                 <Segmented
                   options={[
+                    { value: 'all', label: 'الكل' },
                     { value: 'new', label: 'جديد' },
                     { value: 'preparing', label: 'قيد التحضير' },
                     { value: 'ready', label: 'جاهز' },
@@ -1012,7 +1004,7 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
                 orders={visible}
                 pendingId={pendingId}
                 onAct={act}
-                onEdit={setEditing}
+                onEdit={openOrderWorkspace}
                 currentUserId={workspace.currentUserId}
                 onRemoveItem={removeOrderItem}
                 onCancelOrder={cancelMistakenOrder}
@@ -1063,7 +1055,7 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
                     orders={selectedOrders}
                     pendingId={pendingId}
                     onAct={act}
-                    onEdit={setEditing}
+                    onEdit={openOrderWorkspace}
                     currentUserId={workspace.currentUserId}
                     onRemoveItem={removeOrderItem}
                     onCancelOrder={cancelMistakenOrder}
@@ -1086,28 +1078,6 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
             />
           ) : null}
 
-          {ready.length > 0 && tab !== 'shift' ? (
-            <Card className="mt-4">
-              <CardHeader><CardTitle>المواد الجاهزة للتقديم</CardTitle></CardHeader>
-              <CardContent>
-                <ReadyItemServeList
-                  orders={ready.map((o) => ({
-                    id: o.id,
-                    number: o.number,
-                    tableNumber: o.tableNumber,
-                    items: o.items.map((i) => ({
-                      id: i.id,
-                      productName: i.name,
-                      quantity: i.qty,
-                      servedQuantity: i.servedQty,
-                      preparedQuantity: i.preparedQty,
-                    })),
-                  }))}
-                  onServe={(orderId, items) => act(orderId, 'serve_items', undefined, items)}
-                />
-              </CardContent>
-            </Card>
-          ) : null}
         </div>
       </main>
 

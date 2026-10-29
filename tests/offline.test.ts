@@ -65,6 +65,7 @@ import { editOpenInvoice, recalculateInvoiceTotals, resolveVariantLabels, splitI
 import { receiptInvoiceForSettlement, receiptSettlementBreakdown } from '../src/lib/receipt-settlement'
 import { captureReceiptPrintTimestamp, formatReceiptPrintTime, receiptOrderTypeLabel } from '../src/lib/receipt-display'
 import { posDraftKey, restorePosDraft } from '../src/lib/pos-draft'
+import { confirmWaiterPosOrder } from '../src/lib/waiter-pos-confirmation'
 import { posOrderSchema } from '../src/lib/staff-pos'
 import { canRenderPosDiscountControls, containsDiscountSubmission, submittedDiscountFields } from '../src/lib/pos-discount-policy'
 import { createOrderItemVariantSnapshot, orderedVariantLabels, resolveOrderItemVariantLabels } from '../src/lib/order-item-variant'
@@ -2063,6 +2064,32 @@ test('POS drafts preserve selected variants across refresh and reject stale vari
   const raw = JSON.stringify({ cart: [{ id: 'latte', variantId: 'large', qty: 2 }, { id: 'latte', variantId: 'removed', qty: 1 }], tableId: 'table-1' })
   const restored = restorePosDraft(raw, new Set(['latte']), new Set(['table-1']), new Set(['latte:large']))
   assert.deepEqual(restored?.cart, [{ id: 'latte', variantId: 'large', modifierSelections: {}, qty: 2 }])
+})
+
+test('waiter POS confirmation creates once and dispatches the persisted order ID', async () => {
+  let createCalls = 0
+  const dispatchedIds: string[] = []
+  const result = await confirmWaiterPosOrder(
+    async () => { createCalls += 1; return { id: '501', orderNumber: 'W-501', total: '125.00' } },
+    async (orderId) => { dispatchedIds.push(orderId) },
+  )
+
+  assert.equal(createCalls, 1)
+  assert.deepEqual(dispatchedIds, ['501'])
+  assert.deepEqual(result, { order: { id: '501', orderNumber: 'W-501', total: '125.00' }, dispatched: true })
+})
+
+test('waiter POS dispatch failure preserves the saved order for retry without creating another', async () => {
+  let createCalls = 0
+  const result = await confirmWaiterPosOrder(
+    async () => { createCalls += 1; return { id: '502', orderNumber: 'W-502', total: '80.00' } },
+    async () => { throw new Error('Kitchen unavailable') },
+  )
+
+  assert.equal(createCalls, 1)
+  assert.equal(result.order.id, '502')
+  assert.equal(result.dispatched, false)
+  assert.equal(result.dispatchError, 'Kitchen unavailable')
 })
 
 test('order item removal authorization is cashier or responsible/explicitly permitted waiter only', () => {

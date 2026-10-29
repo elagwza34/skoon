@@ -19,6 +19,7 @@ import { ThermalReceiptPreview } from '@/components/cashier/thermal-receipt-prev
 import type { InvoiceRow } from '@/lib/staff-invoices'
 import type { StaffOrderRow } from '@/lib/staff-orders'
 import { canRenderPosDiscountControls, submittedDiscountFields } from '@/lib/pos-discount-policy'
+import { confirmWaiterPosOrder, type WaiterPosOrderReference } from '@/lib/waiter-pos-confirmation'
 
 /**
  * POS checkout — real branch catalog + tables from the DB.
@@ -34,6 +35,7 @@ export function PosCheckout({
   cartOpen = false,
   onCartOpenChange,
   onCartSummaryChange,
+  onOrderCreated,
   catalogVisible = true,
 }: {
   catalog: PosCatalog
@@ -43,6 +45,7 @@ export function PosCheckout({
   cartOpen?: boolean
   onCartOpenChange?: (open: boolean) => void
   onCartSummaryChange?: (summary: PosCartSummary) => void
+  onOrderCreated?: (orderId: string) => void
   catalogVisible?: boolean
 }) {
   const isWaiter = mode === 'waiter'
@@ -81,6 +84,7 @@ export function PosCheckout({
   const [placed, setPlaced] = useState<{
     orderNumber: string
     total: string
+    dispatched?: boolean
   } | null>(null)
   const [variantModal, setVariantModal] = useState<{
     product: NonNullable<typeof catalog.products>[number]
@@ -305,32 +309,55 @@ export function PosCheckout({
     const idempotencyKey = submissionKey.current ?? crypto.randomUUID()
     submissionKey.current = idempotencyKey
     try {
-      const res = await fetch('/api/staff/pos/orders', {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'Idempotency-Key': idempotencyKey,
-        },
-        body: JSON.stringify({
-          orderType,
-          ...(orderType === 'dine_in' ? { tableId } : {}),
-          customerName: customerName.trim() || undefined,
-          customerPhone: customerPhone.trim() || undefined,
-          notes: orderNotes.trim() || undefined,
-          ...submittedDiscountFields(mode, discountType === 'none' ? undefined : discountType, Number(discountValue || 0)),
-          items: cart.map((l) => ({
-            productId: l.id,
-            variantId: l.variantId,
-            modifierSelections: Object.entries(l.modifierSelections).map(([groupId, valueIds]) => ({ groupId, valueIds })),
-            qty: l.qty,
-            note: l.note?.trim() || undefined,
-            ...submittedDiscountFields(mode, l.discountType, l.discountValue),
-          })),
-        }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data?.error ?? 'فشل إنشاء الطلب')
-      if (orderType === 'takeaway') {
+      const createOrder = async (): Promise<WaiterPosOrderReference> => {
+        const response = await fetch('/api/staff/pos/orders', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'Idempotency-Key': idempotencyKey,
+          },
+          body: JSON.stringify({
+            orderType,
+            ...(orderType === 'dine_in' ? { tableId } : {}),
+            customerName: customerName.trim() || undefined,
+            customerPhone: customerPhone.trim() || undefined,
+            notes: orderNotes.trim() || undefined,
+            ...submittedDiscountFields(mode, discountType === 'none' ? undefined : discountType, Number(discountValue || 0)),
+            items: cart.map((l) => ({
+              productId: l.id,
+              variantId: l.variantId,
+              modifierSelections: Object.entries(l.modifierSelections).map(([groupId, valueIds]) => ({ groupId, valueIds })),
+              qty: l.qty,
+              note: l.note?.trim() || undefined,
+              ...submittedDiscountFields(mode, l.discountType, l.discountValue),
+            })),
+          }),
+        })
+        const body = await response.json().catch(() => ({}))
+        if (!response.ok) throw new Error(body?.error ?? 'فشل إنشاء الطلب')
+        return body as WaiterPosOrderReference
+      }
+
+      let data: WaiterPosOrderReference
+      if (isWaiter) {
+        const result = await confirmWaiterPosOrder(createOrder, async (orderId) => {
+          const dispatchResponse = await fetch(`/api/staff/orders/${orderId}/send`, { method: 'POST' })
+          const dispatch = await dispatchResponse.json().catch(() => ({}))
+          if (!dispatchResponse.ok) throw new Error(dispatch.error ?? 'تعذر إرسال الطلب للمطبخ')
+        })
+        data = result.order
+        if (!result.dispatched) {
+          setDispatchRetry({ id: data.id, number: data.orderNumber })
+          setPlaced({ orderNumber: data.orderNumber, total: data.total, dispatched: false })
+          setError(result.dispatchError ?? 'تعذر إرسال الطلب للمطبخ')
+        } else {
+          setDispatchRetry(null)
+          setPlaced({ orderNumber: data.orderNumber, total: data.total, dispatched: true })
+        }
+      } else {
+        data = await createOrder()
+      }
+      if (!isWaiter && orderType === 'takeaway') {
         const payIdempotencyKey = paymentKey.current ?? crypto.randomUUID()
         paymentKey.current = payIdempotencyKey
         const paymentResponse = await fetch(`/api/staff/orders/${data.id}/pay`, {
@@ -352,7 +379,7 @@ export function PosCheckout({
         } else setDispatchRetry(null)
         paymentKey.current = null
       }
-      setPlaced({ orderNumber: data.orderNumber, total: data.total })
+      if (!isWaiter) setPlaced({ orderNumber: data.orderNumber, total: data.total })
       skipDraftPersist.current = true
       setCart([])
       setCustomerName('')
@@ -360,6 +387,7 @@ export function PosCheckout({
       setOrderNotes('')
       removeDraft()
       submissionKey.current = null
+      onOrderCreated?.(data.id)
       router.refresh()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'فشل إنشاء الطلب')
@@ -376,6 +404,7 @@ export function PosCheckout({
       const body = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(body.error ?? 'تعذر إعادة الإرسال')
       setDispatchRetry(null)
+      setPlaced((current) => current ? { ...current, dispatched: true } : current)
       router.refresh()
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'تعذر إعادة الإرسال')
@@ -423,7 +452,7 @@ export function PosCheckout({
         </div>
       </CardHeader>
       <CardContent className={cn('flex min-h-0 flex-col gap-3', isWaiter && 'overflow-y-auto p-4')}>
-        <Segmented
+        {!isWaiter ? <Segmented
           options={[
             { value: 'dine_in', label: 'داخل الكافيه' },
             { value: 'takeaway', label: 'تيك أواي' },
@@ -431,13 +460,19 @@ export function PosCheckout({
           value={orderType}
           onChange={(value) => setOrderType(value as 'dine_in' | 'takeaway')}
           ariaLabel="نوع الطلب"
-        />
+        /> : <Badge tone="info" className="justify-center">طلب داخل الكافيه</Badge>}
         {orderType === 'dine_in' ? <Dropdown label="الطاولة" options={tableOptions} value={tableId} onChange={setTableId} className="w-full" /> : <Badge tone="warning" className="whitespace-normal text-center leading-5">تيك أواي · الدفع إلزامي قبل المطبخ</Badge>}
         <Input icon="customers" value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="اسم العميل (اختياري)" aria-label="اسم العميل" />
         <Input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} inputMode="tel" autoComplete="tel" maxLength={30} placeholder="رقم الهاتف (اختياري)" aria-label="رقم الهاتف (اختياري)" />
         <Input value={orderNotes} onChange={(event) => setOrderNotes(event.target.value)} maxLength={2000} placeholder="ملاحظات الطلب (اختياري)" />
-        {dispatchRetry ? <Button variant="secondary" disabled={busy} onClick={() => void retryDispatch()}>إعادة إرسال {dispatchRetry.number} للمطبخ بدون دفع جديد</Button> : null}
-        {placed ? <p className="rounded-md bg-success/10 px-3 py-2 text-sm text-success">تم إنشاء الطلب {placed.orderNumber} · {formatCurrency(Number(placed.total))}</p> : null}
+        {dispatchRetry ? <Button variant="secondary" disabled={busy} onClick={() => void retryDispatch()}>إعادة الإرسال للمطبخ</Button> : null}
+        {placed ? <p className={cn('rounded-md px-3 py-2 text-sm', placed.dispatched === false ? 'bg-warning/10 text-warning' : 'bg-success/10 text-success')}>
+          {isWaiter
+            ? placed.dispatched === false
+              ? `تم حفظ الطلب، لكن تعذر إرساله للمطبخ · ${placed.orderNumber}`
+              : `تم تأكيد الطلب وإرساله للمطبخ · ${placed.orderNumber}`
+            : `تم إنشاء الطلب ${placed.orderNumber} · ${formatCurrency(Number(placed.total))}`}
+        </p> : null}
         {error ? <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}
         {cart.length === 0 ? (
           <EmptyState icon="pos" title="السلة فارغة" description="اختر منتجات لإضافتها." />
