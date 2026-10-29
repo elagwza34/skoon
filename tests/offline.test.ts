@@ -71,6 +71,8 @@ import { createOrderItemVariantSnapshot, orderedVariantLabels, resolveOrderItemV
 import { modifierSnapshotLabels } from '../src/lib/order-item-options'
 import { modifierMutationSchema } from '../src/lib/staff-product-modifiers'
 import { canVoidOrderItemForOrder, orderItemVoidBlocker } from '../src/lib/staff-order-item-void'
+import { orderItemAdjustmentSchema, planOrderItemAdjustment } from '../src/lib/staff-order-item-adjustment'
+import { proportionalReservationConsumption } from '../src/lib/staff-inventory-engine'
 import { isKitchenTicketVisible, itemPreparationState, OrderError, takeawayDispatchBlocker, transitionOrderStatus } from '../src/lib/staff-orders'
 import { canTransitionOrder } from '../src/lib/staff-orders'
 import { editWaiterOrder, waiterOrderEditSchema } from '../src/lib/staff-orders'
@@ -1067,11 +1069,52 @@ test('waiter POS creates a normal dine-in payload without discount fields', () =
 })
 
 test('waiter order edits accept permitted item changes but reject discount fields', async () => {
-  const permitted = { items: [{ itemId: '21', productId: '11', qty: 2, note: 'no sugar' }], notes: 'table note' }
+  const permitted = { items: [{ itemId: '21', productId: '11', qty: 2, note: 'no sugar' }], notes: 'table note', expectedUpdatedAt: '2026-10-29T10:00:00.000Z' }
   assert.equal(waiterOrderEditSchema.safeParse(permitted).success, true)
+  assert.equal(waiterOrderEditSchema.safeParse({ items: permitted.items, notes: permitted.notes }).success, false)
   assert.equal(waiterOrderEditSchema.safeParse({ ...permitted, discountType: 'percentage', discountValue: 10 }).success, false)
   const waiter: StaffSession = { id: '00000000-0000-0000-0000-000000000010', email: null, name: 'Waiter', role: ROLE.WAITER, branchId: '1', permissions: [] }
   await assert.rejects(editWaiterOrder(waiter, '1', { ...permitted, discountType: 'amount', discountValue: 1 }), /Invalid order edit/)
+})
+
+test('waiter table drafts are isolated by waiter, branch, and table context', () => {
+  assert.notEqual(posDraftKey('waiter-a', '1'), posDraftKey('waiter-b', '1'))
+  assert.notEqual(`skoon.waiter.table-draft:waiter-a:1:5`, `skoon.waiter.table-draft:waiter-a:1:6`)
+})
+
+test('waiter lifecycle permits auditable prepared cancellation but blocks served and paid lines', () => {
+  assert.equal(orderItemVoidBlocker({ status: 'preparing', paymentStatus: 'unpaid', completedPayments: 0, servedQuantity: 0, activeItems: 2 }), null)
+  assert.equal(orderItemVoidBlocker({ status: 'ready', paymentStatus: 'unpaid', completedPayments: 0, servedQuantity: 1, activeItems: 2 }), 'served')
+  assert.equal(orderItemVoidBlocker({ status: 'preparing', paymentStatus: 'paid', completedPayments: 1, servedQuantity: 0, activeItems: 2 }), 'paid')
+})
+
+test('waiter item adjustment plans partial decrease before and during preparation', () => {
+  assert.deepEqual(planOrderItemAdjustment({ action: 'quantity', currentQuantity: 5, preparedQuantity: 0, servedQuantity: 0, targetQuantity: 3 }), { blocked: null, wasteQuantity: 0, releasedUnits: 2, addedUnits: 0 })
+  assert.deepEqual(planOrderItemAdjustment({ action: 'quantity', currentQuantity: 5, preparedQuantity: 2, servedQuantity: 0, targetQuantity: 3 }), { blocked: null, wasteQuantity: 0, releasedUnits: 2, addedUnits: 0 })
+})
+
+test('waiter item adjustment records waste below prepared quantity and preserves served boundary', () => {
+  assert.deepEqual(planOrderItemAdjustment({ action: 'quantity', currentQuantity: 5, preparedQuantity: 3, servedQuantity: 0, targetQuantity: 1 }), { blocked: null, wasteQuantity: 2, releasedUnits: 2, addedUnits: 0 })
+  assert.equal(planOrderItemAdjustment({ action: 'quantity', currentQuantity: 5, preparedQuantity: 3, servedQuantity: 1, targetQuantity: 4 }).blocked, 'served')
+})
+
+test('waiter item adjustment plans incremental preparation and subset variant replacement', () => {
+  assert.deepEqual(planOrderItemAdjustment({ action: 'quantity', currentQuantity: 3, preparedQuantity: 1, servedQuantity: 0, targetQuantity: 5 }), { blocked: null, wasteQuantity: 0, releasedUnits: 0, addedUnits: 2 })
+  assert.deepEqual(planOrderItemAdjustment({ action: 'variant', currentQuantity: 5, preparedQuantity: 2, servedQuantity: 0, replaceQuantity: 2 }), { blocked: null, wasteQuantity: 0, releasedUnits: 2, addedUnits: 2 })
+  assert.deepEqual(planOrderItemAdjustment({ action: 'variant', currentQuantity: 5, preparedQuantity: 2, servedQuantity: 0, replaceQuantity: 5 }), { blocked: null, wasteQuantity: 2, releasedUnits: 3, addedUnits: 5 })
+})
+
+test('waiter item adjustment contract requires concurrency and idempotency tokens', () => {
+  const base = { action: 'quantity' as const, targetQuantity: 3, reason: 'customer change', expectedUpdatedAt: '2026-10-29T10:00:00.000Z', idempotencyKey: 'adjustment-key-1' }
+  assert.equal(orderItemAdjustmentSchema.safeParse(base).success, true)
+  assert.equal(orderItemAdjustmentSchema.safeParse({ ...base, expectedUpdatedAt: undefined }).success, false)
+  assert.equal(orderItemAdjustmentSchema.safeParse({ ...base, idempotencyKey: undefined }).success, false)
+})
+
+test('partial reservation release keeps later serving proportional to the remaining menu quantity', () => {
+  assert.equal(proportionalReservationConsumption(3, 3, 3), 3)
+  assert.equal(proportionalReservationConsumption(4, 1, 4), 1)
+  assert.throws(() => proportionalReservationConsumption(3, 4, 3))
 })
 
 test('waiter cannot change invoice discounts through the cashier invoice API', async () => {

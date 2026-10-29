@@ -12,6 +12,7 @@ import { PosCheckout } from '@/components/pos/pos-checkout'
 import { formatCurrency } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import type { WaiterWorkspace } from '@/lib/staff-waiter'
+import { posDraftKey, restorePosDraft, type PosDraft } from '@/lib/pos-draft'
 
 type WorkspaceTab = 'pos' | 'tables' | 'orders' | 'qr' | 'shift'
 
@@ -224,7 +225,7 @@ function WaiterOrderEditor({
       const response = await fetch(`/api/staff/orders/${order.id}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ items: lines, notes: notes.trim() || undefined }),
+        body: JSON.stringify({ items: lines, notes: notes.trim() || undefined, expectedUpdatedAt: order.updatedAt }),
       })
       if (!response.ok) throw new Error('حدث في تغيير الطلب')
       onSaved()
@@ -617,6 +618,8 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
   const [transferDialog, setTransferDialog] = useState<{ tableId: string; tableNumber: string } | null>(null)
   const [transferRecipient, setTransferRecipient] = useState<string>('')
   const [transferNotes, setTransferNotes] = useState('')
+  const [persistentCart, setPersistentCart] = useState<PosDraft | null>(null)
+  const [cartOpen, setCartOpen] = useState(false)
 
   const catalog = useMemo(() => ({
     draftScope: { userId: workspace.currentUserId, branchId: workspace.branchId },
@@ -647,6 +650,36 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
     const interval = window.setInterval(tick, 60_000)
     return () => window.clearInterval(interval)
   }, [])
+
+  useEffect(() => {
+    const key = posDraftKey(workspace.currentUserId, workspace.branchId)
+    const read = () => {
+      try {
+        setPersistentCart(restorePosDraft(
+          window.localStorage.getItem(key),
+          new Set(workspace.products.map((product) => product.id)),
+          new Set(workspace.tables.map((table) => table.id)),
+          new Set(workspace.products.flatMap((product) => product.variants.map((variant) => `${product.id}:${variant.id}`))),
+        ))
+      } catch { setPersistentCart(null) }
+    }
+    read()
+    const interval = window.setInterval(read, 750)
+    window.addEventListener('storage', read)
+    return () => { window.clearInterval(interval); window.removeEventListener('storage', read) }
+  }, [workspace.branchId, workspace.currentUserId, workspace.products, workspace.tables])
+
+  const persistentCartCount = persistentCart?.cart.reduce((sum, line) => sum + line.qty, 0) ?? 0
+  const persistentCartTable = workspace.tables.find((table) => table.id === persistentCart?.tableId)
+  const persistentCartTotal = persistentCart?.cart.reduce((sum, line) => {
+    const product = workspace.products.find((candidate) => candidate.id === line.id)
+    const base = Number(product?.variants.find((variant) => variant.id === line.variantId)?.price ?? product?.price ?? 0)
+    const modifiers = Object.entries(line.modifierSelections).reduce((modifierSum, [groupId, valueIds]) => {
+      const group = product?.modifierGroups.find((candidate) => candidate.id === groupId)
+      return modifierSum + valueIds.reduce((optionSum, optionId) => optionSum + Number(group?.options.find((option) => option.id === optionId)?.priceAdjustment ?? 0), 0)
+    }, 0)
+    return sum + (base + modifiers) * line.qty
+  }, 0) ?? 0
 
   async function act(id: string, action: 'send_to_kitchen' | 'status' | 'serve_items', to?: 'ready' | 'served', items?: { orderItemId: string; quantity: number }[], interventionReason?: string) {
     if (pendingId === id) return
@@ -917,6 +950,13 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
         />
       </nav>
 
+      <div className="border-b bg-background px-3 py-2 sm:px-4 lg:px-6">
+        <Button type="button" variant="outline" className="w-full justify-between" disabled={!persistentCartCount} onClick={() => setCartOpen(true)}>
+          <span className="flex items-center gap-2"><Icon name="cart" size={17} /> سلة الطلب {persistentCartTable ? `— طاولة ${persistentCartTable.number}` : ''}</span>
+          <span>{persistentCartCount} أصناف · {formatCurrency(persistentCartTotal)}</span>
+        </Button>
+      </div>
+
       <main className="min-w-0 w-full p-3 sm:p-4 lg:p-6">
         <div className="flex min-w-0 w-full flex-col gap-5">
           {tab === 'pos' ? (
@@ -947,15 +987,7 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
                     <button
                       key={table.id}
                       type="button"
-                      onClick={() => {
-                        const activeOrder = tableOrders.find((o) => ['new', 'preparing', 'ready'].includes(o.status))
-                        if (activeOrder) {
-                          setShowingTableOrderModal({ orderId: activeOrder.id, tableNumber: table.number })
-                        } else {
-                          setShowingTableOrderModal(null)
-                          setShowingProductPicker(null)
-                        }
-                      }}
+                      onClick={() => router.push(`/waiter/tables/${table.id}`)}
                       className={cn(
                         'rounded-lg border bg-card p-4 text-right transition-colors hover:bg-accent',
                         isMyActive ? 'border-primary/40 ring-2 ring-primary' : 'border-success/40',
@@ -1103,6 +1135,7 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
       </main>
 
       {showingTableOrderModal && (
+        <>
         <TableOrderModal
           orderId={showingTableOrderModal.orderId}
           tableNumber={showingTableOrderModal.tableNumber}
@@ -1112,7 +1145,10 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
             setShowingTableOrderModal(null)
             setShowingProductPicker({ orderId: showingTableOrderModal.orderId, tableNumber: showingTableOrderModal.tableNumber })
           }}
+          setEditing={setEditing}
+          workspace={workspace}
         />
+      </>
       )}
 
       {showingProductPicker && (
@@ -1126,6 +1162,8 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
         />
       )}
 
+      {cartOpen && persistentCart ? <div role="dialog" aria-modal="true" aria-label="سلة الطلب" className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-3" dir="rtl"><Card className="w-full max-w-xl"><CardHeader className="flex-row items-center justify-between"><CardTitle>سلة الطلب {persistentCartTable ? `— طاولة ${persistentCartTable.number}` : ''}</CardTitle><Button variant="ghost" size="sm" onClick={() => setCartOpen(false)}>إغلاق</Button></CardHeader><CardContent className="space-y-2">{persistentCart.cart.map((line, index) => { const product = workspace.products.find((candidate) => candidate.id === line.id); const variant = product?.variants.find((candidate) => candidate.id === line.variantId); return <div key={`${line.id}:${line.variantId ?? 'base'}:${index}`} className="flex justify-between gap-3 rounded border p-3"><div><p className="font-medium">{product?.name ?? 'صنف غير متاح'}</p><p className="text-xs text-muted-foreground">{variant?.label ?? ''}{line.note ? ` · ${line.note}` : ''}</p></div><span>× {line.qty}</span></div>})}<div className="flex items-center justify-between border-t pt-3"><strong>{formatCurrency(persistentCartTotal)}</strong><Button onClick={() => { setCartOpen(false); setTab('pos') }}>متابعة التعديل</Button></div></CardContent></Card></div> : null}
+
     </div>
   )
 }
@@ -1135,11 +1173,15 @@ function TableOrderModal({
   tableNumber,
   onClose,
   onAddProduct,
+  setEditing,
+  workspace,
 }: {
   orderId: string
   tableNumber: string
   onClose: () => void
   onAddProduct: () => void
+  setEditing: (order: WaiterWorkspace['openOrders'][number] | null) => void
+  workspace: WaiterWorkspace
 }) {
   return (
     <div role="dialog" aria-modal="true" aria-label="تفاصيل الطلب" className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-4 sm:p-6">

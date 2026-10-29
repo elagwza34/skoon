@@ -20,6 +20,11 @@ type Demand = { orderItemId: bigint; inventoryItemId: bigint; quantity: number }
 function round3(n: number) { return Math.round((n + Number.EPSILON) * 1000) / 1000 }
 function round2(n: number) { return Math.round((n + Number.EPSILON) * 100) / 100 }
 
+export function proportionalReservationConsumption(remainingReservation: number, requestedUnits: number, remainingMenuUnits: number) {
+  if (remainingReservation < 0 || !Number.isInteger(requestedUnits) || requestedUnits <= 0 || !Number.isInteger(remainingMenuUnits) || requestedUnits > remainingMenuUnits) throw new StockError('كمية استهلاك الحجز غير صالحة')
+  return round3(remainingReservation * requestedUnits / remainingMenuUnits)
+}
+
 async function lockItem(tx: Tx, id: bigint) {
   const rows = await tx.$queryRaw<{ id: bigint; current_stock: unknown }[]>`
     SELECT id, current_stock FROM inventory_items WHERE id = ${id} FOR UPDATE
@@ -32,12 +37,18 @@ async function lockBatch(tx: Tx, id: bigint) {
   await tx.$queryRaw`SELECT id FROM inventory_batches WHERE id = ${id} FOR UPDATE`
 }
 
+async function activeReservedQuantity(tx: Tx, inventoryItemId: bigint) {
+  const rows = await tx.inventoryReservation.findMany({ where: { inventoryItemId, status: 'active' }, select: { quantity: true, consumedQuantity: true, releasedQuantity: true } })
+  return round3(rows.reduce((sum, row) => sum + Number(row.quantity) - Number(row.consumedQuantity) - Number(row.releasedQuantity), 0))
+}
+
 /** Builds recipe ingredient demand, or one direct packaged-stock demand. */
-async function orderDemand(tx: Tx, orderId: bigint): Promise<Demand[]> {
+async function orderDemand(tx: Tx, orderId: bigint, onlyItemId?: bigint): Promise<Demand[]> {
   const lines = await tx.orderItem.findMany({
-    where: { orderId, isVoided: false },
+    where: { orderId, isVoided: false, ...(onlyItemId ? { id: onlyItemId } : {}) },
     select: {
       id: true, quantity: true,
+      productVariant: { select: { inventoryMappings: { select: { inventoryItemId: true, quantity: true } } } },
       product: { select: {
         inventoryItemId: true,
         recipes: { where: { isActive: true, deletedAt: null }, select: { yieldQuantity: true, items: { select: { inventoryItemId: true, quantity: true, wastePercent: true } } } },
@@ -46,6 +57,11 @@ async function orderDemand(tx: Tx, orderId: bigint): Promise<Demand[]> {
   })
   const demands: Demand[] = []
   for (const line of lines) {
+    const variantMappings = line.productVariant?.inventoryMappings ?? []
+    if (variantMappings.length) {
+      for (const mapping of variantMappings) demands.push({ orderItemId: line.id, inventoryItemId: mapping.inventoryItemId, quantity: round3(Number(mapping.quantity) * line.quantity) })
+      continue
+    }
     const recipe = line.product.recipes[0]
     if (recipe) {
       if (line.product.inventoryItemId) throw new StockError('المنتج لا يمكن أن يملك وصفة ومخزونًا مباشرًا معًا', 422)
@@ -84,19 +100,63 @@ export async function reserveOrderInventory(tx: Tx, orderId: bigint): Promise<vo
 
   for (const total of [...totals.values()].sort((a, b) => Number(a.id - b.id))) {
     const onHand = await lockItem(tx, total.id)
-    const reserved = await tx.inventoryReservation.aggregate({ where: { inventoryItemId: total.id, status: 'active' }, _sum: { quantity: true } })
+    const reserved = await activeReservedQuantity(tx, total.id)
     const batches = await tx.inventoryBatch.findMany({
       where: { inventoryItemId: total.id, remainingQuantity: { gt: 0 }, OR: [{ expiresAt: null }, { expiresAt: { gte: new Date() } }] },
       select: { remainingQuantity: true, remainingCostQuantity: true },
     })
     const usablePhysical = batches.reduce((sum, b) => sum + Number(b.remainingQuantity), 0)
     const usableCost = batches.reduce((sum, b) => sum + Number(b.remainingCostQuantity), 0)
-    const available = onHand - Number(reserved._sum.quantity ?? 0)
+    const available = onHand - reserved
     if (total.quantity > available + 1e-9 || total.quantity > usablePhysical + 1e-9 || total.quantity > usableCost + 1e-9) {
       throw new StockError('المخزون المتاح غير كافٍ أو يحتاج إلى طبقة رصيد افتتاحي موثقة', 422)
     }
   }
   await tx.inventoryReservation.createMany({ data: demand.map((d) => ({ orderItemId: d.orderItemId, inventoryItemId: d.inventoryItemId, branchId: order.branchId, quantity: d.quantity.toFixed(3) })) })
+}
+
+/** Reserve one newly-created preparation line without disturbing reservations
+ * belonging to older lines on the same order. Inventory rows are locked in a
+ * stable id order so concurrent kitchen/waiter work cannot over-reserve stock. */
+export async function reserveOrderItemInventory(tx: Tx, orderId: bigint, orderItemId: bigint): Promise<void> {
+  const demand = await orderDemand(tx, orderId, orderItemId)
+  if (!demand.length) return
+  const order = await tx.order.findUnique({ where: { id: orderId }, select: { branchId: true } })
+  if (!order) throw new StockError('الطلب غير موجود', 404)
+  if (await tx.inventoryReservation.count({ where: { orderItemId } })) throw new StockError('للصنف حجز مخزون قائم بالفعل')
+  const totals = new Map<string, { id: bigint; quantity: number }>()
+  for (const entry of demand) {
+    const previous = totals.get(entry.inventoryItemId.toString())
+    totals.set(entry.inventoryItemId.toString(), { id: entry.inventoryItemId, quantity: round3((previous?.quantity ?? 0) + entry.quantity) })
+  }
+  for (const total of [...totals.values()].sort((a, b) => Number(a.id - b.id))) {
+    const onHand = await lockItem(tx, total.id)
+    const [reserved, batches] = await Promise.all([
+      activeReservedQuantity(tx, total.id),
+      tx.inventoryBatch.findMany({ where: { inventoryItemId: total.id, remainingQuantity: { gt: 0 }, OR: [{ expiresAt: null }, { expiresAt: { gte: new Date() } }] }, select: { remainingQuantity: true, remainingCostQuantity: true } }),
+    ])
+    const usablePhysical = batches.reduce((sum, batch) => sum + Number(batch.remainingQuantity), 0)
+    const usableCost = batches.reduce((sum, batch) => sum + Number(batch.remainingCostQuantity), 0)
+    if (total.quantity > onHand - reserved + 1e-9 || total.quantity > usablePhysical + 1e-9 || total.quantity > usableCost + 1e-9) {
+      throw new StockError('المخزون المتاح غير كافٍ للعمل الإضافي', 422)
+    }
+  }
+  await tx.inventoryReservation.createMany({ data: demand.map((entry) => ({ orderItemId: entry.orderItemId, inventoryItemId: entry.inventoryItemId, branchId: order.branchId, quantity: entry.quantity.toFixed(3) })) })
+}
+
+/** Release the proportional unconsumed reservation for removed menu units. */
+export async function releaseOrderItemReservationUnits(tx: Tx, orderId: bigint, orderItemId: bigint, removedUnits: number, originalUnits: number): Promise<void> {
+  if (!Number.isInteger(removedUnits) || removedUnits <= 0 || removedUnits > originalUnits) throw new StockError('كمية تحرير الحجز غير صالحة')
+  const reservations = await tx.inventoryReservation.findMany({ where: { orderItemId, orderItem: { orderId }, status: 'active' }, orderBy: { id: 'asc' } })
+  for (const reservation of reservations) {
+    const proportional = round3(Number(reservation.quantity) * removedUnits / originalUnits)
+    const remaining = round3(Number(reservation.quantity) - Number(reservation.consumedQuantity) - Number(reservation.releasedQuantity))
+    const release = Math.min(proportional, remaining)
+    if (release <= 0) continue
+    const releasedAfter = round3(Number(reservation.releasedQuantity) + release)
+    const exhausted = releasedAfter + Number(reservation.consumedQuantity) >= Number(reservation.quantity) - 1e-9
+    await tx.inventoryReservation.update({ where: { id: reservation.id }, data: { releasedQuantity: releasedAfter.toFixed(3), ...(exhausted ? { status: 'released', releasedAt: new Date() } : {}) } })
+  }
 }
 
 export async function releaseOrderReservations(tx: Tx, orderId: bigint): Promise<void> {
@@ -150,12 +210,13 @@ export async function consumeOrderReservations(
   for (const reservation of reservations) {
     if (requestedItems && !requestedByItem.has(reservation.orderItemId.toString())) continue
     const lineQuantity = reservation.orderItem.quantity
-    const requested = requestedByItem.get(reservation.orderItemId.toString()) ?? (lineQuantity - reservation.orderItem.servedQuantity)
-    if (!Number.isInteger(requested) || requested <= 0 || requested > lineQuantity - reservation.orderItem.servedQuantity) {
+    const remainingMenuUnits = lineQuantity - reservation.orderItem.servedQuantity
+    const requested = requestedByItem.get(reservation.orderItemId.toString()) ?? remainingMenuUnits
+    if (!Number.isInteger(requested) || requested <= 0 || requested > remainingMenuUnits) {
       throw new StockError('كمية التقديم غير صالحة', 409)
     }
     const remainingReservation = Number(reservation.quantity) - Number(reservation.consumedQuantity) - Number(reservation.releasedQuantity)
-    const quantity = round3(Number(reservation.quantity) * requested / lineQuantity)
+    const quantity = proportionalReservationConsumption(remainingReservation, requested, remainingMenuUnits)
     if (quantity <= 0 || quantity > remainingReservation + 1e-9) throw new StockError('حجز المخزون لا يغطي كمية التقديم', 409)
     const onHand = await lockItem(tx, reservation.inventoryItemId)
     if (onHand + 1e-9 < quantity) throw new StockError('المخزون الفعلي غير كافٍ للاستهلاك', 409)
@@ -236,10 +297,11 @@ export async function serveOrderItemInventory(tx: Tx, orderId: bigint, orderItem
 
 /** Read model used by boards: available-to-promise always excludes reservations. */
 export async function inventoryAvailability(branchId: bigint, itemId: bigint) {
-  const [item, reserved] = await Promise.all([
+  const [item, reservations] = await Promise.all([
     prisma.inventoryItem.findFirst({ where: { id: itemId, branchId, deletedAt: null }, select: { currentStock: true } }),
-    prisma.inventoryReservation.aggregate({ where: { branchId, inventoryItemId: itemId, status: 'active' }, _sum: { quantity: true } }),
+    prisma.inventoryReservation.findMany({ where: { branchId, inventoryItemId: itemId, status: 'active' }, select: { quantity: true, consumedQuantity: true, releasedQuantity: true } }),
   ])
   if (!item) return null
-  return { physical: Number(item.currentStock), reserved: Number(reserved._sum.quantity ?? 0), available: round3(Number(item.currentStock) - Number(reserved._sum.quantity ?? 0)) }
+  const reserved = round3(reservations.reduce((sum, row) => sum + Number(row.quantity) - Number(row.consumedQuantity) - Number(row.releasedQuantity), 0))
+  return { physical: Number(item.currentStock), reserved, available: round3(Number(item.currentStock) - reserved) }
 }

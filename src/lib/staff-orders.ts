@@ -75,7 +75,8 @@ export interface StaffOrderRow {
   orderNotes: string | null
   tableNumber: string
   createdAt: string
-  items: { id: string; productId: string; name: string; variantLabel: string | null; details: string[]; qty: number; servedQty: number; preparedQty: number; preparationStartedAt: string | null; unitPrice: number; note: string | null }[]
+  updatedAt: string
+  items: { id: string; productId: string; variantId: string | null; name: string; variantLabel: string | null; details: string[]; qty: number; servedQty: number; preparedQty: number; preparationStartedAt: string | null; unitPrice: number; note: string | null; updatedAt: string }[]
   itemsCount: number
   /** Set once the waiter has pushed the order to the kitchen ("إرسال للمطبخ"). */
   sentToKitchen: boolean
@@ -108,14 +109,14 @@ export async function listStaffOrders(
       total: true,
       customerName: true,
       source: true, notes: true,
-      createdAt: true,
+      createdAt: true, updatedAt: true,
       sentToKitchenAt: true,
       cancelReason: true,
       cafeTable: { select: { number: true } },
       items: {
         where: { isVoided: false },
         orderBy: { id: 'asc' },
-        select: { id: true, productId: true, productName: true, productVariantId: true, productVariantSnapshot: true, optionsSnapshot: true, productVariant: { select: { values: { select: { value: { select: { label: true, attribute: { select: { sortOrder: true } } } } } } } }, quantity: true, servedQuantity: true, preparedQuantity: true, preparationStartedAt: true, unitPrice: true, notes: true },
+        select: { id: true, productId: true, productName: true, productVariantId: true, productVariantSnapshot: true, optionsSnapshot: true, productVariant: { select: { values: { select: { value: { select: { label: true, attribute: { select: { sortOrder: true } } } } } } } }, quantity: true, servedQuantity: true, preparedQuantity: true, preparationStartedAt: true, unitPrice: true, notes: true, updatedAt: true },
       },
     },
   })
@@ -130,11 +131,11 @@ export async function listStaffOrders(
     customerName: o.customerName,
     source: o.source,
     tableNumber: o.cafeTable.number,
-    createdAt: o.createdAt.toISOString(),
+    createdAt: o.createdAt.toISOString(), updatedAt: o.updatedAt.toISOString(),
     sentToKitchen: o.sentToKitchenAt != null,
     sentToKitchenAt: o.sentToKitchenAt?.toISOString() ?? null,
     cancelReason: o.cancelReason ?? null,
-    items: o.items.map((i) => { const labels = i.productVariantId || i.productVariantSnapshot ? resolveOrderItemVariantLabels(i.productVariantSnapshot, orderedVariantLabels(i.productVariant?.values.map((entry) => entry.value) ?? [])) : []; return { id: i.id.toString(), productId: i.productId.toString(), name: i.productName, variantLabel: labels.length ? labels.join(' · ') : null, details: modifierSnapshotLabels(i.optionsSnapshot), qty: i.quantity, servedQty: i.servedQuantity, preparedQty: i.preparedQuantity, preparationStartedAt: i.preparationStartedAt?.toISOString() ?? null, unitPrice: Number(i.unitPrice), note: i.notes } }),
+    items: o.items.map((i) => { const labels = i.productVariantId || i.productVariantSnapshot ? resolveOrderItemVariantLabels(i.productVariantSnapshot, orderedVariantLabels(i.productVariant?.values.map((entry) => entry.value) ?? [])) : []; return { id: i.id.toString(), productId: i.productId.toString(), variantId: i.productVariantId?.toString() ?? null, name: i.productName, variantLabel: labels.length ? labels.join(' · ') : null, details: modifierSnapshotLabels(i.optionsSnapshot), qty: i.quantity, servedQty: i.servedQuantity, preparedQty: i.preparedQuantity, preparationStartedAt: i.preparationStartedAt?.toISOString() ?? null, unitPrice: Number(i.unitPrice), note: i.notes, updatedAt: i.updatedAt.toISOString() } }),
     itemsCount: o.items.reduce((n, i) => n + i.quantity, 0),
   }))
 }
@@ -161,17 +162,17 @@ export async function listKitchenOrders(session: StaffSession, limit = 100): Pro
     take: Math.min(limit, 200),
     select: {
       id: true, orderNumber: true, status: true, paymentStatus: true, orderType: true, total: true, customerName: true,
-      source: true, notes: true, createdAt: true, sentToKitchenAt: true, cancelReason: true,
+      source: true, notes: true, createdAt: true, updatedAt: true, sentToKitchenAt: true, cancelReason: true,
       cafeTable: { select: { number: true } },
-      items: { where: { isVoided: false }, orderBy: { id: 'asc' }, select: { id: true, productId: true, productName: true, productVariantId: true, productVariantSnapshot: true, optionsSnapshot: true, productVariant: { select: { values: { select: { value: { select: { label: true, attribute: { select: { sortOrder: true } } } } } } } }, quantity: true, servedQuantity: true, preparedQuantity: true, preparationStartedAt: true, unitPrice: true, notes: true } },
+      items: { where: { isVoided: false }, orderBy: { id: 'asc' }, select: { id: true, productId: true, productName: true, productVariantId: true, productVariantSnapshot: true, optionsSnapshot: true, productVariant: { select: { values: { select: { value: { select: { label: true, attribute: { select: { sortOrder: true } } } } } } } }, quantity: true, servedQuantity: true, preparedQuantity: true, preparationStartedAt: true, unitPrice: true, notes: true, updatedAt: true } },
     },
   })
   return orders.map((o) => ({
     id: o.id.toString(), number: o.orderNumber, status: o.status, paymentStatus: o.paymentStatus, orderType: o.orderType,
     total: Number(o.total), customerName: o.customerName, source: o.source, orderNotes: o.notes, tableNumber: o.cafeTable.number,
-    createdAt: o.createdAt.toISOString(), sentToKitchen: o.sentToKitchenAt != null,
+    createdAt: o.createdAt.toISOString(), updatedAt: o.updatedAt.toISOString(), sentToKitchen: o.sentToKitchenAt != null,
     sentToKitchenAt: o.sentToKitchenAt?.toISOString() ?? null, cancelReason: o.cancelReason ?? null,
-    items: o.items.map((i) => { const labels = i.productVariantId || i.productVariantSnapshot ? resolveOrderItemVariantLabels(i.productVariantSnapshot, orderedVariantLabels(i.productVariant?.values.map((entry) => entry.value) ?? [])) : []; return { id: i.id.toString(), productId: i.productId.toString(), name: i.productName, variantLabel: labels.length ? labels.join(' · ') : null, details: modifierSnapshotLabels(i.optionsSnapshot), qty: i.quantity, servedQty: i.servedQuantity, preparedQty: i.preparedQuantity, preparationStartedAt: i.preparationStartedAt?.toISOString() ?? null, unitPrice: Number(i.unitPrice), note: i.notes } }),
+    items: o.items.map((i) => { const labels = i.productVariantId || i.productVariantSnapshot ? resolveOrderItemVariantLabels(i.productVariantSnapshot, orderedVariantLabels(i.productVariant?.values.map((entry) => entry.value) ?? [])) : []; return { id: i.id.toString(), productId: i.productId.toString(), variantId: i.productVariantId?.toString() ?? null, name: i.productName, variantLabel: labels.length ? labels.join(' · ') : null, details: modifierSnapshotLabels(i.optionsSnapshot), qty: i.quantity, servedQty: i.servedQuantity, preparedQty: i.preparedQuantity, preparationStartedAt: i.preparationStartedAt?.toISOString() ?? null, unitPrice: Number(i.unitPrice), note: i.notes, updatedAt: i.updatedAt.toISOString() } }),
     itemsCount: o.items.reduce((n, i) => n + i.quantity, 0),
   }))
 }
@@ -181,6 +182,7 @@ const cancelReasonSchema = z.string().trim().min(3).max(255).optional()
 export const waiterOrderEditSchema = z.object({
   items: z.array(z.object({ itemId: z.string().regex(/^\d+$/).optional(), productId: z.string().regex(/^\d+$/), qty: z.number().int().min(1).max(20), note: z.string().trim().max(255).optional() }).strict()).min(1).max(30),
   notes: z.string().trim().max(2000).optional(),
+  expectedUpdatedAt: z.string().datetime(),
 }).strict()
 const serveItemsSchema = z.object({
   items: z.array(z.object({ orderItemId: z.string().regex(/^\d+$/), quantity: z.coerce.number().int().positive().max(99) })).min(1).max(30),
@@ -263,11 +265,12 @@ export async function editWaiterOrder(session: StaffSession, orderIdRaw: string,
   }
 
   return prisma.$transaction(async (tx) => {
-    const locked = await tx.$queryRaw<{ status: string; sent_to_kitchen_at: Date | null; discount_type: string | null; discount_value: unknown; tax_rate: unknown }[]>`
-      SELECT status, sent_to_kitchen_at, discount_type, discount_value, tax_rate FROM orders WHERE id = ${orderId} FOR UPDATE
+    const locked = await tx.$queryRaw<{ status: string; sent_to_kitchen_at: Date | null; discount_type: string | null; discount_value: unknown; tax_rate: unknown; updated_at: Date }[]>`
+      SELECT status, sent_to_kitchen_at, discount_type, discount_value, tax_rate, updated_at FROM orders WHERE id = ${orderId} FOR UPDATE
     `
     const row = locked[0]
     if (!row || row.status !== 'new' || row.sent_to_kitchen_at) throw new OrderError('Only unsent new orders can be edited', 409)
+    if (row.updated_at.toISOString() !== parsed.data.expectedUpdatedAt) throw new OrderError('تغيّر الطلب بواسطة موظف آخر؛ حدّث الصفحة وراجع التغييرات', 409)
     const submittedItemIds = parsed.data.items.flatMap((item) => item.itemId ? [BigInt(item.itemId)] : [])
     if (new Set(submittedItemIds.map(String)).size !== submittedItemIds.length) throw new OrderError('Duplicate order item', 400)
     const existingItems = await tx.orderItem.findMany({ where: { orderId, isVoided: false }, select: { id: true, productId: true } })
