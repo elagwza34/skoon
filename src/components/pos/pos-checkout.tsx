@@ -24,7 +24,27 @@ import { canRenderPosDiscountControls, submittedDiscountFields } from '@/lib/pos
  * POS checkout — real branch catalog + tables from the DB.
  * Pricing is re-computed server-side on submit; client totals are a preview.
  */
-export function PosCheckout({ catalog, initialTableId, takeawayOrders = [], mode = "cashier" }: { catalog: PosCatalog; initialTableId?: string; takeawayOrders?: StaffOrderRow[]; mode?: "cashier" | "waiter" }) {
+type PosCartSummary = { itemCount: number; total: number; tableId: string }
+
+export function PosCheckout({
+  catalog,
+  initialTableId,
+  takeawayOrders = [],
+  mode = 'cashier',
+  cartOpen = false,
+  onCartOpenChange,
+  onCartSummaryChange,
+  catalogVisible = true,
+}: {
+  catalog: PosCatalog
+  initialTableId?: string
+  takeawayOrders?: StaffOrderRow[]
+  mode?: 'cashier' | 'waiter'
+  cartOpen?: boolean
+  onCartOpenChange?: (open: boolean) => void
+  onCartSummaryChange?: (summary: PosCartSummary) => void
+  catalogVisible?: boolean
+}) {
   const isWaiter = mode === 'waiter'
   const canUseDiscounts = canRenderPosDiscountControls(mode)
   const router = useRouter()
@@ -130,6 +150,11 @@ export function PosCheckout({ catalog, initialTableId, takeawayOrders = [], mode
   }
   const subtotal = cart.reduce((s, l) => s + ((variantPriceById.get(`${l.id}:${l.variantId}`) ?? priceById.get(l.id) ?? 0) + modifierPrice(l.id, l.modifierSelections)) * l.qty, 0)
   const itemCount = cart.reduce((s, l) => s + l.qty, 0)
+
+  useEffect(() => {
+    if (!draftReady) return
+    onCartSummaryChange?.({ itemCount, total: subtotal, tableId })
+  }, [draftReady, itemCount, onCartSummaryChange, subtotal, tableId])
 
   function add(id: string) {
     const product = catalog.products.find((p) => p.id === id)
@@ -384,8 +409,90 @@ export function PosCheckout({ catalog, initialTableId, takeawayOrders = [], mode
     icon: 'tables' as const,
   }))
 
+  const cartContents = (
+    <>
+      <CardHeader className={cn('flex-row items-center justify-between gap-2', isWaiter && 'border-b')}>
+        <CardTitle>السلة</CardTitle>
+        <div className="flex items-center gap-1">
+          {cart.length ? (
+            <Button variant="ghost" size="sm" onClick={clear} className="text-destructive">
+              <Icon name="trash" size={16} /> إفراغ
+            </Button>
+          ) : null}
+          {isWaiter && onCartOpenChange ? <Button variant="ghost" size="sm" onClick={() => onCartOpenChange(false)}>إغلاق</Button> : null}
+        </div>
+      </CardHeader>
+      <CardContent className={cn('flex min-h-0 flex-col gap-3', isWaiter && 'overflow-y-auto p-4')}>
+        <Segmented
+          options={[
+            { value: 'dine_in', label: 'داخل الكافيه' },
+            { value: 'takeaway', label: 'تيك أواي' },
+          ]}
+          value={orderType}
+          onChange={(value) => setOrderType(value as 'dine_in' | 'takeaway')}
+          ariaLabel="نوع الطلب"
+        />
+        {orderType === 'dine_in' ? <Dropdown label="الطاولة" options={tableOptions} value={tableId} onChange={setTableId} className="w-full" /> : <Badge tone="warning" className="whitespace-normal text-center leading-5">تيك أواي · الدفع إلزامي قبل المطبخ</Badge>}
+        <Input icon="customers" value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="اسم العميل (اختياري)" aria-label="اسم العميل" />
+        <Input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} inputMode="tel" autoComplete="tel" maxLength={30} placeholder="رقم الهاتف (اختياري)" aria-label="رقم الهاتف (اختياري)" />
+        <Input value={orderNotes} onChange={(event) => setOrderNotes(event.target.value)} maxLength={2000} placeholder="ملاحظات الطلب (اختياري)" />
+        {dispatchRetry ? <Button variant="secondary" disabled={busy} onClick={() => void retryDispatch()}>إعادة إرسال {dispatchRetry.number} للمطبخ بدون دفع جديد</Button> : null}
+        {placed ? <p className="rounded-md bg-success/10 px-3 py-2 text-sm text-success">تم إنشاء الطلب {placed.orderNumber} · {formatCurrency(Number(placed.total))}</p> : null}
+        {error ? <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}
+        {cart.length === 0 ? (
+          <EmptyState icon="pos" title="السلة فارغة" description="اختر منتجات لإضافتها." />
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {cart.map((l) => {
+              const p = catalog.products.find((x) => x.id === l.id)!
+              const v = l.variantId ? p.variants.find((x) => x.id === l.variantId) : null
+              const unitPrice = (v ? Number(v.price) : Number(p.price)) + modifierPrice(l.id, l.modifierSelections)
+              const label = v ? `${p.name} — ${v.label}` : p.name
+              const modifierLabels = Object.entries(l.modifierSelections).flatMap(([groupId, valueIds]) => {
+                const group = p.modifierGroups.find((g) => g.id === groupId)
+                if (!group) return []
+                return valueIds.map((vid: string) => {
+                  const opt = group.options.find((o: { id: string }) => o.id === vid)
+                  return opt ? `${group.name}: ${opt.label}` : ''
+                }).filter(Boolean)
+              })
+              const fullLabel = modifierLabels.length ? `${label} — ${modifierLabels.join(', ')}` : label
+              return (
+                <li key={`${l.id}:${l.variantId ?? 'base'}:${JSON.stringify(l.modifierSelections)}`} className="flex min-w-0 flex-col gap-2 rounded-md border border-border p-2 sm:flex-row sm:items-center">
+                  <div className="flex min-w-0 flex-1 flex-col gap-1 leading-tight">
+                    <span className="break-words text-sm font-medium leading-5 text-foreground">{fullLabel}</span>
+                    <span className="text-xs text-muted-foreground">{formatCurrency(unitPrice * l.qty)}</span>
+                    <Input value={l.note ?? ''} onChange={(e) => setNote(l.id, l.variantId, l.modifierSelections, e.target.value)} maxLength={255} placeholder={isWaiter ? 'ملاحظة للمطبخ (اختياري)' : 'ملاحظة للصنف (اختياري)'} aria-label={`ملاحظة ${label}`} className="h-8 text-xs" />
+                    {canUseDiscounts ? <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+                      <select value={l.discountType ?? 'none'} onChange={(event) => setLineDiscount(l.id, l.variantId, l.modifierSelections, event.target.value as 'none' | 'percentage' | 'amount', String(l.discountValue ?? ''))} className="h-8 rounded border bg-background px-2 text-xs" aria-label={`خصم ${label}`}>
+                        <option value="none">بدون خصم</option><option value="percentage">خصم %</option><option value="amount">خصم مبلغ</option>
+                      </select>
+                      {l.discountType ? <Input value={String(l.discountValue ?? '')} onChange={(event) => setLineDiscount(l.id, l.variantId, l.modifierSelections, l.discountType ?? 'none', event.target.value)} inputMode="decimal" className="h-8 text-xs" /> : null}
+                    </div> : null}
+                  </div>
+                  <div className="flex shrink-0 items-center justify-end gap-1 self-end sm:self-auto">
+                    <Button variant="outline" size="icon" className={isWaiter ? 'h-8 w-8' : 'h-7 w-7'} onClick={() => dec(l.id, l.variantId, l.modifierSelections)} aria-label="إنقاص"><Icon name="minus" size={14} /></Button>
+                    <span className={cn('text-center text-sm font-semibold', isWaiter ? 'w-7' : 'w-6')}>{l.qty}</span>
+                    <Button variant="outline" size="icon" className={isWaiter ? 'h-8 w-8' : 'h-7 w-7'} onClick={() => inc(l.id, l.variantId, l.modifierSelections)} aria-label="زيادة"><Icon name="plus" size={14} /></Button>
+                    <Button variant="ghost" size="icon" className={cn(isWaiter ? 'h-8 w-8' : 'h-7 w-7', 'text-destructive')} onClick={() => remove(l.id, l.variantId, l.modifierSelections)} aria-label={`إزالة ${fullLabel} من السلة`}><Icon name="trash" size={14} /></Button>
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+        )}
+        <div className="flex items-center justify-between border-t border-border pt-3 text-base font-bold"><span className="text-foreground">{isWaiter ? 'الإجمالي التقديري' : 'الإجمالي'}</span><span className="text-primary">{formatCurrency(subtotal)}</span></div>
+        {canUseDiscounts ? <div className="grid grid-cols-1 gap-2 sm:grid-cols-2"><select value={discountType} onChange={(event) => setDiscountType(event.target.value as typeof discountType)} className="rounded-lg border bg-background p-2 text-sm"><option value="none">بدون خصم عام</option><option value="percentage">خصم عام %</option><option value="amount">خصم عام مبلغ</option></select>{discountType !== 'none' ? <Input value={discountValue} onChange={(event) => setDiscountValue(event.target.value)} inputMode="decimal" placeholder="قيمة الخصم" /> : null}</div> : null}
+        {orderType === 'takeaway' ? <div className="space-y-2 rounded-lg border p-3"><select value={paymentMethod} onChange={(event) => { setPaymentMethod(event.target.value as typeof paymentMethod); setElectronicConfirmed(false) }} className="w-full rounded-lg border bg-background p-2"><option value="cash">نقدي</option><option value="mobile_wallet">محفظة إلكترونية</option><option value="instapay">إنستا باي</option></select>{paymentMethod === 'cash' ? <Input value={received} onChange={(event) => setReceived(event.target.value)} inputMode="decimal" placeholder="المبلغ المستلم" /> : <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={electronicConfirmed} onChange={(event) => setElectronicConfirmed(event.target.checked)} />أؤكد استلام الدفع الإلكتروني</label>}</div> : null}
+        <Button size="lg" className="w-full" disabled={!cart.length || busy} onClick={checkout}><Icon name="check" size={18} />{busy ? 'جاري الحفظ…' : 'تأكيد الطلب'}</Button>
+        <p className="text-center text-[11px] text-muted-foreground">{formatNumber(itemCount)} صنف · السعر النهائي يُحسب من قاعدة البيانات</p>
+      </CardContent>
+    </>
+  )
+
   return (
-    <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,380px)]">
+    <>
+    <div className={cn('grid min-w-0 gap-4', isWaiter ? 'xl:grid-cols-1' : 'xl:grid-cols-[minmax(0,1fr)_minmax(320px,380px)]', !catalogVisible && 'hidden')}>
       <div className="flex min-w-0 flex-col gap-3">
         <Input icon="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="ابحث عن منتج…" aria-label="بحث المنتجات" />
         <div className="no-scrollbar -mx-1 flex gap-2 overflow-x-auto px-1">
@@ -415,134 +522,9 @@ export function PosCheckout({ catalog, initialTableId, takeawayOrders = [], mode
         )}
       </div>
 
-      <Card className="flex h-fit min-w-0 flex-col xl:sticky xl:top-24">
-        <CardHeader className="flex-row items-center justify-between">
-          <CardTitle>السلة</CardTitle>
-          {cart.length ? (
-            <Button variant="ghost" size="sm" onClick={clear} className="text-destructive">
-              <Icon name="trash" size={16} /> إفراغ
-            </Button>
-          ) : null}
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          <Segmented
-            options={[
-              { value: 'dine_in', label: 'داخل الكافيه' },
-              { value: 'takeaway', label: 'تيك أواي' },
-            ]}
-            value={orderType}
-            onChange={(value) => setOrderType(value as 'dine_in' | 'takeaway')}
-            ariaLabel="نوع الطلب"
-          />
-          {orderType === 'dine_in' ? <Dropdown label="الطاولة" options={tableOptions} value={tableId} onChange={setTableId} className="w-full" /> : <Badge tone="warning" className="whitespace-normal text-center leading-5">تيك أواي · الدفع إلزامي قبل المطبخ</Badge>}
-          <Input icon="customers" value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="اسم العميل (اختياري)" aria-label="اسم العميل" />
-          <Input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} inputMode="tel" autoComplete="tel" maxLength={30} placeholder="رقم الهاتف (اختياري)" aria-label="رقم الهاتف (اختياري)" />
-          <Input value={orderNotes} onChange={(event) => setOrderNotes(event.target.value)} maxLength={2000} placeholder="ملاحظات الطلب (اختياري)" />
-          {dispatchRetry ? (
-            <Button variant="secondary" disabled={busy} onClick={() => void retryDispatch()}>
-              إعادة إرسال {dispatchRetry.number} للمطبخ بدون دفع جديد
-            </Button>
-          ) : null}
-          {placed ? (
-            <p className="rounded-md bg-success/10 px-3 py-2 text-sm text-success">
-              تم إنشاء الطلب {placed.orderNumber} · {formatCurrency(Number(placed.total))}
-            </p>
-          ) : null}
-          {error ? <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}
-          {cart.length === 0 ? (
-            <EmptyState icon="pos" title="السلة فارغة" description="اختر منتجات لإضافتها." />
-          ) : (
-            <ul className="flex flex-col gap-2">
-              {cart.map((l) => {
-                const p = catalog.products.find((x) => x.id === l.id)!
-                const v = l.variantId ? p.variants.find((x) => x.id === l.variantId) : null
-                const unitPrice = (v ? Number(v.price) : Number(p.price)) + modifierPrice(l.id, l.modifierSelections)
-                const label = v ? `${p.name} — ${v.label}` : p.name
-                const modifierLabels = Object.entries(l.modifierSelections).flatMap(([groupId, valueIds]) => {
-                  const group = p.modifierGroups.find((g) => g.id === groupId)
-                  if (!group) return []
-                  return valueIds.map((vid: string) => {
-                    const opt = group.options.find((o: { id: string }) => o.id === vid)
-                    return opt ? `${group.name}: ${opt.label}` : ''
-                  }).filter(Boolean)
-                })
-                const fullLabel = modifierLabels.length ? `${label} — ${modifierLabels.join(', ')}` : label
-                return (
-                  <li key={`${l.id}:${l.variantId ?? 'base'}:${JSON.stringify(l.modifierSelections)}`} className="flex min-w-0 flex-col gap-2 rounded-md border border-border p-2 sm:flex-row sm:items-center">
-                    <div className="flex min-w-0 flex-1 flex-col gap-1 leading-tight">
-                      <span className="break-words text-sm font-medium leading-5 text-foreground">{fullLabel}</span>
-                      <span className="text-xs text-muted-foreground">{formatCurrency(unitPrice * l.qty)}</span>
-                      {!isWaiter ? <Input value={l.note ?? ''} onChange={(e) => setNote(l.id, l.variantId, l.modifierSelections, e.target.value)} maxLength={255} placeholder="ملاحظة للصنف (اختياري)" aria-label={`ملاحظة ${label}`} className="h-8 text-xs" /> : null}
-                      {canUseDiscounts ? <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
-                        <select value={l.discountType ?? 'none'} onChange={(event) => setLineDiscount(l.id, l.variantId, l.modifierSelections, event.target.value as 'none' | 'percentage' | 'amount', String(l.discountValue ?? ''))} className="h-8 rounded border bg-background px-2 text-xs" aria-label={`خصم ${label}`}>
-                          <option value="none">بدون خصم</option>
-                          <option value="percentage">خصم %</option>
-                          <option value="amount">خصم مبلغ</option>
-                        </select>
-                        {l.discountType ? <Input value={String(l.discountValue ?? '')} onChange={(event) => setLineDiscount(l.id, l.variantId, l.modifierSelections, l.discountType ?? 'none', event.target.value)} inputMode="decimal" className="h-8 text-xs" /> : null}
-                      </div> : null}
-                    </div>
-                    <div className="flex shrink-0 items-center justify-end gap-1 self-end sm:self-auto">
-                      <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => dec(l.id, l.variantId, l.modifierSelections)} aria-label="إنقاص">
-                        <Icon name="minus" size={14} />
-                      </Button>
-                      <span className="w-6 text-center text-sm font-semibold">{l.qty}</span>
-                      <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => inc(l.id, l.variantId, l.modifierSelections)} aria-label="زيادة">
-                        <Icon name="plus" size={14} />
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => remove(l.id, l.variantId, l.modifierSelections)} aria-label={`إزالة ${fullLabel} من السلة`}>
-                        <Icon name="trash" size={14} />
-                      </Button>
-                    </div>
-                  </li>
-                )
-              })}
-            </ul>
-          )}
-          <div className="flex items-center justify-between border-t border-border pt-3 text-base font-bold">
-            <span className="text-foreground">الإجمالي</span>
-            <span className="text-primary">{formatCurrency(subtotal)}</span>
-          </div>
-          {canUseDiscounts ? <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <select value={discountType} onChange={(event) => setDiscountType(event.target.value as typeof discountType)} className="rounded-lg border bg-background p-2 text-sm">
-              <option value="none">بدون خصم عام</option>
-              <option value="percentage">خصم عام %</option>
-              <option value="amount">خصم عام مبلغ</option>
-            </select>
-            {discountType !== 'none' ? <Input value={discountValue} onChange={(event) => setDiscountValue(event.target.value)} inputMode="decimal" placeholder="قيمة الخصم" /> : null}
-          </div> : null}
-          {orderType === 'takeaway' ? (
-            <div className="space-y-2 rounded-lg border p-3">
-              <select
-                value={paymentMethod}
-                onChange={(event) => {
-                  setPaymentMethod(event.target.value as typeof paymentMethod)
-                  setElectronicConfirmed(false)
-                }}
-                className="w-full rounded-lg border bg-background p-2"
-              >
-                <option value="cash">نقدي</option>
-                <option value="mobile_wallet">محفظة إلكترونية</option>
-                <option value="instapay">إنستا باي</option>
-              </select>
-              {paymentMethod === 'cash' ? (
-                <Input value={received} onChange={(event) => setReceived(event.target.value)} inputMode="decimal" placeholder="المبلغ المستلم" />
-              ) : (
-                <label className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" checked={electronicConfirmed} onChange={(event) => setElectronicConfirmed(event.target.checked)} />
-                  أؤكد استلام الدفع الإلكتروني
-                </label>
-              )}
-            </div>
-          ) : null}
-          <Button size="lg" className="w-full" disabled={!cart.length || busy} onClick={checkout}>
-            <Icon name="check" size={18} />
-            {busy ? 'جاري الحفظ…' : 'تأكيد الطلب'}
-          </Button>
-          <p className="text-center text-[11px] text-muted-foreground">{formatNumber(itemCount)} صنف · السعر النهائي يُحسب من قاعدة البيانات</p>
-        </CardContent>
-      </Card>
-      <section className="min-w-0 rounded-xl border bg-card p-3 sm:p-4 xl:col-span-2" aria-label="متابعة طلبات التيك أواي">
+      {!isWaiter ? <Card className="flex h-fit min-w-0 flex-col xl:sticky xl:top-24">{cartContents}</Card> : null}
+      {/* The waiter cart is rendered once, in the navigation-controlled modal below. */}
+      {!isWaiter ? <section className="min-w-0 rounded-xl border bg-card p-3 sm:p-4 xl:col-span-2" aria-label="متابعة طلبات التيك أواي">
           <h2 className="mb-3 font-bold">متابعة طلبات التيك أواي</h2>
           {takeawayOrders.length === 0 ? (
             <p className="text-sm text-muted-foreground">لا توجد طلبات تيك أواي مدفوعة حاليًا.</p>
@@ -564,7 +546,7 @@ export function PosCheckout({ catalog, initialTableId, takeawayOrders = [], mode
               ))}
             </div>
           )}
-        </section>
+        </section> : null}
 
       {variantModal && (
         <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/40 p-2 sm:p-4" dir="rtl">
@@ -687,6 +669,14 @@ export function PosCheckout({ catalog, initialTableId, takeawayOrders = [], mode
         />
       ) : null}
     </div>
+    {isWaiter && cartOpen ? (
+      <div role="dialog" aria-modal="true" aria-label="سلة الطلب" className="fixed inset-0 z-50 grid place-items-center bg-black/50 sm:p-4" dir="rtl">
+        <Card className="flex h-[100dvh] w-full flex-col overflow-hidden rounded-none sm:max-h-[calc(100dvh-2rem)] sm:max-w-2xl sm:rounded-xl">
+          {cartContents}
+        </Card>
+      </div>
+    ) : null}
+    </>
   )
 }
 
