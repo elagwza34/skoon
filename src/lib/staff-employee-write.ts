@@ -138,9 +138,24 @@ export async function listEmployees(session: StaffSession, filter: EmployeeFilte
 export async function getEmployee(session: StaffSession, id: string) {
   if (!canReadEmployeeDirectory(session.role)) throw new EmployeeHrError('Employee directory access is not permitted', 403)
   const owner = session.role === ROLE.OWNER
+
+  // Owner is cross-branch (branchId = null), so no branch filter is applied.
+  // Non-owners are scoped to their own branch; safely parse branchId.
+  let branchFilter: { branchId: bigint } | {} = {}
+  if (!owner) {
+    const branchIdRaw = session.branchId ?? '0'
+    let branchId: bigint
+    try {
+      branchId = BigInt(branchIdRaw)
+    } catch {
+      throw new EmployeeHrError('معرف الفرع غير صالح', 400)
+    }
+    branchFilter = { branchId }
+  }
+
   try {
     const employee = await prisma.user.findFirst({
-      where: { id, deletedAt: null, ...(owner ? {} : { branchId: BigInt(session.branchId ?? '0') }) },
+      where: { id, deletedAt: null, ...branchFilter },
       select: {
         id: true, name: true, email: true, username: true, phone: true, isActive: true, branchId: true,
         role: { select: { slug: true, name: true } },
