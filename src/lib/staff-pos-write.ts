@@ -6,8 +6,12 @@ import { PosError, posOrderSchema } from '@/lib/staff-pos'
 import { notifyRole } from '@/lib/notifications'
 import { getOpenShift } from '@/lib/staff-shifts'
 import { createOrderItemVariantSnapshot } from '@/lib/order-item-variant'
+import { calculateInvoiceDiscounts, type DiscountKind } from '@/lib/invoice-discounts'
 
-export type PosOrderResult = { id: string; orderNumber: string; total: string; itemsCount: number }
+export type PosOrderResult = { id: string; orderNumber: string; orderType: 'dine_in' | 'takeaway'; total: string; itemsCount: number }
+
+function moneyCents(value: number) { return BigInt(Math.round(value * 100)) }
+function centsText(value: bigint) { return `${value / 100n}.${(value % 100n).toString().padStart(2, '0')}` }
 
 /**
  * Staff POS order creation — server-side pricing, one transaction.
@@ -40,7 +44,9 @@ export async function createPosOrder(session: StaffSession, input: unknown, idem
     })
     if (!table) throw new PosError('الطاولة غير موجودة في هذا الفرع', 404)
     tableId = table.id
-  } else if (session.role !== ROLE.OWNER) {
+  } else if (parsed.data.orderType === 'takeaway' || session.role !== ROLE.OWNER) {
+    // The deployed schema still has a required legacy table FK. Takeaway never
+    // asks the cashier for a table and never presents this internal anchor.
     const firstTable = await prisma.cafeTable.findFirst({
       where: { branchId, isActive: true, deletedAt: null },
       orderBy: { number: 'asc' },
@@ -53,8 +59,9 @@ export async function createPosOrder(session: StaffSession, input: unknown, idem
   }
 
   const fingerprint = createHash('sha256').update(JSON.stringify({
-    branchId: branchId.toString(), tableId: tableId.toString(), customerName: parsed.data.customerName?.trim() || null, customerPhone: parsed.data.customerPhone?.trim() || null,
-    items: parsed.data.items.map((item) => ({ productId: item.productId, variantId: item.variantId ?? null, qty: item.qty, note: item.note?.trim() || null })),
+    branchId: branchId.toString(), tableId: tableId.toString(), orderType: parsed.data.orderType, customerName: parsed.data.customerName?.trim() || null, customerPhone: parsed.data.customerPhone?.trim() || null, notes: parsed.data.notes?.trim() || null,
+    discountType: parsed.data.discountType ?? null, discountValue: parsed.data.discountValue ?? 0,
+    items: parsed.data.items.map((item) => ({ productId: item.productId, variantId: item.variantId ?? null, qty: item.qty, note: item.note?.trim() || null, discountType: item.discountType ?? null, discountValue: item.discountValue ?? 0 })),
   })).digest('hex')
   // A completed retry remains retrievable even if a product was later disabled.
   if (key) {
@@ -85,24 +92,33 @@ export async function createPosOrder(session: StaffSession, input: unknown, idem
     if (item.variantId && (!variant || variant.productId.toString() !== item.productId)) throw new PosError('المتغير غير متوفر', 400)
   }
 
-  let total = 0
   const lines = parsed.data.items.map((item) => {
     const p = priceById.get(item.productId)!
     const variant = item.variantId ? variantById.get(item.variantId)! : null
     const unitPrice = variant?.price ?? p.price
     const unit = Number(unitPrice)
-    total += unit * item.qty
     return {
       productId: p.id, productVariantId: variant?.id ?? null, productName: p.name, unitPrice,
       productVariantSnapshot: variant ? createOrderItemVariantSnapshot(variant.combinationKey, variant.values.map((entry) => entry.value)) : null,
       quantity: item.qty, lineTotal: unit * item.qty,
       notes: item.note?.trim() || null,
+      discountType: item.discountType ?? null,
+      discountValue: item.discountValue ?? 0,
     }
   })
 
+  const invoiceDiscountType: DiscountKind = parsed.data.discountType ?? 'none'
+  const calculated = calculateInvoiceDiscounts(lines.map((line) => ({
+    unitCents: moneyCents(Number(line.unitPrice)), quantity: line.quantity,
+    discountType: line.discountType ?? 'none',
+    discountValue: line.discountType === 'amount' ? moneyCents(line.discountValue) : BigInt(Math.round(line.discountValue)),
+    eligibleForInvoiceDiscount: true,
+  })), invoiceDiscountType, invoiceDiscountType === 'amount' ? moneyCents(parsed.data.discountValue ?? 0) : BigInt(Math.round(parsed.data.discountValue ?? 0)))
+
   const orderNumber = `POS-${Date.now().toString(36).toUpperCase()}`
   const orderRef = randomBytes(12).toString('hex')
-  const subtotal = total.toFixed(2)
+  const subtotal = centsText(calculated.subtotalCents)
+  const total = centsText(calculated.finalCents)
 
   const created = await prisma.$transaction(async (tx) => {
     // The lock makes the read/check/create sequence safe when a client retries
@@ -118,21 +134,30 @@ export async function createPosOrder(session: StaffSession, input: unknown, idem
     const order = await tx.order.create({
       data: {
         branchId, cafeTableId: tableId,
-        orderNumber, orderRef, orderType: 'dine_in', status: 'new', source: session.role === ROLE.WAITER ? 'waiter' : 'pos',
+        orderNumber, orderRef, orderType: parsed.data.orderType, status: 'new', source: session.role === ROLE.WAITER ? 'waiter' : 'pos',
         customerName: parsed.data.customerName?.trim() || null,
         customerPhone: parsed.data.customerPhone?.trim() || null,
+        notes: parsed.data.notes?.trim() || null,
         createdById: session.id,
         // A waiter-created ticket is immediately their responsibility. The
         // immutable creator remains separate for audit and historical reports.
         responsibleWaiterId: session.role === ROLE.WAITER ? session.id : null,
         shiftId: openShift?.id ?? null,
-        itemsSubtotal: subtotal, discountAmount: '0', taxAmount: '0',
-        total: subtotal, paymentStatus: 'unpaid',
+        itemsSubtotal: subtotal,
+        itemDiscountAmount: centsText(calculated.itemDiscountCents),
+        discountEligibleBase: centsText(calculated.eligibleBaseCents),
+        discountType: invoiceDiscountType === 'none' ? null : invoiceDiscountType,
+        discountValue: invoiceDiscountType === 'amount' ? Number(parsed.data.discountValue ?? 0).toFixed(2) : String(parsed.data.discountValue ?? 0),
+        discountAmount: centsText(calculated.itemDiscountCents + calculated.invoiceDiscountCents), taxAmount: '0',
+        total, paymentStatus: 'unpaid',
         items: {
           create: lines.map((l) => ({
             productId: l.productId, productVariantId: l.productVariantId, productName: l.productName,
             unitPrice: l.unitPrice, quantity: l.quantity,
-            lineTotal: l.lineTotal, ...(l.productVariantSnapshot ? { productVariantSnapshot: l.productVariantSnapshot } : {}), notes: l.notes,
+            lineTotal: centsText(calculated.lineTotals[lines.indexOf(l)].afterDiscountCents),
+            discountType: l.discountType, discountValue: l.discountType === 'amount' ? Number(l.discountValue).toFixed(2) : String(l.discountValue),
+            discountAmount: centsText(calculated.lineTotals[lines.indexOf(l)].itemDiscountCents),
+            ...(l.productVariantSnapshot ? { productVariantSnapshot: l.productVariantSnapshot } : {}), notes: l.notes,
           })),
         },
         statusHistory: { create: { toStatus: 'new', changedById: session.id } },
@@ -153,7 +178,7 @@ export async function createPosOrder(session: StaffSession, input: unknown, idem
     })
     const result = {
       id: order.id.toString(), orderNumber: order.orderNumber,
-      total: order.total.toString(), itemsCount: lines.reduce((n, l) => n + l.quantity, 0),
+      orderType: parsed.data.orderType, total: order.total.toString(), itemsCount: lines.reduce((n, l) => n + l.quantity, 0),
     }
     if (key) await tx.financialOperation.create({ data: { branchId, actorId: session.id, operationType: 'pos_order_create', idempotencyKey: key, fingerprint, result } })
     await tx.auditLog.create({ data: { userId: session.id, branchId, action: 'pos.order_create', entityType: 'order', entityId: order.id, newValues: { orderNumber: order.orderNumber, total: order.total.toString(), itemsCount: result.itemsCount } } })

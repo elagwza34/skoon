@@ -100,8 +100,17 @@ export async function reserveOrderInventory(tx: Tx, orderId: bigint): Promise<vo
 }
 
 export async function releaseOrderReservations(tx: Tx, orderId: bigint): Promise<void> {
+  await releaseReservations(tx, { orderItem: { orderId } })
+}
+
+/** Release only one voided line's remaining active reservations. */
+export async function releaseOrderItemReservations(tx: Tx, orderId: bigint, orderItemId: bigint): Promise<void> {
+  await releaseReservations(tx, { orderItemId, orderItem: { orderId } })
+}
+
+async function releaseReservations(tx: Tx, where: Prisma.InventoryReservationWhereInput): Promise<void> {
   const reservations = await tx.inventoryReservation.findMany({
-    where: { orderItem: { orderId }, status: 'active' },
+    where: { ...where, status: 'active' },
     select: { id: true, quantity: true, consumedQuantity: true },
   })
   for (const reservation of reservations) {

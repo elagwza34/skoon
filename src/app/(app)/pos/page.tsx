@@ -5,6 +5,7 @@ import { PosCheckout } from '@/components/pos/pos-checkout'
 import { getOpenShift } from '@/lib/staff-shifts'
 import { requiresOperationalShift } from '@/lib/authz'
 import { homeForRole } from '@/lib/route-access'
+import { listStaffOrders } from '@/lib/staff-orders'
 
 export const dynamic = 'force-dynamic'
 
@@ -19,8 +20,9 @@ export default async function PosPage() {
   }
 
   try {
-    const catalog = await getPosCatalog(session)
-    return <PosCheckout catalog={catalog} />
+    const [catalog, orders] = await Promise.all([getPosCatalog(session), listStaffOrders(session, { limit: 100 })])
+    const takeawayOrders = orders.filter((order) => order.orderType === 'takeaway' && order.paymentStatus === 'paid' && order.status !== 'cancelled')
+    return <PosCheckout catalog={catalog} takeawayOrders={takeawayOrders} />
   } catch (e) {
     if (e instanceof PosError) redirect(homeForRole(session.role))
     throw e

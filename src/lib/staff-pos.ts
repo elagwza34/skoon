@@ -98,11 +98,23 @@ export const posItemSchema = z.object({
   variantId: z.string().regex(/^\d+$/, 'Invalid variant id').optional(),
   qty: z.number().int().min(1).max(20),
   note: z.string().max(255).optional(),
+  discountType: z.enum(['percentage', 'amount']).optional(),
+  discountValue: z.coerce.number().min(0).max(9_999_999).optional(),
 })
 
 export const posOrderSchema = z.object({
+  orderType: z.enum(['dine_in', 'takeaway']).default('dine_in'),
   tableId: z.string().regex(/^\d+$/, 'اختر الطاولة').optional(),
   customerName: z.string().trim().max(60).optional(),
   customerPhone: z.string().trim().regex(/^[0-9+()\-\s]{6,30}$/).optional(),
+  notes: z.string().trim().max(2_000).optional(),
+  discountType: z.enum(['percentage', 'amount']).optional(),
+  discountValue: z.coerce.number().min(0).max(9_999_999).optional(),
   items: z.array(posItemSchema).min(1, 'السلة فارغة').max(30),
+}).superRefine((value, context) => {
+  if (value.orderType === 'dine_in' && !value.tableId) context.addIssue({ code: z.ZodIssueCode.custom, path: ['tableId'], message: 'اختر الطاولة' })
+  if (value.discountType === 'percentage' && (value.discountValue ?? 0) > 100) context.addIssue({ code: z.ZodIssueCode.custom, path: ['discountValue'], message: 'نسبة الخصم لا تتجاوز 100%' })
+  value.items.forEach((item, index) => {
+    if (item.discountType === 'percentage' && (item.discountValue ?? 0) > 100) context.addIssue({ code: z.ZodIssueCode.custom, path: ['items', index, 'discountValue'], message: 'نسبة الخصم لا تتجاوز 100%' })
+  })
 })

@@ -66,7 +66,8 @@ import { receiptInvoiceForSettlement, receiptSettlementBreakdown } from '../src/
 import { posDraftKey, restorePosDraft } from '../src/lib/pos-draft'
 import { posOrderSchema } from '../src/lib/staff-pos'
 import { createOrderItemVariantSnapshot, orderedVariantLabels, resolveOrderItemVariantLabels } from '../src/lib/order-item-variant'
-import { isKitchenTicketVisible, itemPreparationState, OrderError, transitionOrderStatus } from '../src/lib/staff-orders'
+import { canVoidOrderItemForOrder, orderItemVoidBlocker } from '../src/lib/staff-order-item-void'
+import { isKitchenTicketVisible, itemPreparationState, OrderError, takeawayDispatchBlocker, transitionOrderStatus } from '../src/lib/staff-orders'
 import { canTransitionOrder } from '../src/lib/staff-orders'
 import { canViewOwnerWaiterMonitor, isWaiterTableOrderActive } from '../src/lib/staff-waiter'
 import { isMissingWaiterHandoverTableError } from '../src/lib/staff-waiter'
@@ -120,6 +121,22 @@ test('waiter lifecycle: only dispatched new tickets enter the kitchen queue', ()
   assert.equal(isKitchenTicketVisible('ready', true), true)
   assert.equal(isKitchenTicketVisible('served', true), false)
   assert.equal(isKitchenTicketVisible('cancelled', true), false)
+})
+
+test('takeaway POS: table is optional but dine-in still requires one', () => {
+  const item = { productId: '1', qty: 1 }
+  assert.equal(posOrderSchema.safeParse({ orderType: 'takeaway', items: [item] }).success, true)
+  assert.equal(posOrderSchema.safeParse({ orderType: 'dine_in', items: [item] }).success, false)
+  assert.equal(posOrderSchema.safeParse({ orderType: 'dine_in', tableId: '2', items: [item] }).success, true)
+})
+
+test('takeaway kitchen gate: only fully paid dispatched takeaway is visible', () => {
+  assert.equal(takeawayDispatchBlocker('takeaway', 'unpaid'), 'unpaid')
+  assert.equal(takeawayDispatchBlocker('takeaway', 'paid'), null)
+  assert.equal(takeawayDispatchBlocker('dine_in', 'unpaid'), null)
+  assert.equal(isKitchenTicketVisible('new', true, 'takeaway', 'unpaid'), false)
+  assert.equal(isKitchenTicketVisible('new', true, 'takeaway', 'paid'), true)
+  assert.equal(isKitchenTicketVisible('new', true, 'dine_in', 'unpaid'), true)
 })
 
 test('waiter lifecycle: only legal persisted status transitions are accepted', () => {
@@ -1005,9 +1022,9 @@ test('invoices: authoritative totals recalculate discount and tax', () => {
   assert.deepEqual(recalculateInvoiceTotals(100, 'percentage', 10, 14), { discount: 10, tax: 12.6, total: 102.6 })
 })
 
-test('pos order input contains only item identity, quantity, table, and customer data', () => {
+test('pos order input ignores client prices while preserving the authoritative order type', () => {
   const parsed = posOrderSchema.parse({ tableId: '7', customerName: 'Guest', total: 0.01, items: [{ productId: '11', qty: 2, price: 0.01 }] })
-  assert.deepEqual(parsed, { tableId: '7', customerName: 'Guest', items: [{ productId: '11', qty: 2 }] })
+  assert.deepEqual(parsed, { orderType: 'dine_in', tableId: '7', customerName: 'Guest', items: [{ productId: '11', qty: 2 }] })
   assert.equal(posOrderSchema.safeParse({ tableId: '7', items: [] }).success, false)
   assert.equal(posOrderSchema.safeParse({ tableId: '7', items: [{ productId: '11', qty: 21 }] }).success, false)
 })
@@ -1929,5 +1946,21 @@ test('POS drafts preserve selected variants across refresh and reject stale vari
   const raw = JSON.stringify({ cart: [{ id: 'latte', variantId: 'large', qty: 2 }, { id: 'latte', variantId: 'removed', qty: 1 }], tableId: 'table-1' })
   const restored = restorePosDraft(raw, new Set(['latte']), new Set(['table-1']), new Set(['latte:large']))
   assert.deepEqual(restored?.cart, [{ id: 'latte', variantId: 'large', qty: 2 }])
+})
+
+test('order item removal authorization is cashier or responsible/explicitly permitted waiter only', () => {
+  assert.equal(canVoidOrderItemForOrder({ id: 'cashier', role: ROLE.CASHIER, permissions: [] }, null), true)
+  assert.equal(canVoidOrderItemForOrder({ id: 'waiter-a', role: ROLE.WAITER, permissions: [] }, 'waiter-a'), true)
+  assert.equal(canVoidOrderItemForOrder({ id: 'waiter-b', role: ROLE.WAITER, permissions: [] }, 'waiter-a'), false)
+  assert.equal(canVoidOrderItemForOrder({ id: 'waiter-b', role: ROLE.WAITER, permissions: ['orders.cancel'] }, 'waiter-a'), true)
+  assert.equal(canVoidOrderItemForOrder({ id: 'owner', role: ROLE.OWNER, permissions: ['orders.cancel'] }, null), false)
+})
+
+test('order item removal blocks paid, served, terminal, and final-item invoices', () => {
+  assert.equal(orderItemVoidBlocker({ status: 'new', paymentStatus: 'unpaid', completedPayments: 0, servedQuantity: 0, activeItems: 2 }), null)
+  assert.equal(orderItemVoidBlocker({ status: 'new', paymentStatus: 'paid', completedPayments: 1, servedQuantity: 0, activeItems: 2 }), 'paid')
+  assert.equal(orderItemVoidBlocker({ status: 'ready', paymentStatus: 'unpaid', completedPayments: 0, servedQuantity: 1, activeItems: 2 }), 'served')
+  assert.equal(orderItemVoidBlocker({ status: 'cancelled', paymentStatus: 'unpaid', completedPayments: 0, servedQuantity: 0, activeItems: 2 }), 'closed')
+  assert.equal(orderItemVoidBlocker({ status: 'preparing', paymentStatus: 'unpaid', completedPayments: 0, servedQuantity: 0, activeItems: 1 }), 'last_item')
 })
 

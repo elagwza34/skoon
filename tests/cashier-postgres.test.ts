@@ -16,9 +16,10 @@ test('cashier PostgreSQL acceptance is isolated and cleaned up', { skip: safe ? 
   const { editOpenInvoice, getCashierInvoices, InvoiceError } = await import('../src/lib/staff-invoices')
   const { finalizeOrderPayment, PaymentError } = await import('../src/lib/staff-payments-write')
   const { transitionOrderStatus, OrderError } = await import('../src/lib/staff-orders')
+  const { voidOpenOrderItem, OrderItemVoidError } = await import('../src/lib/staff-order-item-void')
   type Session = import('../src/lib/session').StaffSession
   const suffix = randomUUID().replaceAll('-', '').slice(0, 12)
-  const ids = { cashier: randomUUID(), waiter: randomUUID(), outsider: randomUUID() }
+  const ids = { cashier: randomUUID(), waiter: randomUUID(), waiterOther: randomUUID(), outsider: randomUUID() }
   const roles = await prisma.role.findMany({ where: { slug: { in: [ROLE.CASHIER, ROLE.WAITER] } }, select: { id: true, slug: true } })
   const cashierRole = roles.find((x) => x.slug === ROLE.CASHIER); const waiterRole = roles.find((x) => x.slug === ROLE.WAITER)
   if (!cashierRole || !waiterRole) throw new Error('Existing cashier and waiter roles are required')
@@ -33,11 +34,18 @@ test('cashier PostgreSQL acceptance is isolated and cleaned up', { skip: safe ? 
     await prisma.user.createMany({ data: [
       { id: ids.cashier, roleId: cashierRole.id, branchId: branch.id, name: 'Acceptance Cashier' },
       { id: ids.waiter, roleId: waiterRole.id, branchId: branch.id, name: 'Acceptance Waiter' },
+      { id: ids.waiterOther, roleId: waiterRole.id, branchId: branch.id, name: 'Other Waiter' },
       { id: ids.outsider, roleId: cashierRole.id, branchId: other.id, name: 'Acceptance Outsider' },
     ] })
     const shift = await prisma.shift.create({ data: { branchId: branch.id, cashierId: ids.cashier, openBy: 'Acceptance Cashier', status: 'open' } })
+    await prisma.shift.createMany({ data: [
+      { branchId: branch.id, cashierId: ids.waiter, openBy: 'Acceptance Waiter', status: 'open' },
+      { branchId: branch.id, cashierId: ids.waiterOther, openBy: 'Other Waiter', status: 'open' },
+    ] })
     const cashier: Session = { id: ids.cashier, email: null, name: 'Acceptance Cashier', role: ROLE.CASHIER, branchId: branch.id.toString(), permissions: [] }
     const outsider: Session = { id: ids.outsider, email: null, name: 'Acceptance Outsider', role: ROLE.CASHIER, branchId: other.id.toString(), permissions: [] }
+    const waiter: Session = { id: ids.waiter, email: null, name: 'Acceptance Waiter', role: ROLE.WAITER, branchId: branch.id.toString(), permissions: [] }
+    const waiterOther: Session = { id: ids.waiterOther, email: null, name: 'Other Waiter', role: ROLE.WAITER, branchId: branch.id.toString(), permissions: [] }
     const input = { tableId: table.id.toString(), items: [{ productId: product.id.toString(), qty: 2, price: 0.01 }], total: 0.01 }
     const key = `cashier-${suffix}-create`
     const [first, duplicate] = await Promise.all([createPosOrder(cashier, input, key), createPosOrder(cashier, input, key)])
@@ -71,10 +79,43 @@ test('cashier PostgreSQL acceptance is isolated and cleaned up', { skip: safe ? 
     const discountedVariantInvoice = (await getCashierInvoices(cashier)).find((invoice) => invoice.id === variantOrder.id)
     assert.equal(discountedVariantInvoice?.items[1].discountAmount, '10.00')
     assert.equal(discountedVariantInvoice?.total, '99.00')
+    const removalKey = `remove-${suffix}-variant`
+    const removed = await voidOpenOrderItem(cashier, variantOrder.id, discountedVariantInvoice!.items[0].id, { reason: 'Added by mistake', idempotencyKey: removalKey })
+    const repeatedRemoval = await voidOpenOrderItem(cashier, variantOrder.id, discountedVariantInvoice!.items[0].id, { reason: 'Added by mistake', idempotencyKey: removalKey })
+    assert.equal(removed.total, '72.00'); assert.equal(repeatedRemoval.alreadyRemoved, true)
+    const afterRemoval = (await getCashierInvoices(cashier)).find((invoice) => invoice.id === variantOrder.id)
+    assert.deepEqual(afterRemoval?.items.map((item) => item.variantId), [variants[1].id.toString()])
+    assert.equal(afterRemoval?.items[0].discountAmount, '10.00'); assert.equal(afterRemoval?.total, '72.00')
     await finalizeOrderPayment(cashier, variantOrder.id, { method: 'cash', received: 100, idempotencyKey: `cashier-${suffix}-variants-pay` })
     const settledVariantInvoice = (await getCashierInvoices(cashier)).find((invoice) => invoice.id === variantOrder.id)
     assert.equal(settledVariantInvoice?.remaining, '0.00')
-    assert.deepEqual(settledVariantInvoice?.items.map((item) => item.variantLabel), ['صغير', 'كبير طويل الاسم لاختبار الطباعة الحرارية العربية'])
+    assert.deepEqual(settledVariantInvoice?.items.map((item) => item.variantId), [variants[1].id.toString()])
+    await assert.rejects(() => voidOpenOrderItem(cashier, variantOrder.id, settledVariantInvoice!.items[0].id, { reason: 'Too late', idempotencyKey: `remove-${suffix}-paid` }), (error: unknown) => error instanceof OrderItemVoidError && error.status === 409)
+    const waiterOrder = await createPosOrder(waiter, { tableId: table.id.toString(), items: [
+      { productId: product.id.toString(), qty: 1 }, { productId: product.id.toString(), qty: 2 },
+    ] }, `waiter-${suffix}-remove`)
+    const waiterLines = await prisma.orderItem.findMany({ where: { orderId: BigInt(waiterOrder.id) }, orderBy: { id: 'asc' } })
+    await assert.rejects(() => voidOpenOrderItem(waiterOther, waiterOrder.id, waiterLines[0].id.toString(), { reason: 'Not my order', idempotencyKey: `waiter-${suffix}-unauthorized` }), (error: unknown) => error instanceof OrderItemVoidError && error.status === 403)
+    await voidOpenOrderItem(waiter, waiterOrder.id, waiterLines[0].id.toString(), { reason: 'Added by mistake', idempotencyKey: `waiter-${suffix}-authorized` })
+    assert.equal(Number((await prisma.order.findUniqueOrThrow({ where: { id: BigInt(waiterOrder.id) } })).total), 50)
+    assert.equal(await prisma.orderItem.count({ where: { orderId: BigInt(waiterOrder.id), isVoided: false } }), 1)
+    const mistakenOrder = await createPosOrder(waiter, { tableId: table.id.toString(), items: [{ productId: product.id.toString(), qty: 1 }] }, `waiter-${suffix}-mistake`)
+    await assert.rejects(() => transitionOrderStatus(waiterOther, mistakenOrder.id, 'cancelled', 'Created by mistake'), (error: unknown) => error instanceof OrderError && error.status === 403)
+    await transitionOrderStatus(waiter, mistakenOrder.id, 'cancelled', 'Created by mistake')
+    assert.equal((await prisma.order.findUniqueOrThrow({ where: { id: BigInt(mistakenOrder.id) } })).status, 'cancelled')
+    const concurrentOrder = await createPosOrder(cashier, { tableId: table.id.toString(), items: [
+      { productId: product.id.toString(), qty: 1 }, { productId: product.id.toString(), qty: 1 },
+    ] }, `cashier-${suffix}-concurrent`)
+    const concurrentItems = await prisma.orderItem.findMany({ where: { orderId: BigInt(concurrentOrder.id) }, orderBy: { id: 'asc' } })
+    await Promise.allSettled([
+      finalizeOrderPayment(cashier, concurrentOrder.id, { method: 'cash', received: 100, idempotencyKey: `cashier-${suffix}-concurrent-pay` }),
+      voidOpenOrderItem(cashier, concurrentOrder.id, concurrentItems[0].id.toString(), { reason: 'Concurrent correction', idempotencyKey: `cashier-${suffix}-concurrent-remove` }),
+    ])
+    const concurrentFinal = await prisma.order.findUniqueOrThrow({ where: { id: BigInt(concurrentOrder.id) }, include: { payments: { where: { status: 'completed' } }, items: { where: { isVoided: false } } } })
+    assert.equal(concurrentFinal.paymentStatus, 'paid')
+    assert.equal(Number(concurrentFinal.payments[0].amount), Number(concurrentFinal.total))
+    assert.ok(concurrentFinal.items.length === 1 || concurrentFinal.items.length === 2)
+    assert.deepEqual(settledVariantInvoice?.items.map((item) => item.variantLabel), ['كبير طويل الاسم لاختبار الطباعة الحرارية العربية'])
     await assert.rejects(() => createPosOrder(cashier, { ...input, items: [{ productId: product.id.toString(), qty: 1 }] }, key), (e: unknown) => e instanceof Error && /Idempotency/.test(e.message))
     await assert.rejects(() => createPosOrder(cashier, { tableId: table.id.toString(), items: [{ productId: unavailable.id.toString(), qty: 1 }] }, `cashier-${suffix}-bad`), (e: unknown) => e instanceof Error)
     await assert.rejects(() => editOpenInvoice(outsider, first.id, { action: 'quantity', orderItemId: order.items[0].id.toString(), quantity: 1 }), (e: unknown) => e instanceof InvoiceError && e.status === 404)

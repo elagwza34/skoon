@@ -1,11 +1,12 @@
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
-import { ROLE, hasAtLeast, requiresOperationalShift, type RoleSlug } from '@/lib/authz'
+import { ROLE, hasAtLeast, hasPermission, requiresOperationalShift, type RoleSlug } from '@/lib/authz'
 import { staffCanAccessBranch, type StaffSession } from '@/lib/session'
 import { notifyRole, type NotificationType } from '@/lib/notifications'
 import { getOpenShift, ShiftError } from '@/lib/staff-shifts'
 import { recalculateInvoiceTotals } from '@/lib/staff-invoices'
 import { consumeOrderReservations, markOrderPreparation, releaseOrderReservations, reserveOrderInventory, serveOrderItemInventory, StockError } from '@/lib/staff-inventory-engine'
+import { orderedVariantLabels, resolveOrderItemVariantLabels } from '@/lib/order-item-variant'
 
 /**
  * Staff order lifecycle — server-only.
@@ -29,8 +30,12 @@ export function isOrderStatus(v: string): v is OrderStatus {
 }
 
 /** Pure counterpart of the kitchen queue predicate, kept testable without a DB. */
-export function isKitchenTicketVisible(status: string, sentToKitchen: boolean): boolean {
-  return sentToKitchen && (status === 'new' || status === 'preparing' || status === 'ready')
+export function isKitchenTicketVisible(status: string, sentToKitchen: boolean, orderType = 'dine_in', paymentStatus = 'unpaid'): boolean {
+  return sentToKitchen && (orderType !== 'takeaway' || paymentStatus === 'paid') && (status === 'new' || status === 'preparing' || status === 'ready')
+}
+
+export function takeawayDispatchBlocker(orderType: string, paymentStatus: string): 'unpaid' | null {
+  return orderType === 'takeaway' && paymentStatus !== 'paid' ? 'unpaid' : null
 }
 
 /** Minimum role required to move `from → to`. Absent = transition is illegal. */
@@ -62,13 +67,14 @@ export interface StaffOrderRow {
   number: string
   status: string
   paymentStatus: string
+  orderType: string
   total: number
   customerName: string | null
   source: string
   orderNotes: string | null
   tableNumber: string
   createdAt: string
-  items: { id: string; productId: string; name: string; qty: number; servedQty: number; preparedQty: number; preparationStartedAt: string | null; unitPrice: number; note: string | null }[]
+  items: { id: string; productId: string; name: string; variantLabel: string | null; qty: number; servedQty: number; preparedQty: number; preparationStartedAt: string | null; unitPrice: number; note: string | null }[]
   itemsCount: number
   /** Set once the waiter has pushed the order to the kitchen ("إرسال للمطبخ"). */
   sentToKitchen: boolean
@@ -97,6 +103,7 @@ export async function listStaffOrders(
       orderNumber: true,
       status: true,
       paymentStatus: true,
+      orderType: true,
       total: true,
       customerName: true,
       source: true, notes: true,
@@ -107,7 +114,7 @@ export async function listStaffOrders(
       items: {
         where: { isVoided: false },
         orderBy: { id: 'asc' },
-        select: { id: true, productId: true, productName: true, quantity: true, servedQuantity: true, preparedQuantity: true, preparationStartedAt: true, unitPrice: true, notes: true },
+        select: { id: true, productId: true, productName: true, productVariantId: true, productVariantSnapshot: true, productVariant: { select: { values: { select: { value: { select: { label: true, attribute: { select: { sortOrder: true } } } } } } } }, quantity: true, servedQuantity: true, preparedQuantity: true, preparationStartedAt: true, unitPrice: true, notes: true },
       },
     },
   })
@@ -117,6 +124,7 @@ export async function listStaffOrders(
     number: o.orderNumber,
     status: o.status,
     paymentStatus: o.paymentStatus,
+    orderType: o.orderType,
     total: Number(o.total), orderNotes: o.notes,
     customerName: o.customerName,
     source: o.source,
@@ -125,7 +133,7 @@ export async function listStaffOrders(
     sentToKitchen: o.sentToKitchenAt != null,
     sentToKitchenAt: o.sentToKitchenAt?.toISOString() ?? null,
     cancelReason: o.cancelReason ?? null,
-    items: o.items.map((i) => ({ id: i.id.toString(), productId: i.productId.toString(), name: i.productName, qty: i.quantity, servedQty: i.servedQuantity, preparedQty: i.preparedQuantity, preparationStartedAt: i.preparationStartedAt?.toISOString() ?? null, unitPrice: Number(i.unitPrice), note: i.notes })),
+    items: o.items.map((i) => { const labels = i.productVariantId || i.productVariantSnapshot ? resolveOrderItemVariantLabels(i.productVariantSnapshot, orderedVariantLabels(i.productVariant?.values.map((entry) => entry.value) ?? [])) : []; return { id: i.id.toString(), productId: i.productId.toString(), name: i.productName, variantLabel: labels.length ? labels.join(' · ') : null, qty: i.quantity, servedQty: i.servedQuantity, preparedQty: i.preparedQuantity, preparationStartedAt: i.preparationStartedAt?.toISOString() ?? null, unitPrice: Number(i.unitPrice), note: i.notes } }),
     itemsCount: o.items.reduce((n, i) => n + i.quantity, 0),
   }))
 }
@@ -140,6 +148,7 @@ export async function listKitchenOrders(session: StaffSession, limit = 100): Pro
     where: {
       ...branchScope,
       sentToKitchenAt: { not: null },
+      AND: [{ OR: [{ orderType: { not: 'takeaway' } }, { paymentStatus: 'paid' }] }],
       OR: [
         { status: { in: ['new', 'preparing', 'ready'] } },
         { status: 'served', servedAt: { gte: todayStart } },
@@ -150,18 +159,18 @@ export async function listKitchenOrders(session: StaffSession, limit = 100): Pro
     orderBy: { createdAt: 'asc' },
     take: Math.min(limit, 200),
     select: {
-      id: true, orderNumber: true, status: true, paymentStatus: true, total: true, customerName: true,
+      id: true, orderNumber: true, status: true, paymentStatus: true, orderType: true, total: true, customerName: true,
       source: true, notes: true, createdAt: true, sentToKitchenAt: true, cancelReason: true,
       cafeTable: { select: { number: true } },
-      items: { where: { isVoided: false }, orderBy: { id: 'asc' }, select: { id: true, productId: true, productName: true, quantity: true, servedQuantity: true, preparedQuantity: true, preparationStartedAt: true, unitPrice: true, notes: true } },
+      items: { where: { isVoided: false }, orderBy: { id: 'asc' }, select: { id: true, productId: true, productName: true, productVariantId: true, productVariantSnapshot: true, productVariant: { select: { values: { select: { value: { select: { label: true, attribute: { select: { sortOrder: true } } } } } } } }, quantity: true, servedQuantity: true, preparedQuantity: true, preparationStartedAt: true, unitPrice: true, notes: true } },
     },
   })
   return orders.map((o) => ({
-    id: o.id.toString(), number: o.orderNumber, status: o.status, paymentStatus: o.paymentStatus,
+    id: o.id.toString(), number: o.orderNumber, status: o.status, paymentStatus: o.paymentStatus, orderType: o.orderType,
     total: Number(o.total), customerName: o.customerName, source: o.source, orderNotes: o.notes, tableNumber: o.cafeTable.number,
     createdAt: o.createdAt.toISOString(), sentToKitchen: o.sentToKitchenAt != null,
     sentToKitchenAt: o.sentToKitchenAt?.toISOString() ?? null, cancelReason: o.cancelReason ?? null,
-    items: o.items.map((i) => ({ id: i.id.toString(), productId: i.productId.toString(), name: i.productName, qty: i.quantity, servedQty: i.servedQuantity, preparedQty: i.preparedQuantity, preparationStartedAt: i.preparationStartedAt?.toISOString() ?? null, unitPrice: Number(i.unitPrice), note: i.notes })),
+    items: o.items.map((i) => { const labels = i.productVariantId || i.productVariantSnapshot ? resolveOrderItemVariantLabels(i.productVariantSnapshot, orderedVariantLabels(i.productVariant?.values.map((entry) => entry.value) ?? [])) : []; return { id: i.id.toString(), productId: i.productId.toString(), name: i.productName, variantLabel: labels.length ? labels.join(' · ') : null, qty: i.quantity, servedQty: i.servedQuantity, preparedQty: i.preparedQuantity, preparationStartedAt: i.preparationStartedAt?.toISOString() ?? null, unitPrice: Number(i.unitPrice), note: i.notes } }),
     itemsCount: o.items.reduce((n, i) => n + i.quantity, 0),
   }))
 }
@@ -313,7 +322,8 @@ export async function transitionOrderStatus(
   const current = order.status as OrderStatus
   const minRole = TRANSITIONS[current]?.[to]
   if (!minRole) throw new OrderError(`لا يمكن نقل الطلب من "${current}" إلى "${to}"`, 409)
-  if (!hasAtLeast(session.role, minRole)) throw new OrderError('Forbidden', 403)
+  const waiterMayCancel = to === 'cancelled' && session.role === ROLE.WAITER && (order.responsibleWaiterId === session.id || hasPermission(session.permissions, 'orders.cancel'))
+  if (!hasAtLeast(session.role, minRole) && !waiterMayCancel) throw new OrderError('Forbidden', 403)
   // The legacy whole-order "served" endpoint may only be used by the
   // responsible waiter. Cross-waiter service must use serveOrderItems with an
   // explicit intervention reason, which preserves the emergency audit trail.
@@ -323,11 +333,12 @@ export async function transitionOrderStatus(
   if (to === 'cancelled' && order.paymentStatus === 'paid') throw new OrderError('A paid order must be refunded through the payment correction flow', 409)
 
   await prisma.$transaction(async (tx) => {
-    const lockedRows = await tx.$queryRaw<{ status: string; payment_status: string }[]>`
-      SELECT status, payment_status FROM orders WHERE id = ${order.id} FOR UPDATE
+    const lockedRows = await tx.$queryRaw<{ status: string; payment_status: string; responsible_waiter_id: string | null }[]>`
+      SELECT status, payment_status, responsible_waiter_id FROM orders WHERE id = ${order.id} FOR UPDATE
     `
     const locked = lockedRows[0]
     if (!locked || locked.status !== current) throw new OrderError('Order status changed; refresh and retry', 409)
+    if (to === 'cancelled' && session.role === ROLE.WAITER && locked.responsible_waiter_id !== session.id && !hasPermission(session.permissions, 'orders.cancel')) throw new OrderError('Order responsibility changed; refresh and retry', 409)
     if (to === 'cancelled' && locked.payment_status === 'paid') throw new OrderError('A paid order must be refunded through the payment correction flow', 409)
     // Inventory is deliberately not consumed at acceptance/ready. Preparation
     // attribution starts when the kitchen accepts; service converts the held
@@ -386,13 +397,14 @@ export async function transitionOrderStatus(
  * The order reaches `served` only after every non-voided line is fully served.
  */
 export async function serveOrderItems(session: StaffSession, orderIdRaw: string, input: unknown) {
-  if (session.role !== ROLE.WAITER) throw new OrderError('Waiter role required', 403)
+  if (session.role !== ROLE.WAITER && session.role !== ROLE.CASHIER) throw new OrderError('Waiter or cashier role required', 403)
   if (!/^\d+$/.test(orderIdRaw)) throw new OrderError('Order not found', 404)
   const parsed = serveItemsSchema.safeParse(input)
   if (!parsed.success) throw new OrderError('Invalid item-serving request', 400)
   const orderId = BigInt(orderIdRaw)
-  const order = await prisma.order.findUnique({ where: { id: orderId }, select: { id: true, branchId: true, status: true, orderNumber: true, responsibleWaiterId: true } })
+  const order = await prisma.order.findUnique({ where: { id: orderId }, select: { id: true, branchId: true, status: true, paymentStatus: true, orderType: true, orderNumber: true, responsibleWaiterId: true } })
   if (!order || !staffCanAccessBranch(session, order.branchId)) throw new OrderError('Order not found', 404)
+  if (session.role === ROLE.CASHIER && (order.orderType !== 'takeaway' || order.paymentStatus !== 'paid')) throw new OrderError('Cashier handover is limited to paid takeaway orders', 403)
   if (requiresOperationalShift(session.role) && !await getOpenShift(session.id, order.branchId)) throw new OrderError('An open shift is required', 409)
   const emergency = session.role === ROLE.WAITER && order.responsibleWaiterId !== session.id
   if (emergency && !parsed.data.interventionReason) throw new OrderError('Emergency serving requires an intervention reason', 400)
@@ -440,19 +452,21 @@ export async function serveOrderItems(session: StaffSession, orderIdRaw: string,
  * kitchen board and the bell can never disagree.
  */
 export async function sendOrderToKitchen(session: StaffSession, orderId: string) {
-  if (session.role !== ROLE.WAITER) throw new OrderError('Waiter role required', 403)
+  if (session.role !== ROLE.WAITER && session.role !== ROLE.CASHIER) throw new OrderError('Waiter or cashier role required', 403)
   if (!/^\d+$/.test(orderId)) throw new OrderError('الطلب غير موجود', 404)
 
   const order = await prisma.order.findUnique({
     where: { id: BigInt(orderId) },
-    select: { id: true, branchId: true, status: true, orderNumber: true, sentToKitchenAt: true, source: true, responsibleWaiterId: true, qrApprovedAt: true },
+    select: { id: true, branchId: true, status: true, paymentStatus: true, orderType: true, orderNumber: true, sentToKitchenAt: true, source: true, responsibleWaiterId: true, qrApprovedAt: true },
   })
   if (!order) throw new OrderError('الطلب غير موجود', 404)
   if (!staffCanAccessBranch(session, order.branchId)) throw new OrderError('غير مصرح', 403)
+  if (session.role === ROLE.CASHIER && order.orderType !== 'takeaway') throw new OrderError('Cashier dispatch is limited to prepaid takeaway orders', 403)
   if (session.role === ROLE.WAITER && order.responsibleWaiterId !== session.id) throw new OrderError('Only the responsible waiter may dispatch this order', 403)
   if (order.source === 'qr' && !order.qrApprovedAt) throw new OrderError('QR orders must be claimed and approved before dispatch', 409)
   if (order.status !== 'new') throw new OrderError('لا يمكن إرسال طلب ليس في حالة "جديد" للمطبخ', 409)
-  if (order.sentToKitchenAt) throw new OrderError('تم إرسال الطلب للمطبخ مسبقاً', 409)
+  if (takeawayDispatchBlocker(order.orderType, order.paymentStatus)) throw new OrderError('يجب تحصيل طلب التيك أواي بالكامل قبل إرساله للمطبخ', 409)
+  if (order.sentToKitchenAt) return { id: order.id.toString(), orderNumber: order.orderNumber, sent: true }
 
   // The waiter must have an open shift for their branch.
   if (requiresOperationalShift(session.role)) {
@@ -462,11 +476,12 @@ export async function sendOrderToKitchen(session: StaffSession, orderId: string)
   }
 
   await prisma.$transaction(async (tx) => {
-    const locked = await tx.$queryRaw<{ status: string; sent_to_kitchen_at: Date | null }[]>`
-      SELECT status, sent_to_kitchen_at FROM orders WHERE id = ${order.id} FOR UPDATE
+    const locked = await tx.$queryRaw<{ status: string; payment_status: string; order_type: string; sent_to_kitchen_at: Date | null }[]>`
+      SELECT status, payment_status, order_type, sent_to_kitchen_at FROM orders WHERE id = ${order.id} FOR UPDATE
     `
     if (locked[0]?.status !== 'new') throw new OrderError('Order is no longer dispatchable', 409)
-    if (locked[0]?.sent_to_kitchen_at) throw new OrderError('Order was already sent to kitchen', 409)
+    if (locked[0]?.sent_to_kitchen_at) return
+    if (locked[0]?.order_type === 'takeaway' && locked[0]?.payment_status !== 'paid') throw new OrderError('Takeaway payment is not complete', 409)
     try {
       await reserveOrderInventory(tx, order.id)
     } catch (error) {

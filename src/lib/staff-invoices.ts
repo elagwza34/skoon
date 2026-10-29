@@ -3,8 +3,9 @@ import { prisma } from '@/lib/prisma'
 import { ROLE, hasAtLeast, requiresOperationalShift } from '@/lib/authz'
 import { staffCanAccessBranch, type StaffSession } from '@/lib/session'
 import { getOpenShift } from '@/lib/staff-shifts'
-import { calculateInvoiceDiscounts, type DiscountKind } from '@/lib/invoice-discounts'
+import type { DiscountKind } from '@/lib/invoice-discounts'
 import { createOrderItemVariantSnapshot, orderedVariantLabels, resolveOrderItemVariantLabels } from '@/lib/order-item-variant'
+import { recalculateOpenOrderInvoice } from '@/lib/invoice-recalculation'
 
 export class InvoiceError extends Error { constructor(message: string, readonly status = 400) { super(message); this.name = 'InvoiceError' } }
 
@@ -47,11 +48,6 @@ function percentage(value: unknown): bigint {
 }
 function discountKind(value: string | null | undefined): DiscountKind { return value === 'percentage' || value === 'amount' ? value : 'none' }
 function discountValue(kind: DiscountKind, value: unknown): bigint { return kind === 'none' ? 0n : kind === 'percentage' ? percentage(value) : cents(value) }
-function taxCents(base: bigint, rate: unknown) {
-  const rateCents = cents(rate)
-  return (base * rateCents + 5_000n) / 10_000n
-}
-
 export async function getCashierInvoices(session: StaffSession, range: { from?: Date; to?: Date; branchId?: bigint } = {}): Promise<InvoiceRow[]> {
   const scope = session.role === ROLE.OWNER ? (range.branchId ? { branchId: range.branchId } : {}) : { branchId: BigInt(session.branchId as string) }
   const createdAt = range.from || range.to ? { ...(range.from ? { gte: range.from } : {}), ...(range.to ? { lte: range.to } : {}) } : undefined
@@ -64,7 +60,7 @@ export async function getCashierInvoices(session: StaffSession, range: { from?: 
   })
   return orders.map((o) => {
     const paid = o.payments.reduce((sum, p) => sum + Number(p.amount), 0)
-    return { id: o.id.toString(), number: o.orderNumber, createdAt: o.createdAt.toISOString(), branch: o.branch.name, table: o.cafeTable.number, creator: o.createdBy?.name ?? null, cashier: o.payments.length > 0 ? o.payments[o.payments.length - 1]?.paidBy?.name ?? null : null, orderType: o.orderType, notes: o.notes, discountType: o.discountType === 'percentage' || o.discountType === 'amount' ? o.discountType : null, discountValue: Number(o.discountValue).toFixed(2),
+    return { id: o.id.toString(), number: o.orderNumber, createdAt: o.createdAt.toISOString(), branch: o.branch.name, table: o.orderType === 'takeaway' ? 'تيك أواي' : o.cafeTable.number, creator: o.createdBy?.name ?? null, cashier: o.payments.length > 0 ? o.payments[o.payments.length - 1]?.paidBy?.name ?? null : null, orderType: o.orderType, notes: o.notes, discountType: o.discountType === 'percentage' || o.discountType === 'amount' ? o.discountType : null, discountValue: Number(o.discountValue).toFixed(2),
       status: o.status, paymentStatus: settled(Number(o.total), paid) ? 'paid' : o.paymentStatus, subtotal: Number(o.itemsSubtotal).toFixed(2), itemDiscount: Number(o.itemDiscountAmount).toFixed(2), discountEligibleBase: Number(o.discountEligibleBase).toFixed(2), discount: Number(o.discountAmount).toFixed(2), tax: Number(o.taxAmount).toFixed(2), total: Number(o.total).toFixed(2), paid: paid.toFixed(2), remaining: Math.max(0, Number(o.total) - paid).toFixed(2), cancelledAt: o.cancelledAt?.toISOString() ?? null, cancelReason: o.cancelReason ?? null,
       items: o.items.map((i) => {
         const relationLabels = orderedVariantLabels(i.productVariant?.values.map((entry) => entry.value) ?? [])
@@ -155,18 +151,15 @@ export async function editOpenInvoice(session: StaffSession, orderIdRaw: string,
       const kind = parsed.data.discountType
       financials = { discountType: kind, discountValue: discountValue(kind, parsed.data.discountValue), notes: parsed.data.notes?.trim() || null }
     }
-    const lines = await tx.orderItem.findMany({ where: { orderId, isVoided: false }, select: { id: true, unitPrice: true, quantity: true, discountType: true, discountValue: true, eligibleForInvoiceDiscount: true } })
     const invoiceKind = financials?.discountType ?? discountKind(locked.discount_type)
     const invoiceValue = financials?.discountValue ?? discountValue(invoiceKind, locked.discount_value)
-    let calculated
+    let result
     try {
-      calculated = calculateInvoiceDiscounts(lines.map((line) => ({ unitCents: cents(line.unitPrice), quantity: line.quantity, discountType: discountKind(line.discountType), discountValue: discountValue(discountKind(line.discountType), line.discountValue), eligibleForInvoiceDiscount: line.eligibleForInvoiceDiscount })), invoiceKind, invoiceValue)
+      result = await recalculateOpenOrderInvoice(tx, orderId, invoiceKind, invoiceValue, locked.tax_rate)
     } catch (error) {
       throw new InvoiceError(error instanceof Error ? error.message : 'Invalid discount', 422)
     }
-    await Promise.all(lines.map((line, index) => tx.orderItem.update({ where: { id: line.id }, data: { lineTotal: centsText(calculated.lineTotals[index].afterDiscountCents), discountAmount: centsText(calculated.lineTotals[index].itemDiscountCents) } })))
-    const tax = taxCents(calculated.finalCents, locked.tax_rate)
-    const total = calculated.finalCents + tax
+    const { calculated, tax, total } = result
     await tx.order.update({ where: { id: orderId }, data: { itemsSubtotal: centsText(calculated.subtotalCents), itemDiscountAmount: centsText(calculated.itemDiscountCents), discountEligibleBase: centsText(calculated.eligibleBaseCents), discountAmount: centsText(calculated.itemDiscountCents + calculated.invoiceDiscountCents), taxAmount: centsText(tax), total: centsText(total), paymentStatus: 'unpaid', ...(financials ? { discountType: financials.discountType === 'none' ? null : financials.discountType, discountValue: financials.discountType === 'amount' ? centsText(financials.discountValue) : financials.discountValue.toString(), notes: financials.notes } : {}) } })
     await tx.auditLog.create({ data: { userId: session.id, branchId: order.branchId, action: 'invoice.edit', entityType: 'order', entityId: orderId, newValues: { action: parsed.data.action, subtotal: centsText(calculated.subtotalCents), itemDiscount: centsText(calculated.itemDiscountCents), invoiceDiscount: centsText(calculated.invoiceDiscountCents), total: centsText(total) } } })
     return { id: orderId.toString(), total: centsText(total) }

@@ -3,6 +3,7 @@ import { ROLE, requiresOperationalShift } from '@/lib/authz'
 import type { StaffSession } from '@/lib/session'
 import type { StaffOrderRow } from '@/lib/staff-orders'
 import { getOpenShift, ShiftError } from '@/lib/staff-shifts'
+import { orderedVariantLabels, resolveOrderItemVariantLabels } from '@/lib/order-item-variant'
 
 /**
  * Waiter workspace — branch tables + open orders + POS catalog.
@@ -135,7 +136,7 @@ export async function getWaiterWorkspace(session: StaffSession): Promise<WaiterW
     })),
     openOrders: orders.map((o) => ({
       id: o.id.toString(), number: o.orderNumber, status: o.status,
-      paymentStatus: o.paymentStatus,
+      paymentStatus: o.paymentStatus, orderType: o.orderType,
       total: Number(o.total), customerName: o.customerName, source: o.source, orderNotes: o.notes,
       tableNumber: o.cafeTable.number, createdAt: o.createdAt.toISOString(),
       sentToKitchen: o.sentToKitchenAt != null,
@@ -143,7 +144,7 @@ export async function getWaiterWorkspace(session: StaffSession): Promise<WaiterW
       cancelReason: o.cancelReason ?? null,
       responsibleWaiterId: o.responsibleWaiterId,
       responsibleWaiterName: o.responsibleWaiter?.name ?? null,
-      items: o.items.map((i) => ({ id: i.id.toString(), productId: i.productId.toString(), name: i.productName, qty: i.quantity, servedQty: i.servedQuantity, preparedQty: i.preparedQuantity, preparationStartedAt: i.preparationStartedAt?.toISOString() ?? null, unitPrice: Number(i.unitPrice), note: i.notes })),
+      items: o.items.map((i) => { const labels = i.productVariantId || i.productVariantSnapshot ? resolveOrderItemVariantLabels(i.productVariantSnapshot, orderedVariantLabels(i.productVariant?.values.map((entry) => entry.value) ?? [])) : []; return { id: i.id.toString(), productId: i.productId.toString(), name: i.productName, variantLabel: labels.length ? labels.join(' · ') : null, qty: i.quantity, servedQty: i.servedQuantity, preparedQty: i.preparedQuantity, preparationStartedAt: i.preparationStartedAt?.toISOString() ?? null, unitPrice: Number(i.unitPrice), note: i.notes } }),
       itemsCount: o.items.reduce((n, i) => n + i.quantity, 0),
     })),
     categories: categories.map((c) => ({ id: c.id.toString(), name: c.name })),
@@ -174,13 +175,13 @@ function loadWaiterWorkspaceData(session: StaffSession, branchScope: { branchId:
       orderBy: { createdAt: 'desc' },
       take: 100,
       select: {
-        id: true, orderNumber: true, status: true, paymentStatus: true, total: true, customerName: true,
+        id: true, orderNumber: true, status: true, paymentStatus: true, orderType: true, total: true, customerName: true,
         source: true, notes: true, createdAt: true, sentToKitchenAt: true, cancelReason: true, responsibleWaiterId: true,
         responsibleWaiter: { select: { name: true } },
         cafeTable: { select: { number: true } },
         items: {
           where: { isVoided: false }, orderBy: { id: 'asc' },
-          select: { id: true, productId: true, productName: true, quantity: true, servedQuantity: true, preparedQuantity: true, preparationStartedAt: true, unitPrice: true, notes: true },
+          select: { id: true, productId: true, productName: true, productVariantId: true, productVariantSnapshot: true, productVariant: { select: { values: { select: { value: { select: { label: true, attribute: { select: { sortOrder: true } } } } } } } }, quantity: true, servedQuantity: true, preparedQuantity: true, preparationStartedAt: true, unitPrice: true, notes: true },
         },
       },
     }),

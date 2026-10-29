@@ -131,9 +131,10 @@ export async function finalizeOrderPayment(
       throw new PaymentError('لا توجد وردية مفتوحة لهذا الموظف — افتح وردية أولاً من صفحة الورديات (/shifts)', 409)
     }
     // Lock the order row for the duration of the transaction.
-    const locked = await tx.$queryRaw<{ total: unknown }[]>`
-      SELECT total FROM orders WHERE id = ${order.id} FOR UPDATE
+    const locked = await tx.$queryRaw<{ total: unknown; status: string }[]>`
+      SELECT total, status FROM orders WHERE id = ${order.id} FOR UPDATE
     `
+    if (!locked[0] || locked[0].status === 'cancelled') throw new PaymentError('لا يمكن تحصيل طلب ملغي', 409)
     const total = Number(locked[0]?.total ?? 0)
 
     const paidAgg = await tx.payment.aggregate({
