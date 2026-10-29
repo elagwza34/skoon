@@ -61,17 +61,19 @@ import {
 import { floatMovementSchema } from '../src/lib/staff-float'
 import { financialShiftLockName } from '../src/lib/financial-shift-lock'
 import { assertRefundAmount, assertRefundReservation, refundAffectsTill, remainingRefundableCents, remainingReservableRefundCents } from '../src/lib/refund-accounting'
-import { recalculateInvoiceTotals, resolveVariantLabels, splitInvoices, type InvoiceRow } from '../src/lib/staff-invoices'
+import { editOpenInvoice, recalculateInvoiceTotals, resolveVariantLabels, splitInvoices, type InvoiceRow } from '../src/lib/staff-invoices'
 import { receiptInvoiceForSettlement, receiptSettlementBreakdown } from '../src/lib/receipt-settlement'
 import { captureReceiptPrintTimestamp, formatReceiptPrintTime, receiptOrderTypeLabel } from '../src/lib/receipt-display'
 import { posDraftKey, restorePosDraft } from '../src/lib/pos-draft'
 import { posOrderSchema } from '../src/lib/staff-pos'
+import { canRenderPosDiscountControls, containsDiscountSubmission, submittedDiscountFields } from '../src/lib/pos-discount-policy'
 import { createOrderItemVariantSnapshot, orderedVariantLabels, resolveOrderItemVariantLabels } from '../src/lib/order-item-variant'
 import { modifierSnapshotLabels } from '../src/lib/order-item-options'
 import { modifierMutationSchema } from '../src/lib/staff-product-modifiers'
 import { canVoidOrderItemForOrder, orderItemVoidBlocker } from '../src/lib/staff-order-item-void'
 import { isKitchenTicketVisible, itemPreparationState, OrderError, takeawayDispatchBlocker, transitionOrderStatus } from '../src/lib/staff-orders'
 import { canTransitionOrder } from '../src/lib/staff-orders'
+import { editWaiterOrder, waiterOrderEditSchema } from '../src/lib/staff-orders'
 import { canViewOwnerWaiterMonitor, isWaiterTableOrderActive } from '../src/lib/staff-waiter'
 import { isMissingWaiterHandoverTableError } from '../src/lib/staff-waiter'
 import { isPublicPath } from '../src/middleware'
@@ -1044,6 +1046,37 @@ test('pos order input ignores client prices while preserving the authoritative o
   assert.deepEqual(parsed, { orderType: 'dine_in', tableId: '7', customerName: 'Guest', items: [{ productId: '11', modifierSelections: [], qty: 2 }] })
   assert.equal(posOrderSchema.safeParse({ tableId: '7', items: [] }).success, false)
   assert.equal(posOrderSchema.safeParse({ tableId: '7', items: [{ productId: '11', qty: 21 }] }).success, false)
+})
+
+test('waiter POS renders no discount controls while cashier controls remain available', () => {
+  assert.equal(canRenderPosDiscountControls('waiter'), false)
+  assert.equal(canRenderPosDiscountControls('cashier'), true)
+  assert.deepEqual(submittedDiscountFields('waiter', 'percentage', 25), {})
+  assert.deepEqual(submittedDiscountFields('cashier', 'percentage', 25), { discountType: 'percentage', discountValue: 25 })
+})
+
+test('waiter POS creates a normal dine-in payload without discount fields', () => {
+  const payload = {
+    orderType: 'dine_in' as const,
+    tableId: '7',
+    ...submittedDiscountFields('waiter', 'amount', 10),
+    items: [{ productId: '11', qty: 1, modifierSelections: [], ...submittedDiscountFields('waiter', 'percentage', 5) }],
+  }
+  assert.equal(posOrderSchema.safeParse(payload).success, true)
+  assert.equal(containsDiscountSubmission(payload), false)
+})
+
+test('waiter order edits accept permitted item changes but reject discount fields', async () => {
+  const permitted = { items: [{ itemId: '21', productId: '11', qty: 2, note: 'no sugar' }], notes: 'table note' }
+  assert.equal(waiterOrderEditSchema.safeParse(permitted).success, true)
+  assert.equal(waiterOrderEditSchema.safeParse({ ...permitted, discountType: 'percentage', discountValue: 10 }).success, false)
+  const waiter: StaffSession = { id: '00000000-0000-0000-0000-000000000010', email: null, name: 'Waiter', role: ROLE.WAITER, branchId: '1', permissions: [] }
+  await assert.rejects(editWaiterOrder(waiter, '1', { ...permitted, discountType: 'amount', discountValue: 1 }), /Invalid order edit/)
+})
+
+test('waiter cannot change invoice discounts through the cashier invoice API', async () => {
+  const waiter: StaffSession = { id: '00000000-0000-0000-0000-000000000010', email: null, name: 'Waiter', role: ROLE.WAITER, branchId: '1', permissions: [] }
+  await assert.rejects(editOpenInvoice(waiter, '1', { action: 'line_discount', orderItemId: '21', discountType: 'none', discountValue: '0', eligibleForInvoiceDiscount: false }), /Forbidden/)
 })
 
 test('invoices: open and paid sections derive from persisted remaining balance', () => {

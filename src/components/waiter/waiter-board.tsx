@@ -189,28 +189,29 @@ function WaiterOrderEditor({
   onClose: () => void
   onSaved: () => void
 }) {
-  const [lines, setLines] = useState<{ productId: string; qty: number; note: string }[]>(
-    order.items.map((item) => ({ productId: item.id, qty: item.qty, note: item.note ?? '' }))
+  const [lines, setLines] = useState<{ itemId?: string; productId: string; qty: number; note: string }[]>(
+    order.items.map((item) => ({ itemId: item.id, productId: item.productId, qty: item.qty, note: item.note ?? '' }))
   )
   const [notes, setNotes] = useState(order.orderNotes ?? '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const productById = useMemo(() => new Map(products.map((p) => [p.id, p])), [products])
   const previewTotal = lines.reduce((total, line) => total + (Number(productById.get(line.productId)?.price ?? 0) * line.qty), 0)
+  const lineIdentity = (line: { itemId?: string; productId: string }) => line.itemId ?? `new:${line.productId}`
 
   function add(productId: string) {
     setLines((current) => {
       const existing = current.find((line) => line.productId === productId)
       return existing
-        ? current.map((line) => line.productId === productId ? { ...line, qty: Math.min(20, line.qty + 1) } : line)
+        ? current.map((line) => lineIdentity(line) === lineIdentity(existing) ? { ...line, qty: Math.min(20, line.qty + 1) } : line)
         : [...current, { productId, qty: 1, note: '' }]
     })
   }
 
-  function changeQty(productId: string, delta: number) {
+  function changeQty(identity: string, delta: number) {
     setLines((current) =>
       current
-        .map((line) => (line.productId === productId ? { ...line, qty: line.qty + delta } : line))
+        .map((line) => (lineIdentity(line) === identity ? { ...line, qty: line.qty + delta } : line))
         .filter((line) => line.qty > 0)
     )
   }
@@ -266,13 +267,13 @@ function WaiterOrderEditor({
             {lines.map((line) => {
               const product = productById.get(line.productId)
               return (
-                <div key={line.productId} className="flex flex-wrap items-center gap-2 rounded border p-2">
+                <div key={lineIdentity(line)} className="flex flex-wrap items-center gap-2 rounded border p-2">
                   <span className="min-w-32 flex-1 text-sm font-medium">{product?.name ?? 'منتخب غير معرفو'}</span>
-                  <Button type="button" size="icon" variant="outline" className="h-8 w-8" onClick={() => changeQty(line.productId, -1)}>
+                  <Button type="button" size="icon" variant="outline" className="h-8 w-8" onClick={() => changeQty(lineIdentity(line), -1)}>
                     <Icon name="minus" size={14} />
                   </Button>
                   <span className="w-6 text-center">{line.qty}</span>
-                  <Button type="button" size="icon" variant="outline" className="h-8 w-8" onClick={() => changeQty(line.productId, 1)}>
+                  <Button type="button" size="icon" variant="outline" className="h-8 w-8" onClick={() => changeQty(lineIdentity(line), 1)}>
                     <Icon name="plus" size={14} />
                   </Button>
                   <Input
@@ -280,7 +281,7 @@ function WaiterOrderEditor({
                     maxLength={255}
                     onChange={(event) =>
                       setLines((current) =>
-                        current.map((item) => (item.productId === line.productId ? { ...item, note: event.target.value } : item))
+                        current.map((item) => (lineIdentity(item) === lineIdentity(line) ? { ...item, note: event.target.value } : item))
                       )
                     }
                     placeholder="ملحووات الصنياة"

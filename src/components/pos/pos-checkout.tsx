@@ -18,6 +18,7 @@ import { buildPaymentRequestPayload } from '@/lib/payment-request'
 import { ThermalReceiptPreview } from '@/components/cashier/thermal-receipt-preview'
 import type { InvoiceRow } from '@/lib/staff-invoices'
 import type { StaffOrderRow } from '@/lib/staff-orders'
+import { canRenderPosDiscountControls, submittedDiscountFields } from '@/lib/pos-discount-policy'
 
 /**
  * POS checkout — real branch catalog + tables from the DB.
@@ -25,6 +26,7 @@ import type { StaffOrderRow } from '@/lib/staff-orders'
  */
 export function PosCheckout({ catalog, initialTableId, takeawayOrders = [], mode = "cashier" }: { catalog: PosCatalog; initialTableId?: string; takeawayOrders?: StaffOrderRow[]; mode?: "cashier" | "waiter" }) {
   const isWaiter = mode === 'waiter'
+  const canUseDiscounts = canRenderPosDiscountControls(mode)
   const router = useRouter()
   const [category, setCategory] = useState('all')
   const [query, setQuery] = useState('')
@@ -290,16 +292,14 @@ export function PosCheckout({ catalog, initialTableId, takeawayOrders = [], mode
           customerName: customerName.trim() || undefined,
           customerPhone: customerPhone.trim() || undefined,
           notes: orderNotes.trim() || undefined,
-          discountType: discountType === 'none' ? undefined : discountType,
-          discountValue: discountType === 'none' ? undefined : Number(discountValue || 0),
+          ...submittedDiscountFields(mode, discountType === 'none' ? undefined : discountType, Number(discountValue || 0)),
           items: cart.map((l) => ({
             productId: l.id,
             variantId: l.variantId,
             modifierSelections: Object.entries(l.modifierSelections).map(([groupId, valueIds]) => ({ groupId, valueIds })),
             qty: l.qty,
             note: l.note?.trim() || undefined,
-            discountType: l.discountType,
-            discountValue: l.discountValue,
+            ...submittedDiscountFields(mode, l.discountType, l.discountValue),
           })),
         }),
       })
@@ -472,15 +472,15 @@ export function PosCheckout({ catalog, initialTableId, takeawayOrders = [], mode
                     <div className="flex min-w-0 flex-1 flex-col gap-1 leading-tight">
                       <span className="break-words text-sm font-medium leading-5 text-foreground">{fullLabel}</span>
                       <span className="text-xs text-muted-foreground">{formatCurrency(unitPrice * l.qty)}</span>
-                      <Input value={l.note ?? ''} onChange={(e) => setNote(l.id, l.variantId, l.modifierSelections, e.target.value)} maxLength={255} placeholder="ملاحظة للصنف (اختياري)" aria-label={`ملاحظة ${label}`} className="h-8 text-xs" />
-                      <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+                      {!isWaiter ? <Input value={l.note ?? ''} onChange={(e) => setNote(l.id, l.variantId, l.modifierSelections, e.target.value)} maxLength={255} placeholder="ملاحظة للصنف (اختياري)" aria-label={`ملاحظة ${label}`} className="h-8 text-xs" /> : null}
+                      {canUseDiscounts ? <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
                         <select value={l.discountType ?? 'none'} onChange={(event) => setLineDiscount(l.id, l.variantId, l.modifierSelections, event.target.value as 'none' | 'percentage' | 'amount', String(l.discountValue ?? ''))} className="h-8 rounded border bg-background px-2 text-xs" aria-label={`خصم ${label}`}>
                           <option value="none">بدون خصم</option>
                           <option value="percentage">خصم %</option>
                           <option value="amount">خصم مبلغ</option>
                         </select>
                         {l.discountType ? <Input value={String(l.discountValue ?? '')} onChange={(event) => setLineDiscount(l.id, l.variantId, l.modifierSelections, l.discountType ?? 'none', event.target.value)} inputMode="decimal" className="h-8 text-xs" /> : null}
-                      </div>
+                      </div> : null}
                     </div>
                     <div className="flex shrink-0 items-center justify-end gap-1 self-end sm:self-auto">
                       <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => dec(l.id, l.variantId, l.modifierSelections)} aria-label="إنقاص">
@@ -503,14 +503,14 @@ export function PosCheckout({ catalog, initialTableId, takeawayOrders = [], mode
             <span className="text-foreground">الإجمالي</span>
             <span className="text-primary">{formatCurrency(subtotal)}</span>
           </div>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {canUseDiscounts ? <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <select value={discountType} onChange={(event) => setDiscountType(event.target.value as typeof discountType)} className="rounded-lg border bg-background p-2 text-sm">
               <option value="none">بدون خصم عام</option>
               <option value="percentage">خصم عام %</option>
               <option value="amount">خصم عام مبلغ</option>
             </select>
             {discountType !== 'none' ? <Input value={discountValue} onChange={(event) => setDiscountValue(event.target.value)} inputMode="decimal" placeholder="قيمة الخصم" /> : null}
-          </div>
+          </div> : null}
           {orderType === 'takeaway' ? (
             <div className="space-y-2 rounded-lg border p-3">
               <select

@@ -7,6 +7,7 @@ import { notifyRole } from '@/lib/notifications'
 import { getOpenShift } from '@/lib/staff-shifts'
 import { createOrderItemVariantSnapshot } from '@/lib/order-item-variant'
 import { calculateInvoiceDiscounts, type DiscountKind } from '@/lib/invoice-discounts'
+import { containsDiscountSubmission } from '@/lib/pos-discount-policy'
 
 export type PosOrderResult = { id: string; orderNumber: string; orderType: 'dine_in' | 'takeaway'; total: string; itemsCount: number }
 
@@ -24,6 +25,7 @@ export async function createPosOrder(session: StaffSession, input: unknown, idem
 
   // Waiter restrictions: no takeaway, no discounts
   if (session.role === ROLE.WAITER) {
+    if (containsDiscountSubmission(parsed.data)) throw new PosError('النادل لا يمكنه تطبيق أو تعديل الخصومات', 403)
     if (parsed.data.orderType === 'takeaway') throw new PosError('النادل لا يمكنه إنشاء طلبات تيك أواي', 403)
     if (parsed.data.discountType !== undefined) throw new PosError('النادل لا يمكنه تطبيق خصومات', 403)
     for (const item of parsed.data.items) {

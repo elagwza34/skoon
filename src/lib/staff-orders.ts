@@ -4,10 +4,10 @@ import { ROLE, hasAtLeast, hasPermission, requiresOperationalShift, type RoleSlu
 import { staffCanAccessBranch, type StaffSession } from '@/lib/session'
 import { notifyRole, type NotificationType } from '@/lib/notifications'
 import { getOpenShift, ShiftError } from '@/lib/staff-shifts'
-import { recalculateInvoiceTotals } from '@/lib/staff-invoices'
 import { consumeOrderReservations, markOrderPreparation, releaseOrderReservations, reserveOrderInventory, serveOrderItemInventory, StockError } from '@/lib/staff-inventory-engine'
 import { orderedVariantLabels, resolveOrderItemVariantLabels } from '@/lib/order-item-variant'
 import { modifierSnapshotLabels } from '@/lib/order-item-options'
+import { centsText, invoiceDiscountKind, invoiceDiscountValue, recalculateOpenOrderInvoice } from '@/lib/invoice-recalculation'
 
 /**
  * Staff order lifecycle — server-only.
@@ -178,10 +178,10 @@ export async function listKitchenOrders(session: StaffSession, limit = 100): Pro
 
 const toStatusSchema = z.enum(['preparing', 'ready', 'served', 'cancelled'])
 const cancelReasonSchema = z.string().trim().min(3).max(255).optional()
-const waiterOrderEditSchema = z.object({
-  items: z.array(z.object({ productId: z.string().regex(/^\d+$/), qty: z.number().int().min(1).max(20), note: z.string().trim().max(255).optional() })).min(1).max(30),
+export const waiterOrderEditSchema = z.object({
+  items: z.array(z.object({ itemId: z.string().regex(/^\d+$/).optional(), productId: z.string().regex(/^\d+$/), qty: z.number().int().min(1).max(20), note: z.string().trim().max(255).optional() }).strict()).min(1).max(30),
   notes: z.string().trim().max(2000).optional(),
-})
+}).strict()
 const serveItemsSchema = z.object({
   items: z.array(z.object({ orderItemId: z.string().regex(/^\d+$/), quantity: z.coerce.number().int().positive().max(99) })).min(1).max(30),
   interventionReason: z.string().trim().min(3).max(255).optional(),
@@ -268,21 +268,33 @@ export async function editWaiterOrder(session: StaffSession, orderIdRaw: string,
     `
     const row = locked[0]
     if (!row || row.status !== 'new' || row.sent_to_kitchen_at) throw new OrderError('Only unsent new orders can be edited', 409)
-    const productIds = [...new Set(parsed.data.items.map((item) => BigInt(item.productId)))]
-    const products = await tx.product.findMany({ where: { id: { in: productIds }, branchId: order.branchId, isActive: true, isAvailable: true, deletedAt: null }, select: { id: true, name: true, price: true } })
+    const submittedItemIds = parsed.data.items.flatMap((item) => item.itemId ? [BigInt(item.itemId)] : [])
+    if (new Set(submittedItemIds.map(String)).size !== submittedItemIds.length) throw new OrderError('Duplicate order item', 400)
+    const existingItems = await tx.orderItem.findMany({ where: { orderId, isVoided: false }, select: { id: true, productId: true } })
+    const existingById = new Map(existingItems.map((item) => [item.id.toString(), item]))
+    for (const item of parsed.data.items) {
+      if (!item.itemId) continue
+      const existing = existingById.get(item.itemId)
+      if (!existing || existing.productId.toString() !== item.productId) throw new OrderError('Order item not found', 404)
+    }
+    const newProductIds = [...new Set(parsed.data.items.filter((item) => !item.itemId).map((item) => BigInt(item.productId)))]
+    const products = newProductIds.length ? await tx.product.findMany({ where: { id: { in: newProductIds }, branchId: order.branchId, isActive: true, isAvailable: true, deletedAt: null }, select: { id: true, name: true, price: true } }) : []
     const byId = new Map(products.map((product) => [product.id.toString(), product]))
-    if (byId.size !== productIds.length) throw new OrderError('A selected product is unavailable', 422)
-    const lines = parsed.data.items.map((item) => {
+    if (byId.size !== newProductIds.length) throw new OrderError('A selected product is unavailable', 422)
+    const newLines = parsed.data.items.filter((item) => !item.itemId).map((item) => {
       const product = byId.get(item.productId)!
       return { productId: product.id, productName: product.name, unitPrice: product.price, quantity: item.qty, lineTotal: (Number(product.price) * item.qty).toFixed(2), notes: item.note || null }
     })
-    const subtotal = lines.reduce((sum, line) => sum + Number(line.lineTotal), 0)
-    const totals = recalculateInvoiceTotals(subtotal, row.discount_type, Number(row.discount_value), Number(row.tax_rate))
-    await tx.orderItem.deleteMany({ where: { orderId } })
-    await tx.orderItem.createMany({ data: lines.map((line) => ({ ...line, orderId })) })
-    await tx.order.update({ where: { id: orderId }, data: { notes: parsed.data.notes || null, itemsSubtotal: subtotal.toFixed(2), discountAmount: totals.discount.toFixed(2), taxAmount: totals.tax.toFixed(2), total: totals.total.toFixed(2) } })
-    await tx.auditLog.create({ data: { userId: session.id, branchId: order.branchId, action: 'waiter.order_edit', entityType: 'order', entityId: orderId, newValues: { itemsCount: lines.reduce((sum, line) => sum + line.quantity, 0), total: totals.total, notes: parsed.data.notes || null } } })
-    return { id: orderId.toString(), total: totals.total.toFixed(2), itemsCount: lines.reduce((sum, line) => sum + line.quantity, 0) }
+    await Promise.all(parsed.data.items.filter((item) => item.itemId).map((item) => tx.orderItem.update({ where: { id: BigInt(item.itemId!) }, data: { quantity: item.qty, notes: item.note || null } })))
+    await tx.orderItem.deleteMany({ where: { orderId, id: { notIn: submittedItemIds } } })
+    if (newLines.length) await tx.orderItem.createMany({ data: newLines.map((line) => ({ ...line, orderId })) })
+    const invoiceKind = invoiceDiscountKind(row.discount_type)
+    const result = await recalculateOpenOrderInvoice(tx, orderId, invoiceKind, invoiceDiscountValue(invoiceKind, row.discount_value), row.tax_rate)
+    const { calculated, tax, total } = result
+    const itemsCount = parsed.data.items.reduce((sum, item) => sum + item.qty, 0)
+    await tx.order.update({ where: { id: orderId }, data: { notes: parsed.data.notes || null, itemsSubtotal: centsText(calculated.subtotalCents), itemDiscountAmount: centsText(calculated.itemDiscountCents), discountEligibleBase: centsText(calculated.eligibleBaseCents), discountAmount: centsText(calculated.itemDiscountCents + calculated.invoiceDiscountCents), taxAmount: centsText(tax), total: centsText(total) } })
+    await tx.auditLog.create({ data: { userId: session.id, branchId: order.branchId, action: 'waiter.order_edit', entityType: 'order', entityId: orderId, newValues: { itemsCount, total: centsText(total), notes: parsed.data.notes || null } } })
+    return { id: orderId.toString(), total: centsText(total), itemsCount }
   })
 }
 
