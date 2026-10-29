@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { ROLE } from '@/lib/authz'
 import type { StaffSession } from '@/lib/session'
+import { orderedVariantLabels } from '@/lib/order-item-variant'
 
 /**
  * Staff POS catalog — real products + tables for the cashier screen.
@@ -63,7 +64,7 @@ export async function getPosCatalog(session: StaffSession): Promise<PosCatalog> 
         variants: {
           where: { isActive: true, isAvailable: true, archivedAt: null },
           orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-          select: { id: true, combinationKey: true, price: true, isAvailable: true, values: { select: { value: { select: { label: true } } } } },
+          select: { id: true, combinationKey: true, price: true, isAvailable: true, values: { select: { value: { select: { label: true, attribute: { select: { sortOrder: true } } } } } } },
         },
       },
     }),
@@ -82,7 +83,7 @@ export async function getPosCatalog(session: StaffSession): Promise<PosCatalog> 
       isAvailable: p.isAvailable,
       variants: p.variants.map((v) => ({
         id: v.id.toString(),
-        label: v.values[0]?.value.label ?? v.combinationKey,
+        label: orderedVariantLabels(v.values.map((entry) => entry.value), v.combinationKey).join(' · '),
         price: v.price.toString(),
         priceAdjustment: (Number(v.price) - Number(p.price)).toFixed(2),
         isAvailable: v.isAvailable,

@@ -47,6 +47,34 @@ test('cashier PostgreSQL acceptance is isolated and cleaned up', { skip: safe ? 
     assert.equal(Number(order.items[0].unitPrice), 25); assert.equal(Number(order.items[0].lineTotal), 50)
     assert.equal(await prisma.notification.count({ where: { userId: ids.waiter, orderId: order.id, type: 'order.created' } }), 1)
     assert.equal(await prisma.auditLog.count({ where: { branchId: branch.id, action: 'pos.order_create', entityId: order.id } }), 1)
+    const attribute = await prisma.productAttribute.create({ data: { branchId: branch.id, name: `Size ${suffix}` } })
+    const values = await Promise.all([
+      prisma.productAttributeValue.create({ data: { attributeId: attribute.id, label: 'صغير', sortOrder: 1 } }),
+      prisma.productAttributeValue.create({ data: { attributeId: attribute.id, label: 'كبير طويل الاسم لاختبار الطباعة الحرارية العربية', sortOrder: 2 } }),
+    ])
+    const variants = await Promise.all([
+      prisma.productVariant.create({ data: { productId: product.id, combinationKey: `size:${values[0].id}`, price: '30.00', values: { create: { valueId: values[0].id } } } }),
+      prisma.productVariant.create({ data: { productId: product.id, combinationKey: `size:${values[1].id}`, price: '45.00', values: { create: { valueId: values[1].id } } } }),
+    ])
+    const variantOrder = await createPosOrder(cashier, { tableId: table.id.toString(), items: [
+      { productId: product.id.toString(), variantId: variants[0].id.toString(), qty: 1 },
+      { productId: product.id.toString(), variantId: variants[1].id.toString(), qty: 2 },
+    ] }, `cashier-${suffix}-variants`)
+    assert.equal(variantOrder.total, '120.00')
+    const variantInvoice = (await getCashierInvoices(cashier)).find((invoice) => invoice.id === variantOrder.id)
+    assert.deepEqual(variantInvoice?.items.map((item) => ({ label: item.variantLabel, unitPrice: item.unitPrice, quantity: item.quantity, lineTotal: item.lineTotal })), [
+      { label: 'صغير', unitPrice: '30.00', quantity: 1, lineTotal: '30.00' },
+      { label: 'كبير طويل الاسم لاختبار الطباعة الحرارية العربية', unitPrice: '45.00', quantity: 2, lineTotal: '90.00' },
+    ])
+    await editOpenInvoice(cashier, variantOrder.id, { action: 'line_discount', orderItemId: variantInvoice!.items[1].id, discountType: 'amount', discountValue: '10.00', eligibleForInvoiceDiscount: true })
+    await editOpenInvoice(cashier, variantOrder.id, { action: 'financials', discountType: 'percentage', discountValue: '10', notes: '' })
+    const discountedVariantInvoice = (await getCashierInvoices(cashier)).find((invoice) => invoice.id === variantOrder.id)
+    assert.equal(discountedVariantInvoice?.items[1].discountAmount, '10.00')
+    assert.equal(discountedVariantInvoice?.total, '99.00')
+    await finalizeOrderPayment(cashier, variantOrder.id, { method: 'cash', received: 100, idempotencyKey: `cashier-${suffix}-variants-pay` })
+    const settledVariantInvoice = (await getCashierInvoices(cashier)).find((invoice) => invoice.id === variantOrder.id)
+    assert.equal(settledVariantInvoice?.remaining, '0.00')
+    assert.deepEqual(settledVariantInvoice?.items.map((item) => item.variantLabel), ['صغير', 'كبير طويل الاسم لاختبار الطباعة الحرارية العربية'])
     await assert.rejects(() => createPosOrder(cashier, { ...input, items: [{ productId: product.id.toString(), qty: 1 }] }, key), (e: unknown) => e instanceof Error && /Idempotency/.test(e.message))
     await assert.rejects(() => createPosOrder(cashier, { tableId: table.id.toString(), items: [{ productId: unavailable.id.toString(), qty: 1 }] }, `cashier-${suffix}-bad`), (e: unknown) => e instanceof Error)
     await assert.rejects(() => editOpenInvoice(outsider, first.id, { action: 'quantity', orderItemId: order.items[0].id.toString(), quantity: 1 }), (e: unknown) => e instanceof InvoiceError && e.status === 404)
@@ -64,6 +92,8 @@ test('cashier PostgreSQL acceptance is isolated and cleaned up', { skip: safe ? 
     if (branches.length) {
       await prisma.financialOperation.deleteMany({ where: { branchId: { in: branches } } }); await prisma.auditLog.deleteMany({ where: { branchId: { in: branches } } })
       await prisma.order.deleteMany({ where: { branchId: { in: branches } } }); await prisma.shift.deleteMany({ where: { branchId: { in: branches } } })
+      await prisma.productVariantValue.deleteMany({ where: { variant: { product: { branchId: { in: branches } } } } }); await prisma.productVariant.deleteMany({ where: { product: { branchId: { in: branches } } } })
+      await prisma.productAttributeValue.deleteMany({ where: { attribute: { branchId: { in: branches } } } }); await prisma.productAttribute.deleteMany({ where: { branchId: { in: branches } } })
       await prisma.product.deleteMany({ where: { branchId: { in: branches } } }); await prisma.category.deleteMany({ where: { branchId: { in: branches } } }); await prisma.cafeTable.deleteMany({ where: { branchId: { in: branches } } })
       await prisma.user.deleteMany({ where: { id: { in: Object.values(ids) } } }); await prisma.cafeBranch.deleteMany({ where: { id: { in: branches } } })
       assert.equal(await prisma.cafeBranch.count({ where: { id: { in: branches } } }), 0)

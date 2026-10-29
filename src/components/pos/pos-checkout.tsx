@@ -40,7 +40,7 @@ export function PosCheckout({ catalog, initialTableId }: { catalog: PosCatalog; 
   useEffect(() => {
     try {
       const raw = window.localStorage.getItem(draftKey)
-      const draft = restorePosDraft(raw, new Set(catalog.products.map((product) => product.id)), new Set(catalog.tables.map((table) => table.id)))
+      const draft = restorePosDraft(raw, new Set(catalog.products.map((product) => product.id)), new Set(catalog.tables.map((table) => table.id)), new Set(catalog.products.flatMap((product) => product.variants.map((variant) => `${product.id}:${variant.id}`))))
       if (draft) { setCart(draft.cart); if (draft.tableId) setTableId(draft.tableId); setCustomerName(draft.customerName); setCustomerPhone(draft.customerPhone) }
     } catch {
       window.localStorage.removeItem(draftKey)

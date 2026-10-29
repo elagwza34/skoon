@@ -5,6 +5,7 @@ import { staffCanAccessBranch, type StaffSession } from '@/lib/session'
 import { PosError, posOrderSchema } from '@/lib/staff-pos'
 import { notifyRole } from '@/lib/notifications'
 import { getOpenShift } from '@/lib/staff-shifts'
+import { createOrderItemVariantSnapshot } from '@/lib/order-item-variant'
 
 export type PosOrderResult = { id: string; orderNumber: string; total: string; itemsCount: number }
 
@@ -53,7 +54,7 @@ export async function createPosOrder(session: StaffSession, input: unknown, idem
 
   const fingerprint = createHash('sha256').update(JSON.stringify({
     branchId: branchId.toString(), tableId: tableId.toString(), customerName: parsed.data.customerName?.trim() || null, customerPhone: parsed.data.customerPhone?.trim() || null,
-    items: parsed.data.items.map((item) => ({ productId: item.productId, qty: item.qty, note: item.note?.trim() || null })),
+    items: parsed.data.items.map((item) => ({ productId: item.productId, variantId: item.variantId ?? null, qty: item.qty, note: item.note?.trim() || null })),
   })).digest('hex')
   // A completed retry remains retrievable even if a product was later disabled.
   if (key) {
@@ -73,23 +74,27 @@ export async function createPosOrder(session: StaffSession, input: unknown, idem
   const variants = variantIds.length
     ? await prisma.productVariant.findMany({
         where: { id: { in: variantIds }, productId: { in: productIds }, isActive: true, isAvailable: true, archivedAt: null },
-        select: { id: true, productId: true, price: true },
+        select: { id: true, productId: true, price: true, combinationKey: true, values: { select: { value: { select: { label: true, attribute: { select: { name: true, sortOrder: true } } } } } } },
       })
     : []
   const priceById = new Map(products.map((p) => [p.id.toString(), p]))
-  const variantPriceById = new Map(variants.map((v) => [v.id.toString(), v.price]))
+  const variantById = new Map(variants.map((variant) => [variant.id.toString(), variant]))
   for (const item of parsed.data.items) {
     if (!priceById.has(item.productId)) throw new PosError('تغيّرت القائمة — حدّث الصفحة', 400)
-    if (item.variantId && !variantPriceById.has(item.variantId)) throw new PosError('المتغير غير متوفر', 400)
+    const variant = item.variantId ? variantById.get(item.variantId) : null
+    if (item.variantId && (!variant || variant.productId.toString() !== item.productId)) throw new PosError('المتغير غير متوفر', 400)
   }
 
   let total = 0
   const lines = parsed.data.items.map((item) => {
     const p = priceById.get(item.productId)!
-    const unit = item.variantId ? Number(variantPriceById.get(item.variantId)!) : Number(p.price)
+    const variant = item.variantId ? variantById.get(item.variantId)! : null
+    const unitPrice = variant?.price ?? p.price
+    const unit = Number(unitPrice)
     total += unit * item.qty
     return {
-      productId: p.id, productVariantId: item.variantId ? BigInt(item.variantId) : null, productName: p.name, unitPrice: p.price,
+      productId: p.id, productVariantId: variant?.id ?? null, productName: p.name, unitPrice,
+      productVariantSnapshot: variant ? createOrderItemVariantSnapshot(variant.combinationKey, variant.values.map((entry) => entry.value)) : null,
       quantity: item.qty, lineTotal: unit * item.qty,
       notes: item.note?.trim() || null,
     }
@@ -125,9 +130,9 @@ export async function createPosOrder(session: StaffSession, input: unknown, idem
         total: subtotal, paymentStatus: 'unpaid',
         items: {
           create: lines.map((l) => ({
-            productId: l.productId, productName: l.productName,
+            productId: l.productId, productVariantId: l.productVariantId, productName: l.productName,
             unitPrice: l.unitPrice, quantity: l.quantity,
-            lineTotal: l.lineTotal, notes: l.notes,
+            lineTotal: l.lineTotal, ...(l.productVariantSnapshot ? { productVariantSnapshot: l.productVariantSnapshot } : {}), notes: l.notes,
           })),
         },
         statusHistory: { create: { toStatus: 'new', changedById: session.id } },

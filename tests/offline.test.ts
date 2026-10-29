@@ -65,6 +65,7 @@ import { recalculateInvoiceTotals, resolveVariantLabels, splitInvoices, type Inv
 import { receiptInvoiceForSettlement, receiptSettlementBreakdown } from '../src/lib/receipt-settlement'
 import { posDraftKey, restorePosDraft } from '../src/lib/pos-draft'
 import { posOrderSchema } from '../src/lib/staff-pos'
+import { createOrderItemVariantSnapshot, orderedVariantLabels, resolveOrderItemVariantLabels } from '../src/lib/order-item-variant'
 import { isKitchenTicketVisible, itemPreparationState, OrderError, transitionOrderStatus } from '../src/lib/staff-orders'
 import { canTransitionOrder } from '../src/lib/staff-orders'
 import { canViewOwnerWaiterMonitor, isWaiterTableOrderActive } from '../src/lib/staff-waiter'
@@ -1897,8 +1898,24 @@ test('receipt settlement uses the persisted discounted invoice, never a pre-paym
 })
 
 test('invoice variants: all persisted variant labels are available to settlement and receipt views', () => {
-  assert.deepEqual(resolveVariantLabels(['Large', 'Oat milk'], { label: 'ignored snapshot' }), ['Large', 'Oat milk'])
+  assert.deepEqual(resolveVariantLabels(['Current label'], { values: [{ label: 'Large' }, { label: 'Oat milk' }] }), ['Large', 'Oat milk'])
   assert.deepEqual(resolveVariantLabels([], { values: [{ label: 'Large' }, { label: 'Oat milk' }] }), ['Large', 'Oat milk'])
+})
+
+test('invoice variants: snapshots preserve multiple attributes and historical labels after refresh or settlement', () => {
+  const values = [
+    { label: 'حليب شوفان', attribute: { name: 'نوع الحليب', sortOrder: 2 } },
+    { label: 'كبير', attribute: { name: 'الحجم', sortOrder: 1 } },
+  ]
+  const snapshot = createOrderItemVariantSnapshot('size:large|milk:oat', values)
+  assert.deepEqual(orderedVariantLabels(values), ['كبير', 'حليب شوفان'])
+  assert.deepEqual(resolveOrderItemVariantLabels(snapshot, ['ملصق كتالوج متغير']), ['كبير', 'حليب شوفان'])
+  assert.equal(resolveVariantLabels(['ملصق كتالوج متغير'], snapshot).join(' · '), 'كبير · حليب شوفان')
+})
+
+test('invoice variants: products without variants keep a normal product name fallback', () => {
+  assert.deepEqual(resolveOrderItemVariantLabels(null, []), [])
+  assert.deepEqual(orderedVariantLabels([], ''), [])
 })
 
 test('POS drafts are isolated by cashier and branch and discard stale catalog lines', () => {
@@ -1906,5 +1923,11 @@ test('POS drafts are isolated by cashier and branch and discard stale catalog li
   assert.notEqual(posDraftKey('cashier-a', '1'), posDraftKey('cashier-a', '2'))
   const draft = restorePosDraft(JSON.stringify({ cart: [{ id: 'product-a', qty: 2, note: 'no sugar' }, { id: 'removed-product', qty: 1 }], tableId: 'table-1', customerName: 'Customer', customerPhone: '+20 100 000 0000' }), new Set(['product-a']), new Set(['table-1']))
   assert.deepEqual(draft, { cart: [{ id: 'product-a', qty: 2, note: 'no sugar' }], tableId: 'table-1', customerName: 'Customer', customerPhone: '+20 100 000 0000' })
+})
+
+test('POS drafts preserve selected variants across refresh and reject stale variant identities', () => {
+  const raw = JSON.stringify({ cart: [{ id: 'latte', variantId: 'large', qty: 2 }, { id: 'latte', variantId: 'removed', qty: 1 }], tableId: 'table-1' })
+  const restored = restorePosDraft(raw, new Set(['latte']), new Set(['table-1']), new Set(['latte:large']))
+  assert.deepEqual(restored?.cart, [{ id: 'latte', variantId: 'large', qty: 2 }])
 })
 
