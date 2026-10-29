@@ -859,16 +859,16 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
   }
 
   return (
-    <div className="flex h-full flex-col bg-background">
+    <div className="flex h-full min-w-0 flex-col overflow-x-hidden bg-background">
       <header className="sticky top-0 z-30 flex flex-col border-b border-border bg-background/95 backdrop-blur px-4 py-3 lg:px-6">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
           <div>
             <h1 className="text-lg font-semibold">مساحة النادل</h1>
             <p className="text-xs text-muted-foreground">{workspace.branchName} · {workspace.employeeName}</p>
           </div>
-          <div className="flex gap-2">
-            {error ? <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}
-            {success ? <p className="rounded-md border border-success/40 bg-success/10 px-3 py-2 text-sm text-success">{success}</p> : null}
+          <div className="flex min-w-0 flex-wrap gap-2">
+            {error ? <p role="alert" className="min-w-0 break-words rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}
+            {success ? <p className="min-w-0 break-words rounded-md border border-success/40 bg-success/10 px-3 py-2 text-sm text-success">{success}</p> : null}
           </div>
         </div>
       </header>
@@ -885,12 +885,12 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
           value={tab}
           onChange={(value) => setTab(value as WorkspaceTab)}
           ariaLabel="الألقاة"
-          className="w-full justify-start overflow-x-auto"
+          className="w-full flex-nowrap justify-start overflow-x-auto"
         />
       </nav>
 
-      <main className="w-full p-4 lg:p-6">
-        <div className="flex w-full flex-col gap-5">
+      <main className="min-w-0 w-full p-3 sm:p-4 lg:p-6">
+        <div className="flex min-w-0 w-full flex-col gap-5">
           {tab === 'pos' ? (
             <PosCheckout catalog={catalog} initialTableId={selectedTable?.id} mode="waiter" />
           ) : null}
