@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getStaffSession } from '@/lib/session'
 import { getCashierInvoices } from '@/lib/staff-invoices'
-import { prisma } from '@/lib/prisma'
 
 export const dynamic = 'force-dynamic'
 
@@ -49,29 +48,4 @@ export async function GET(request: Request) {
   ]
   const csv = `\uFEFF${lines.map((line) => line.map(csvCell).join(',')).join('\r\n')}\r\n`
   return new Response(csv, { headers: { 'content-type': 'text/csv; charset=utf-8', 'content-disposition': 'attachment; filename="paid-invoices.csv"', 'cache-control': 'no-store' } })
-}
-
-/**
- * Delete invoice — Owner only
- * DELETE /api/staff/invoices/[id]
- */
-export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const session = await getStaffSession()
-  if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-
-  // Only Owner can delete invoices
-  if (session.role !== 'owner') return NextResponse.json({ error: 'غير مصرح — الحذف للمالك فقط' }, { status: 403 })
-
-  const { id } = await params
-  try {
-    // Delete related payments first
-    await prisma.payment.deleteMany({ where: { invoiceId: id } })
-
-    // Delete the invoice
-    await prisma.invoice.delete({ where: { id } })
-
-    return NextResponse.json({ success: true, id })
-  } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : 'Delete failed' }, { status: 500 })
-  }
 }
