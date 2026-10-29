@@ -1,12 +1,13 @@
 'use client'
 
-import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import Image from 'next/image'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { formatCurrency, formatDateShort } from '@/lib/format'
 import type { InvoiceRow } from '@/lib/staff-invoices'
 import { receiptSettlementBreakdown } from '@/lib/receipt-settlement'
+import { captureReceiptPrintTimestamp, formatReceiptPrintTime, receiptOrderTypeLabel } from '@/lib/receipt-display'
 
 export type ThermalPaymentResult = {
   paid: string
@@ -17,9 +18,6 @@ export type ThermalPaymentResult = {
 type PaperWidth = '80mm' | '58mm'
 
 const money = (value: number | string) => formatCurrency(Number(value))
-const orderTypeLabel = (value: string) => value.toLowerCase() === 'takeaway' ? 'سفري' : 'داخل الكافيه'
-const invoiceTime = (date: Date) => new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).format(date)
-
 export function ThermalReceiptPreview({ invoice, payment, autoPrint = false, onClose }: {
   invoice: InvoiceRow
   payment?: ThermalPaymentResult
@@ -31,6 +29,7 @@ export function ThermalReceiptPreview({ invoice, payment, autoPrint = false, onC
   const printing = useRef(false)
   const logo = useRef<HTMLImageElement>(null)
   const [isPrinting, setIsPrinting] = useState(false)
+  const [printedAt, setPrintedAt] = useState<Date | null>(null)
 
   function printReceipt() {
     // Do not queue another browser print dialog while one is already pending.
@@ -45,7 +44,9 @@ export function ThermalReceiptPreview({ invoice, payment, autoPrint = false, onC
     const startPrint = () => {
       if (started) return
       started = true
-      requestAnimationFrame(() => window.print())
+      // A layout effect invokes print only after React has put this fresh value
+      // into the actual receipt DOM, avoiding stale timestamps and hydration work.
+      setPrintedAt(captureReceiptPrintTimestamp())
     }
     const image = logo.current
     if (image?.complete && image.naturalWidth > 0) startPrint()
@@ -55,6 +56,12 @@ export function ThermalReceiptPreview({ invoice, payment, autoPrint = false, onC
       window.setTimeout(startPrint, 1500)
     }
   }
+
+  useLayoutEffect(() => {
+    if (!printedAt || !printing.current) return
+    const frame = requestAnimationFrame(() => window.print())
+    return () => cancelAnimationFrame(frame)
+  }, [printedAt])
 
   useEffect(() => {
     const clearPrintTarget = () => {
@@ -125,8 +132,8 @@ export function ThermalReceiptPreview({ invoice, payment, autoPrint = false, onC
             <MetadataRow label="الفرع" value={invoice.branch} />
             <MetadataRow label="رقم الفاتورة" value={invoice.number} ltr />
             <MetadataRow label="التاريخ" value={formatDateShort(createdAt)} />
-            <MetadataRow label="الوقت" value={invoiceTime(createdAt)} ltr />
-            <MetadataRow label="نوع الطلب" value={orderTypeLabel(orderType)} />
+            <MetadataRow label="الوقت" value={printedAt ? formatReceiptPrintTime(printedAt) : '—'} ltr />
+            <MetadataRow label="نوع الطلب" value={receiptOrderTypeLabel(orderType)} />
             {isDineIn && invoice.table ? <MetadataRow label="الطاولة" value={invoice.table} /> : null}
             {invoice.cashier ? <MetadataRow label="الكاشير" value={invoice.cashier} /> : null}
             {settlement.method ? <MetadataRow label="طريقة الدفع" value={settlement.method} /> : null}

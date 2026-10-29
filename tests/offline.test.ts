@@ -63,6 +63,7 @@ import { financialShiftLockName } from '../src/lib/financial-shift-lock'
 import { assertRefundAmount, assertRefundReservation, refundAffectsTill, remainingRefundableCents, remainingReservableRefundCents } from '../src/lib/refund-accounting'
 import { recalculateInvoiceTotals, resolveVariantLabels, splitInvoices, type InvoiceRow } from '../src/lib/staff-invoices'
 import { receiptInvoiceForSettlement, receiptSettlementBreakdown } from '../src/lib/receipt-settlement'
+import { captureReceiptPrintTimestamp, formatReceiptPrintTime, receiptOrderTypeLabel } from '../src/lib/receipt-display'
 import { posDraftKey, restorePosDraft } from '../src/lib/pos-draft'
 import { posOrderSchema } from '../src/lib/staff-pos'
 import { createOrderItemVariantSnapshot, orderedVariantLabels, resolveOrderItemVariantLabels } from '../src/lib/order-item-variant'
@@ -172,6 +173,20 @@ test('receipt logo is public while waiter routes remain protected', () => {
   assert.equal(isPublicPath('/receipt-logo.png'), true)
   assert.equal(isPublicPath('/waiter'), false)
   assert.equal(isPublicPath('/api/staff/waiter/handovers'), false)
+})
+
+test('thermal receipt uses canonical Arabic order-type labels', () => {
+  assert.equal(receiptOrderTypeLabel('dine_in'), 'داخل الكافيه')
+  assert.equal(receiptOrderTypeLabel('takeaway'), 'تيك أواي')
+  assert.equal(receiptOrderTypeLabel('TAKEAWAY'), 'تيك أواي')
+})
+
+test('thermal receipt captures a fresh Cairo-local time for every print attempt', () => {
+  const first = captureReceiptPrintTimestamp(() => new Date('2026-01-15T12:28:00.000Z'))
+  const reprint = captureReceiptPrintTimestamp(() => new Date('2026-01-15T13:00:00.000Z'))
+  assert.equal(formatReceiptPrintTime(first), '2:28 PM')
+  assert.equal(formatReceiptPrintTime(reprint), '3:00 PM')
+  assert.notEqual(first.getTime(), reprint.getTime())
 })
 
 test('owner waiter monitor is read-only while the waiter service workflow remains available', () => {
