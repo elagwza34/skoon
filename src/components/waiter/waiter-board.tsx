@@ -16,7 +16,7 @@ import type { WaiterWorkspace } from '@/lib/staff-waiter'
 type WorkspaceTab = 'pos' | 'tables' | 'orders' | 'qr' | 'shift'
 
 const TAB_LABELS: Record<WorkspaceTab, string> = {
-  pos: 'دفتر النقد',
+  pos: 'POS',
   tables: 'الطاولات',
   orders: 'الطلبات',
   qr: 'طلبات QR',
@@ -26,7 +26,7 @@ const TAB_LABELS: Record<WorkspaceTab, string> = {
 function statusLabel(status: string): string {
   const labels: Record<string, string> = {
     new: 'جديد',
-    preparing: 'يتم التحنيم',
+    preparing: 'قيد التحضير',
     ready: 'جاهز',
     served: 'تم التقديم',
     cancelled: 'تم الإلغاء',
@@ -65,7 +65,7 @@ function OrderCards({
   return (
     <div className="space-y-3">
       {orders.length === 0 ? (
-        <p className="text-sm text-muted-foreground">لا توجيد أي طلبات.</p>
+        <p className="text-sm text-muted-foreground">لا توجد أي طلبات.</p>
       ) : (
         orders.map((order) => {
           const isMine = order.responsibleWaiterId === currentUserId
@@ -105,7 +105,7 @@ function OrderCards({
                 <div className="mt-2 flex gap-2">
                   {!isPending && order.status === 'new' && isMine && (
                     <Button size="sm" onClick={() => void onAct(order.id, 'send_to_kitchen')}>
-                      إرسال للمثيك
+                      إرسال للمطبخ
                     </Button>
                   )}
                   {!isPending && order.status === 'preparing' && isMine && (
@@ -151,7 +151,7 @@ function ReadyItemServeList({
   )
 
   if (readyLines.length === 0) {
-    return <p className="text-sm text-muted-foreground">لا توجيد ماديات جاهزة للتقديم.</p>
+    return <p className="text-sm text-muted-foreground">لا توجد مواد جاهزة للتقديم.</p>
   }
 
   return (
@@ -168,7 +168,7 @@ function ReadyItemServeList({
           <CardContent className="pt-2">
             <p className="text-sm">{line.servedQuantity} / {line.quantity} تم التقديم</p>
             <Button size="sm" onClick={() => void onServe(line.orderId, [{ orderItemId: line.id, quantity: line.preparedQuantity - line.servedQuantity }] )}>
-              تقديم المادية
+              تقديم الأصناف
             </Button>
           </CardContent>
         </Card>
@@ -347,7 +347,7 @@ function QrOrdersPanel({
                 <Badge tone={statusTone(order.status)}>{statusLabel(order.status)}</Badge>
               </CardHeader>
               <CardContent className="pt-2">
-                <p className="text-sm text-muted-foreground">{order.orderNotes ?? 'لا توجيد ملاحووات'}</p>
+                <p className="text-sm text-muted-foreground">{order.orderNotes ?? 'لا توجد ملاحظات'}</p>
                 <div className="mt-2 flex gap-2">
                   {!isPending && order.status === 'new' && !isMine && (
                     <Button size="sm" onClick={() => void onAction(order.id, 'claim_qr')}>
@@ -446,7 +446,7 @@ function ShiftPanel({
             </Button>
           ) : (
             <>
-              <p className="text-sm text-success">الوردية مفتحة حاليتا.</p>
+              <p className="text-sm text-success">الوردية مفتوحة حالياً.</p>
               <Button variant="destructive" onClick={() => setRejectingHandover(null)} size="sm">
                 إلغاء الوردية
               </Button>
@@ -458,7 +458,7 @@ function ShiftPanel({
                 {closing ? 'جاري الإغلاق...' : 'إغلاق الوردية'}
               </Button>
               {myTableNumbers.size > 0 && (
-                <p className="mt-1 text-xs text-warning">ملحووات: أطولات منسونة تمتأثر بها قبل إغلاق الوردية.</p>
+                <p className="mt-1 text-xs text-warning">تنبيه: أنهِ أي طلبات مفتوحة قبل إغلاق الوردية.</p>
               )}
             </>
           )}
@@ -671,7 +671,7 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
         if (!res.ok) throw new Error('Failed to serve items')
       }
 
-      setSuccess('تم حفظ التغيير دمغً الطلب.')
+      setSuccess('تم حفظ التغيير على الطلب.')
       startTransition(() => router.refresh())
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'حدث في تغيير الطلب')
@@ -686,7 +686,7 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
     try {
       const res = await fetch(`/api/staff/orders/${order.id}/items/${item.id}`, { method: 'DELETE' })
       if (!res.ok) throw new Error('Failed to remove item')
-      setSuccess('تم حفظ الصنية دمغً الطلب.')
+      setSuccess('تم حذف الصنف من الطلب.')
       startTransition(() => router.refresh())
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'حدث في تغيير الطلب')
@@ -705,7 +705,7 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
         body: JSON.stringify({ action, reason }),
       })
       if (!res.ok) throw new Error('QR action failed')
-      setSuccess('تم حفظ الإغاء دمغً الطلب QR.')
+      setSuccess('تم تنفيذ إجراء الطلب QR.')
       startTransition(() => router.refresh())
       return true
     } catch (cause) {
@@ -729,7 +729,7 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
         const data = await res.json().catch(() => ({}))
         throw new Error(data.error || 'Failed to request table transfer')
       }
-      setSuccess('تم إرسال المسئولية الطاولة دمغً النادل.')
+      setSuccess('تم إرسال مسؤولية الطاولة إلى النادل.')
       setTransferDialog(null)
       setTransferRecipient('')
       setTransferNotes('')
@@ -756,7 +756,7 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
         const data = await res.json().catch(() => ({}))
         throw new Error(data.error || 'Failed to accept transfer')
       }
-      setSuccess('تم القبول المسئولية.')
+      setSuccess('تم قبول المسؤولية.')
       startTransition(() => router.refresh())
       return true
     } catch (cause) {
@@ -780,7 +780,7 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
         const data = await res.json().catch(() => ({}))
         throw new Error(data.error || 'Failed to reject transfer')
       }
-      setSuccess('تم الرفض المسئولية.')
+      setSuccess('تم رفض المسؤولية.')
       startTransition(() => router.refresh())
       return true
     } catch (cause) {
@@ -828,7 +828,7 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
         const data = await res.json().catch(() => ({}))
         throw new Error(data.error || 'Handover action failed')
       }
-      setSuccess('تم حفظ الإغاء دمغً الوردية.')
+      setSuccess('تم تنفيذ إجراء الوردية.')
       startTransition(() => router.refresh())
       return true
     } catch (cause) {
@@ -846,10 +846,10 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
       const res = await fetch(`/api/staff/orders/${order.id}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ action: 'cancel', reason: presetReason || 'سبب السبيل' }),
+        body: JSON.stringify({ action: 'cancel', reason: presetReason || 'سبب الإلغاء' }),
       })
       if (!res.ok) throw new Error('Failed to cancel order')
-      setSuccess('تم إلغاء الطلب دمغً الطلب.')
+      setSuccess('تم إلغاء الطلب.')
       startTransition(() => router.refresh())
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'حدث في تغيير الطلب')
@@ -863,7 +863,7 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
       <header className="sticky top-0 z-30 flex flex-col border-b border-border bg-background/95 backdrop-blur px-4 py-3 lg:px-6">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
           <div>
-            <h1 className="text-lg font-semibold">مقى النطور النادل</h1>
+            <h1 className="text-lg font-semibold">مساحة النادل</h1>
             <p className="text-xs text-muted-foreground">{workspace.branchName} · {workspace.employeeName}</p>
           </div>
           <div className="flex gap-2">
@@ -873,7 +873,7 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
         </div>
       </header>
 
-      <nav className="sticky top-[73px] z-20 w-full border-b border-border bg-background/95 px-4 py-2 backdrop-blur lg:px-6" aria-label="الألقاة">
+      <nav className="sticky top-[73px] z-20 w-full border-b border-border bg-background/95 px-4 py-2 backdrop-blur lg:px-6" aria-label="القوائم">
         <Segmented
           options={[
             { value: 'pos', label: TAB_LABELS.pos },
@@ -892,14 +892,14 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
       <main className="w-full p-4 lg:p-6">
         <div className="flex w-full flex-col gap-5">
           {tab === 'pos' ? (
-            <PosCheckout catalog={catalog} initialTableId={selectedTable?.id} />
+            <PosCheckout catalog={catalog} initialTableId={selectedTable?.id} mode="waiter" />
           ) : null}
 
           {tab === 'tables' ? (
             <>
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <p className="text-sm text-muted-foreground">
-                  انقل الطاولات واختيار الطاولة المنسونة للنط.
+                  اختر الطاولة لإدارة طلباتها.
                 </p>
                 {!workspace.shift ? (
                   <Button size="sm" variant="outline" onClick={() => setTab('shift')}>
@@ -948,12 +948,12 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
                   ]}
                   value={orderScope}
                   onChange={(value) => setOrderScope(value as 'mine' | 'all')}
-                  ariaLabel="نطاية الطلبات"
+                  ariaLabel="نطاق الطلبات"
                 />
                 <Segmented
                   options={[
                     { value: 'new', label: 'جديد' },
-                    { value: 'preparing', label: 'يتم التحنيم' },
+                    { value: 'preparing', label: 'قيد التحضير' },
                     { value: 'ready', label: 'جاهز' },
                     { value: 'cancelled', label: 'تم الإلغاء' },
                   ]}
@@ -1006,7 +1006,7 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
                 <CardHeader className="flex-row items-center justify-between gap-3">
                   <div>
                     <CardTitle>الطاولة {selectedTable.number}</CardTitle>
-                    <p className="text-sm text-muted-foreground">{selectedTable.name ?? 'لا توجيد اسم'}</p>
+                    <p className="text-sm text-muted-foreground">{selectedTable.name ?? 'لا يوجد اسم'}</p>
                   </div>
                   <Button size="sm" onClick={() => setTab('orders')}>
                     <Icon name="plus" size={15} /> إضافة طلب
@@ -1034,7 +1034,7 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
               onClose={() => setEditing(null)}
               onSaved={() => {
                 setEditing(null)
-                setSuccess('تم حفظ التغيير دمغً الطلب.')
+                setSuccess('تم حفظ التغيير على الطلب.')
                 startTransition(() => router.refresh())
               }}
             />

@@ -21,6 +21,9 @@ function parseDate(value: string | null, endOfDay = false): Date | undefined {
 export async function GET(request: Request) {
   const session = await getStaffSession()
   if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+
+  // Waiters cannot access invoices
+  if (session.role === 'waiter') return NextResponse.json({ error: 'غير مصرح — الوصول للفواتير للكاشير فقط' }, { status: 403 })
   const search = new URL(request.url).searchParams
   if (search.get('format') !== 'csv') return NextResponse.json({ error: 'Unsupported format' }, { status: 400 })
   let from: Date | undefined

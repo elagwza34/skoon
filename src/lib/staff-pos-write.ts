@@ -22,6 +22,15 @@ export async function createPosOrder(session: StaffSession, input: unknown, idem
   const parsed = posOrderSchema.safeParse(input)
   if (!parsed.success) throw new PosError(parsed.error.issues[0]?.message ?? 'بيانات غير صالحة', 400)
 
+  // Waiter restrictions: no takeaway, no discounts
+  if (session.role === ROLE.WAITER) {
+    if (parsed.data.orderType === 'takeaway') throw new PosError('النادل لا يمكنه إنشاء طلبات تيك أواي', 403)
+    if (parsed.data.discountType !== undefined) throw new PosError('النادل لا يمكنه تطبيق خصومات', 403)
+    for (const item of parsed.data.items) {
+      if (item.discountType !== undefined) throw new PosError('النادل لا يمكنه تطبيق خصومات على الأصناف', 403)
+    }
+  }
+
   const branchId =
     session.role === ROLE.OWNER
       ? await resolveOwnerBranch(session, parsed.data.tableId)

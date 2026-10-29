@@ -17,6 +17,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const session = await getStaffSession()
   if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
 
+  // Waiters cannot collect payments or settle invoices
+  if (session.role === 'waiter') return NextResponse.json({ error: 'غير مصرح — التحصيل والحصر النقدي للكاشير فقط' }, { status: 403 })
+
   const { id } = await ctx.params
   let body: { action?: string } & Record<string, unknown>
   try {
