@@ -24,6 +24,26 @@ export interface IncomingWaiterHandover {
   outstandingOrders: { id: string; number: string; tableNumber: string; status: string }[]
 }
 
+export interface IncomingTableTransfer {
+  id: string
+  senderName: string
+  tableNumber: string
+  tableId: string
+  requestedAt: string
+  notes: string | null
+}
+
+export interface OutgoingTableTransfer {
+  id: string
+  recipientName: string
+  tableNumber: string
+  tableId: string
+  status: string
+  requestedAt: string
+  acceptedAt: string | null
+  notes: string | null
+}
+
 export interface WaiterWorkspace {
   currentUserId: string
   branchId: string
@@ -35,6 +55,8 @@ export interface WaiterWorkspace {
   categories: { id: string; name: string }[]
   products: { id: string; name: string; price: string; categoryId: string; isAvailable: boolean }[]
   incomingHandovers: IncomingWaiterHandover[]
+  incomingTableTransfers: IncomingTableTransfer[]
+  outgoingTableTransfers: OutgoingTableTransfer[]
 }
 
 /**
@@ -95,7 +117,7 @@ export function isMissingWaiterHandoverTableError(error: unknown): boolean {
   const prismaError = error as { code?: unknown; meta?: { table?: unknown; modelName?: unknown } }
   if (prismaError.code !== 'P2021') return false
   const target = `${String(prismaError.meta?.table ?? '')} ${String(prismaError.meta?.modelName ?? '')}`.toLowerCase()
-  return target.includes('waiter_shift_handovers') || target.includes('waitershifthandover')
+  return target.includes('waiter_shift_handovers') || target.includes('waitershifthandover') || target.includes('waiter_table_transfers') || target.includes('waitertabletransfer')
 }
 
 export async function getWaiterWorkspace(session: StaffSession): Promise<WaiterWorkspace> {
@@ -115,7 +137,7 @@ export async function getWaiterWorkspace(session: StaffSession): Promise<WaiterW
     if (isMissingWaiterHandoverTableError(error)) throw new WaiterSchemaError()
     throw error
   }
-  const [branch, tables, orders, categories, products, incomingHandovers] = loaded
+  const [branch, tables, orders, categories, products, incomingHandovers, incomingTableTransfers, outgoingTableTransfers] = loaded
 
   const openByTable = new Map<string, number>()
   for (const o of orders) {
@@ -159,6 +181,17 @@ export async function getWaiterWorkspace(session: StaffSession): Promise<WaiterW
         id: order.id.toString(), number: order.orderNumber, tableNumber: order.cafeTable.number, status: order.status,
       })),
     })),
+    incomingTableTransfers: incomingTableTransfers.map((t) => ({
+      id: t.id.toString(), senderName: t.senderWaiter.name,
+      tableNumber: t.table.number, tableId: t.table.id.toString(),
+      requestedAt: t.createdAt.toISOString(), notes: t.notes,
+    })),
+    outgoingTableTransfers: outgoingTableTransfers.map((t) => ({
+      id: t.id.toString(), recipientName: t.recipientWaiter.name,
+      tableNumber: t.table.number, tableId: t.table.id.toString(),
+      status: t.status, requestedAt: t.createdAt.toISOString(),
+      acceptedAt: t.acceptedAt?.toISOString() ?? null, notes: t.notes,
+    })),
   }
 }
 
@@ -199,6 +232,26 @@ function loadWaiterWorkspaceData(session: StaffSession, branchScope: { branchId:
       where: { recipientWaiterId: session.id, branchId, status: 'pending' },
       orderBy: { createdAt: 'asc' },
       select: { id: true, requestedById: true, createdAt: true, notes: true, requestedBy: { select: { name: true } } },
+    }),
+    // Incoming table transfer requests for this waiter (recipient).
+    prisma.waiterTableTransfer.findMany({
+      where: { recipientWaiterId: session.id, branchId, status: 'pending' },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true, notes: true, createdAt: true,
+        senderWaiter: { select: { name: true } },
+        table: { select: { number: true, id: true } },
+      },
+    }),
+    // Outgoing table transfer requests initiated by this waiter (sender).
+    prisma.waiterTableTransfer.findMany({
+      where: { senderWaiterId: session.id, branchId },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true, status: true, notes: true, createdAt: true, acceptedAt: true,
+        recipientWaiter: { select: { name: true } },
+        table: { select: { number: true, id: true } },
+      },
     }),
   ])
 }

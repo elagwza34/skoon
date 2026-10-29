@@ -59,6 +59,7 @@ model CafeBranch {
   orderResponsibilityHistory  OrderResponsibilityHistory[]
   orderTableTransfers         OrderTableTransfer[]
   waiterShiftHandovers        WaiterShiftHandover[]
+  waiterTableTransfers        WaiterTableTransfer[]
   compensationRates           CompensationRate[]
   workSchedules               WorkSchedule[]
   attendanceCorrections       AttendanceCorrection[]
@@ -185,6 +186,8 @@ model User {
   responsibilityReceived              OrderResponsibilityHistory[]      @relation("orderResponsibilityAssignedTo")
   requestedWaiterHandovers            WaiterShiftHandover[]             @relation("waiterHandoverRequestedBy")
   receivedWaiterHandovers             WaiterShiftHandover[]             @relation("waiterHandoverRecipient")
+  sentWaiterTableTransfers            WaiterTableTransfer[]             @relation("waiterTableTransferSender")
+  receivedWaiterTableTransfers        WaiterTableTransfer[]             @relation("waiterTableTransferRecipient")
   tableTransfersMade                  OrderTableTransfer[]
   waiterReconciliationReviewsAuthored WaiterOrderReconciliationReview[] @relation("waiterReconciliationReviewer")
   waiterReconciliationReviewsApproved WaiterOrderReconciliationReview[] @relation("waiterReconciliationApprover")
@@ -635,6 +638,7 @@ model CafeTable {
   serviceRequests ServiceRequest[]
   transferredFrom OrderTableTransfer[] @relation("orderTransferFromTable")
   transferredTo   OrderTableTransfer[] @relation("orderTransferToTable")
+  waiterTableTransfers WaiterTableTransfer[]
 
   @@unique([branchId, number])
   @@index([branchId, isActive])
@@ -1068,6 +1072,33 @@ model WaiterShiftHandover {
   @@index([branchId, recipientWaiterId, status])
   @@index([senderShiftId, status])
   @@map("waiter_shift_handovers")
+}
+
+/// A waiter-to-waiter table responsibility transfer request during an active
+/// shift. The original waiter retains responsibility until the recipient
+/// accepts. On acceptance, responsibility for the table and all its eligible
+/// active orders moves atomically to the recipient waiter.
+model WaiterTableTransfer {
+  id              BigInt    @id @default(autoincrement())
+  branchId        BigInt    @map("branch_id")
+  tableId         BigInt    @map("table_id")
+  senderWaiterId  String    @map("sender_waiter_id") @db.Uuid
+  recipientWaiterId String   @map("recipient_waiter_id") @db.Uuid
+  status          String    @default("pending") @db.VarChar(20)
+  notes           String?   @db.VarChar(500)
+  acceptedAt      DateTime? @map("accepted_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  branch        CafeBranch @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  table         CafeTable  @relation(fields: [tableId], references: [id], onDelete: Restrict)
+  senderWaiter  User       @relation("waiterTableTransferSender", fields: [senderWaiterId], references: [id], onDelete: Restrict)
+  recipientWaiter User     @relation("waiterTableTransferRecipient", fields: [recipientWaiterId], references: [id], onDelete: Restrict)
+
+  @@index([branchId, tableId, status])
+  @@index([branchId, recipientWaiterId, status])
+  @@index([senderWaiterId, status])
+  @@map("waiter_table_transfers")
 }
 
 /// Approval metadata for legacy orders. It is intentionally separate from

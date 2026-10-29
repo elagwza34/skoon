@@ -13,6 +13,11 @@ const transferSchema = z.object({ tableId: idSchema, reason: reasonSchema })
 const reassignSchema = z.object({ waiterId: z.string().uuid(), reason: reasonSchema })
 const rejectSchema = z.object({ reason: reasonSchema })
 const handoverSchema = z.object({ recipientWaiterId: z.string().uuid(), notes: z.string().trim().max(500).optional() })
+const tableTransferRequestSchema = z.object({
+  tableId: idSchema,
+  recipientWaiterId: z.string().uuid(),
+  notes: z.string().trim().max(500).optional(),
+})
 
 /** Pure policy helpers keep the high-risk state rules testable without a DB. */
 export function isTransferEligible(status: string, paymentStatus: string): boolean {
@@ -215,5 +220,307 @@ export async function rejectWaiterResponsibilityHandover(session: StaffSession, 
     await tx.auditLog.create({ data: { userId: session.id, branchId: row.branch_id, action: 'waiter.handover_reject', entityType: 'waiter_shift_handover', entityId: handoverId, newValues: { reason: parsed.data.reason } } })
     await notifyUser(tx, row.requested_by, { type: 'order.created', title: 'تم رفض طلب تسليم المسؤوليات' })
     return { id: handoverIdRaw, rejected: true }
+  })
+}
+/**
+ * Waiter requests to transfer a table they currently manage to another eligible
+ * waiter. The original waiter retains responsibility until the recipient
+ * accepts. One pending transfer per (table, sender) is allowed.
+ */
+export async function requestTableTransfer(session: StaffSession, input: unknown) {
+  requireWaiter(session)
+  const parsed = tableTransferRequestSchema.safeParse(input)
+  if (!parsed.success) throw new OrderError('Invalid table transfer request', 400)
+  if (session.branchId === null) throw new OrderError('Branch required', 403)
+  const branchId = BigInt(session.branchId)
+  const shift = await requireOperationalShift(session, branchId)
+  if (!shift) throw new OrderError('An open shift is required', 409)
+
+  const { tableId: tableIdRaw, recipientWaiterId, notes } = parsed.data
+  const tableId = BigInt(tableIdRaw)
+
+  return prisma.$transaction(async (tx) => {
+    const table = await tx.cafeTable.findFirst({
+      where: { id: tableId, branchId, isActive: true, deletedAt: null },
+      select: { id: true, number: true },
+    })
+    if (!table) throw new OrderError('Table not found in this branch', 404)
+
+    const managedOrder = await tx.order.findFirst({
+      where: {
+        cafeTableId: tableId,
+        branchId,
+        responsibleWaiterId: session.id,
+        status: { in: ['new', 'preparing', 'ready'] },
+      },
+      select: { id: true },
+    })
+    if (!managedOrder) {
+      throw new OrderError('You do not manage any active orders on this table', 403)
+    }
+
+    await eligibleWaiter(tx, recipientWaiterId, branchId)
+    if (recipientWaiterId === session.id) {
+      throw new OrderError('Cannot transfer a table to yourself', 400)
+    }
+
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('waiter-table-transfer:' || ${tableId.toString()}))`
+
+    const existing = await tx.waiterTableTransfer.findFirst({
+      where: { tableId, branchId, status: 'pending', senderWaiterId: session.id },
+      select: { id: true },
+    })
+    if (existing) {
+      throw new OrderError('A pending transfer for this table already exists', 409)
+    }
+
+    const transfer = await tx.waiterTableTransfer.create({
+      data: {
+        branchId,
+        tableId,
+        senderWaiterId: session.id,
+        recipientWaiterId,
+        status: 'pending',
+        notes: notes ?? null,
+      },
+    })
+
+    await notifyUser(tx, recipientWaiterId, {
+      type: 'order.created',
+      title: '\u062a\u0627\u0644\u0628 \u0646\u0642\u0644 \u0645\u0633\u0626\u0648\u0644\u064a\u0629 \u0627\u0644\u0637\u0627\u0648\u0644\u0629',
+      body: '\u064a\u0648\u062c\u0648\u062f \u0637\u0644\u0628 \u0646\u0642\u0644 \u0645\u0633\u0626\u0648\u0644\u064a\u0629 \u0637\u0627\u0648\u0644\u0629 \u0628\u0627\u0646\u062a\u0638\u0627\u0631 \u0645\u0648\u0627\u0641\u0642\u0629\u0643',
+    })
+
+    return {
+      requested: true,
+      id: transfer.id.toString(),
+      tableId: table.id.toString(),
+      tableNumber: table.number,
+      recipientWaiterId,
+    }
+  })
+}
+/**
+ * Recipient accepts a pending table transfer. One atomic server-side operation:
+ * validates both waiters and shifts, validates current table ownership, transfers
+ * responsibility for the table and all eligible active orders, records history
+ * and audit entries, and notifies all relevant views.
+ */
+export async function acceptTableTransfer(session: StaffSession, transferIdRaw: string) {
+  requireWaiter(session)
+  if (!idSchema.safeParse(transferIdRaw).success) throw new OrderError('Transfer not found', 404)
+  const transferId = BigInt(transferIdRaw)
+
+  return prisma.$transaction(async (tx) => {
+    const rows = await tx.$queryRaw<{
+      branch_id: bigint; table_id: bigint; sender_waiter_id: string;
+      recipient_waiter_id: string; status: string; table_number: string;
+    }[]>`
+      SELECT wt.branch_id, wt.table_id, wt.sender_waiter_id, wt.recipient_waiter_id,
+             wt.status, ct.number AS table_number
+      FROM waiter_table_transfers wt
+      JOIN cafe_tables ct ON ct.id = wt.table_id
+      WHERE wt.id = ${transferId} FOR UPDATE
+    `
+    const row = rows[0]
+    if (!row || row.recipient_waiter_id !== session.id) throw new OrderError('Transfer not found', 404)
+    if (!staffCanAccessBranch(session, row.branch_id)) throw new OrderError('Forbidden', 403)
+
+    const receivingShift = await tx.shift.findFirst({
+      where: { cashierId: session.id, branchId: row.branch_id, status: 'open' },
+      select: { id: true },
+    })
+    if (!receivingShift) throw new OrderError('Receiving waiter must have an open shift', 409)
+
+    const senderShift = await tx.shift.findFirst({
+      where: { cashierId: row.sender_waiter_id, branchId: row.branch_id, status: 'open' },
+      select: { id: true },
+    })
+    if (!senderShift) throw new OrderError('Sender shift is no longer open', 409)
+
+    if (row.status !== 'pending') throw new OrderError('Transfer is no longer pending', 409)
+
+    await eligibleWaiter(tx, session.id, row.branch_id)
+
+    const managedOrder = await tx.order.findFirst({
+      where: {
+        cafeTableId: row.table_id,
+        branchId: row.branch_id,
+        responsibleWaiterId: row.sender_waiter_id,
+        status: { in: ['new', 'preparing', 'ready'] },
+      },
+      select: { id: true },
+    })
+    if (!managedOrder) {
+      throw new OrderError('Sender no longer manages active orders on this table', 409)
+    }
+
+    const orders = await tx.order.findMany({
+      where: {
+        cafeTableId: row.table_id,
+        branchId: row.branch_id,
+        responsibleWaiterId: row.sender_waiter_id,
+        status: { in: ['new', 'preparing', 'ready'] },
+        paymentStatus: 'unpaid',
+      },
+      select: { id: true },
+    })
+
+    for (const order of orders) {
+      await tx.order.update({
+        where: { id: order.id },
+        data: { responsibleWaiterId: session.id },
+      })
+      await tx.orderResponsibilityHistory.create({
+        data: {
+          orderId: order.id,
+          branchId: row.branch_id,
+          assignedToId: session.id,
+          assignedById: row.sender_waiter_id,
+          source: 'table_transfer',
+          reason: 'Table responsibility transferred to recipient waiter',
+        },
+      })
+    }
+
+    await tx.waiterTableTransfer.update({
+      where: { id: transferId },
+      data: { status: 'accepted', acceptedAt: new Date() },
+    })
+
+    await tx.auditLog.create({
+      data: {
+        userId: session.id,
+        branchId: row.branch_id,
+        action: 'waiter.table_transfer_accept',
+        entityType: 'waiter_table_transfer',
+        entityId: transferId,
+        newValues: {
+          tableId: row.table_id.toString(),
+          tableNumber: row.table_number,
+          transferredOrders: orders.length,
+          senderWaiterId: row.sender_waiter_id,
+          recipientWaiterId: session.id,
+        },
+      },
+    })
+
+    await notifyUser(tx, row.sender_waiter_id, {
+      type: 'order.created',
+      title: '\u062a\u0645 \u0642\u0628\u0648\u0644 \u0646\u0642\u0644 \u0645\u0633\u0626\u0648\u0644\u064a\u0629 \u0627\u0644\u0637\u0627\u0648\u0644\u0629',
+      body: '\u062a\u0645 \u0646\u0642\u0644 \u0645\u0633\u0626\u0648\u0644\u064a\u0629 \u0627\u0644\u0637\u0644\u0628\u0627\u062a \u0627\u0644\u0646\u0634\u0637\u0629 (\u0627\u0644\u063a) \u0625\u0644\u0649 \u0648\u064a\u062a\u0631 \u0622\u062e\u0631',
+    })
+
+    await notifyRole(tx, ROLE.KITCHEN, row.branch_id, {
+      type: 'order.created',
+      title: '\u062a\u063a\u064a\u064a\u0631 \u0645\u0633\u0626\u0648\u0644\u064a\u0629 \u0627\u0644\u0637\u0627\u0648\u0644\u0627\u062a',
+      body: '\u062a\u0645 \u0646\u0642\u0644 \u0645\u0633\u0626\u0648\u0644\u064a\u0629 \u0637\u0627\u0648\u0644\u0629 \u0625\u0644\u0649 \u0648\u064a\u062a\u0631 \u0622\u062e\u0631',
+    })
+
+    return {
+      accepted: true,
+      id: transferId.toString(),
+      tableId: row.table_id.toString(),
+      tableNumber: row.table_number,
+      transferredOrders: orders.length,
+    }
+  })
+}
+/**
+ * Recipient rejects a pending table transfer. Responsibility stays with the
+ * original waiter. Records the rejection and notifies the sender.
+ */
+export async function rejectTableTransfer(session: StaffSession, transferIdRaw: string, input: unknown) {
+  requireWaiter(session)
+  if (!idSchema.safeParse(transferIdRaw).success) throw new OrderError('Transfer not found', 404)
+  const parsed = rejectSchema.safeParse(input)
+  if (!parsed.success) throw new OrderError('A rejection reason is required', 400)
+  const transferId = BigInt(transferIdRaw)
+
+  return prisma.$transaction(async (tx) => {
+    const rows = await tx.$queryRaw<{
+      branch_id: bigint; sender_waiter_id: string; recipient_waiter_id: string; status: string;
+    }[]>`
+      SELECT branch_id, sender_waiter_id, recipient_waiter_id, status
+      FROM waiter_table_transfers WHERE id = ${transferId} FOR UPDATE
+    `
+    const row = rows[0]
+    if (!row || row.recipient_waiter_id !== session.id) throw new OrderError('Transfer not found', 404)
+    if (!staffCanAccessBranch(session, row.branch_id)) throw new OrderError('Forbidden', 403)
+
+    await requireOperationalShift(session, row.branch_id)
+    if (row.status !== 'pending') throw new OrderError('Transfer is no longer pending', 409)
+
+    await tx.waiterTableTransfer.update({
+      where: { id: transferId },
+      data: { status: 'rejected' },
+    })
+
+    await tx.auditLog.create({
+      data: {
+        userId: session.id,
+        branchId: row.branch_id,
+        action: 'waiter.table_transfer_reject',
+        entityType: 'waiter_table_transfer',
+        entityId: transferId,
+        newValues: { reason: parsed.data.reason },
+      },
+    })
+
+    await notifyUser(tx, row.sender_waiter_id, {
+      type: 'order.created',
+      title: '\u062a\u0645 \u0631\u0641\u0636 \u0637\u0644\u0628 \u0646\u0642\u0644 \u0645\u0633\u0626\u0648\u0644\u064a\u0629 \u0627\u0644\u0637\u0627\u0648\u0644\u0629',
+      body: '\u0633\u0628\u0628 \u0627\u0644\u0631\u0641\u0636: ' + parsed.data.reason,
+    })
+
+    return { id: transferId.toString(), rejected: true }
+  })
+}
+
+/**
+ * Sender cancels a pending table transfer they initiated. Only the sender may
+ * cancel, and only while the transfer is still pending.
+ */
+export async function cancelTableTransfer(session: StaffSession, transferIdRaw: string) {
+  requireWaiter(session)
+  if (!idSchema.safeParse(transferIdRaw).success) throw new OrderError('Transfer not found', 404)
+  const transferId = BigInt(transferIdRaw)
+
+  return prisma.$transaction(async (tx) => {
+    const rows = await tx.$queryRaw<{
+      branch_id: bigint; sender_waiter_id: string; recipient_waiter_id: string; status: string;
+    }[]>`
+      SELECT branch_id, sender_waiter_id, recipient_waiter_id, status
+      FROM waiter_table_transfers WHERE id = ${transferId} FOR UPDATE
+    `
+    const row = rows[0]
+    if (!row || row.sender_waiter_id !== session.id) throw new OrderError('Transfer not found', 403)
+    if (!staffCanAccessBranch(session, row.branch_id)) throw new OrderError('Forbidden', 403)
+
+    await requireOperationalShift(session, row.branch_id)
+    if (row.status !== 'pending') throw new OrderError('Transfer is no longer pending', 409)
+
+    await tx.waiterTableTransfer.update({
+      where: { id: transferId },
+      data: { status: 'cancelled' },
+    })
+
+    await tx.auditLog.create({
+      data: {
+        userId: session.id,
+        branchId: row.branch_id,
+        action: 'waiter.table_transfer_cancel',
+        entityType: 'waiter_table_transfer',
+        entityId: transferId,
+      },
+    })
+
+    await notifyUser(tx, row.recipient_waiter_id as string, {
+      type: 'order.created',
+      title: '\u062a\u0645 \u0625\u0644\u063a\u0627\u0621 \u0637\u0644\u0628 \u0646\u0642\u0644 \u0645\u0633\u0626\u0648\u0644\u064a\u0629 \u0627\u0644\u0637\u0627\u0648\u0644\u0629',
+      body: '\u0642\u0627\u0645 \u0627\u0644\u0645\u0631\u0633\u0644 \u0628\u0625\u0644\u063a\u0627\u0621 \u0637\u0644\u0628 \u0646\u0642\u0644 \u0627\u0644\u0645\u0633\u0626\u0648\u0644\u064a\u0629 \u0627\u0644\u0645\u0639\u0644\u0642.',
+    })
+
+    return { id: transferId.toString(), cancelled: true }
   })
 }
