@@ -218,7 +218,7 @@ export function PosCheckout({ catalog, initialTableId, takeawayOrders = [], mode
   function setNote(id: string, variantId: string | undefined, modifierSelections: Record<string, string[]>, note: string) {
     setCart((prev) => prev.map((line) => (line.id === id && line.variantId === variantId && modifierSelectionsEqual(line.modifierSelections, modifierSelections) ? { ...line, note } : line)))
   }
-  function setLineDiscount(id: string, variantId: string | undefined, kind: 'none' | 'percentage' | 'amount', value: string) {
+  function setLineDiscount(id: string, variantId: string | undefined, modifierSelections: Record<string, string[]>, kind: 'none' | 'percentage' | 'amount', value: string) {
     setCart((previous) =>
       previous.map((line) =>
         line.id === id && line.variantId === variantId
@@ -598,7 +598,7 @@ export function PosCheckout({ catalog, initialTableId, takeawayOrders = [], mode
                           <span className="text-sm font-medium text-foreground">{group.name}</span>
                           {group.description && <p className="text-xs text-muted-foreground">{group.description}</p>}
                         </div>
-                        <Badge variant="destructive">Ù…Ø·Ù„ÙˆØ¨</Badge>
+                        <Badge tone="destructive">مطلوب</Badge>
                       </div>
                       {group.maxSelections === 1 ? (
                         <div className="space-y-2">

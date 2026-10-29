@@ -25,6 +25,7 @@ export interface PosCatalogProduct {
   categoryName: string
   isAvailable: boolean
   variants: PosCatalogVariant[]
+  modifierGroups: PosCatalogModifierGroup[]
 }
 
 export interface PosCatalog {
