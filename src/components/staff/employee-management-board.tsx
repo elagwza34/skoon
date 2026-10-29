@@ -103,10 +103,18 @@ export function EmployeeManagementBoard({ canManage }: { canManage: boolean }) {
         </div>
         {loading ? <p className="text-sm text-muted-foreground">جارٍ التحميل…</p> : null}
         {!loading && rows.length === 0 ? <p className="text-sm text-muted-foreground">لا توجد سجلات مطابقة.</p> : null}
-        <div className="grid gap-2 md:grid-cols-2">
-          {rows.map((employee) => <button key={employee.id} onClick={() => void open(employee.id)} className="rounded-lg border border-border p-3 text-start transition hover:bg-accent/40">
-            <b>{employee.name}</b><div className="mt-1 text-xs text-muted-foreground">{employee.roleName} · {employee.status} · {employee.username ?? employee.email ?? '—'}</div>
-          </button>)}
+        <div className="grid gap-2 md:grid-cols-3">
+          {rows.map((employee) => (
+            <button key={employee.id} onClick={() => void open(employee.id)} className="rounded-lg border border-border p-3 text-start transition hover:bg-accent/40 flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <b>{employee.name}</b>
+                  <div className="mt-1 text-xs text-muted-foreground">{employee.roleName} · {employee.status} · {employee.username ?? employee.email ?? '—'}</div>
+                </div>
+                <Button size="sm" onClick={(event) => { event.stopPropagation(); void open(employee.id) }}>تعديل</Button>
+              </div>
+            </button>
+          ))}
         </div>
         {selected ? <EmployeeDetailPanel employee={selected} canManage={canManage} onClose={() => setSelected(null)} onChanged={() => { void open(selected.id); transition(() => void load()) }} onArchive={archive} onReactivate={reactivate} onTerminate={terminate} post={post} setError={setError} /> : null}
       </CardContent>
