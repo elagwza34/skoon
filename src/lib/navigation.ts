@@ -14,6 +14,7 @@ export const navGroups: NavGroup[] = [
     { href: '/tables', label: 'الطاولات ورموز QR', icon: 'tables' },
     { href: '/kitchen', label: 'مراقبة المطبخ', icon: 'kitchen' },
     { href: '/waiter', label: 'مراقبة الويتر والخدمة', icon: 'waiter' },
+    { href: '/owner/invoices', label: 'الفواتير', icon: 'orders' },
   ] },
   { title: 'المخزون والكتالوج', items: [
     { href: '/products', label: 'المنتجات والمنيو', icon: 'products' },
