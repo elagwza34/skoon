@@ -7,6 +7,11 @@ import type { DiscountKind } from '@/lib/invoice-discounts'
 import { createOrderItemVariantSnapshot, orderedVariantLabels, resolveOrderItemVariantLabels } from '@/lib/order-item-variant'
 import { recalculateOpenOrderInvoice } from '@/lib/invoice-recalculation'
 import { modifierSnapshotLabels } from '@/lib/order-item-options'
+import { adjustOrderItem, OrderItemAdjustmentError } from '@/lib/staff-order-item-adjustment'
+import { lockAndReadShift } from '@/lib/financial-shift-lock'
+import { reserveOrderItemInventory, StockError } from '@/lib/staff-inventory-engine'
+import { notifyRole } from '@/lib/notifications'
+import { createHash } from 'node:crypto'
 
 export class InvoiceError extends Error { constructor(message: string, readonly status = 400) { super(message); this.name = 'InvoiceError' } }
 
@@ -14,18 +19,18 @@ export type InvoiceRow = {
   id: string; number: string; createdAt: string; branch: string; table: string; creator: string | null; cashier: string | null
   status: string; paymentStatus: string; orderType?: string; notes?: string | null; discountType?: 'percentage' | 'amount' | null; discountValue?: string; subtotal: string; itemDiscount?: string; discountEligibleBase?: string; discount: string; tax: string; total: string; paid: string; remaining: string
   cancelledAt: string | null; cancelReason: string | null
-  items: { id: string; productId: string; name: string; quantity: number; unitPrice: string; lineTotal: string; discountType: 'percentage' | 'amount' | null; discountValue: string; discountAmount: string; eligibleForInvoiceDiscount: boolean; variantId: string | null; variantLabel: string | null; notes?: string | null; details?: string[] }[]
+  items: { id: string; productId: string; name: string; quantity: number; unitPrice: string; lineTotal: string; discountType: 'percentage' | 'amount' | null; discountValue: string; discountAmount: string; eligibleForInvoiceDiscount: boolean; variantId: string | null; variantLabel: string | null; notes?: string | null; details?: string[]; updatedAt: string }[]
   payments: { id: string; method: string; amount: string; createdAt: string; collector: string | null }[]
 }
 
 const editSchema = z.discriminatedUnion('action', [
-  z.object({ action: z.literal('add'), productId: z.string().regex(/^\d+$/), variantId: z.string().regex(/^\d+$/).optional(), quantity: z.coerce.number().int().min(1).max(99) }),
-  z.object({ action: z.literal('quantity'), orderItemId: z.string().regex(/^\d+$/), quantity: z.coerce.number().int().min(1).max(99) }),
+  z.object({ action: z.literal('add'), productId: z.string().regex(/^\d+$/), variantId: z.string().regex(/^\d+$/).optional(), quantity: z.coerce.number().int().min(1).max(99), idempotencyKey: z.string().trim().min(8).max(100) }),
+  z.object({ action: z.literal('quantity'), orderItemId: z.string().regex(/^\d+$/), quantity: z.coerce.number().int().min(1).max(99), expectedUpdatedAt: z.string().datetime(), idempotencyKey: z.string().trim().min(8).max(100), reason: z.string().trim().min(3).max(255) }),
   z.object({ action: z.literal('line_discount'), orderItemId: z.string().regex(/^\d+$/), discountType: z.enum(['percentage', 'amount', 'none']), discountValue: z.union([z.string().trim().min(1).max(32), z.number().finite()]), eligibleForInvoiceDiscount: z.boolean() }),
   z.object({ action: z.literal('financials'), discountType: z.enum(['percentage', 'amount', 'none']), discountValue: z.union([z.string().trim().min(1).max(32), z.number().finite()]), notes: z.string().trim().max(2_000).optional() }),
 ])
 
-function settled(total: number, paid: number) { return paid >= total - 0.005 }
+export function isInvoiceSettled(total: number, paid: number) { return paid >= total - 0.005 }
 /** Compatibility helper for non-itemized call sites. Invoice editing itself uses
  * the integer-cent calculator below so discount persistence never uses floats. */
 export function recalculateInvoiceTotals(subtotal: number, discountType: string | null, discountValue: number, taxRate: number) {
@@ -55,20 +60,20 @@ export async function getCashierInvoices(session: StaffSession, range: { from?: 
   const orders = await prisma.order.findMany({ where: { ...scope, ...(createdAt ? { createdAt } : {}) }, orderBy: { createdAt: 'desc' }, take: 150,
       select: { id: true, orderNumber: true, createdAt: true, cancelledAt: true, cancelReason: true, status: true, paymentStatus: true, orderType: true, notes: true, discountType: true, discountValue: true, itemsSubtotal: true, itemDiscountAmount: true, discountEligibleBase: true, discountAmount: true, taxAmount: true, total: true,
         branch: { select: { name: true } }, cafeTable: { select: { number: true } }, createdBy: { select: { name: true } },
-        items: { where: { isVoided: false }, select: { id: true, productId: true, productVariantId: true, productName: true, quantity: true, unitPrice: true, lineTotal: true, discountType: true, discountValue: true, discountAmount: true, eligibleForInvoiceDiscount: true, notes: true, optionsSnapshot: true, productVariantSnapshot: true, productVariant: { select: { values: { select: { value: { select: { label: true, attribute: { select: { sortOrder: true } } } } } } } } } },
+        items: { where: { isVoided: false }, select: { id: true, productId: true, productVariantId: true, productName: true, quantity: true, unitPrice: true, lineTotal: true, discountType: true, discountValue: true, discountAmount: true, eligibleForInvoiceDiscount: true, notes: true, updatedAt: true, optionsSnapshot: true, productVariantSnapshot: true, productVariant: { select: { values: { select: { value: { select: { label: true, attribute: { select: { sortOrder: true } } } } } } } } } },
       payments: { where: { status: 'completed' }, select: { id: true, method: true, amount: true, createdAt: true, paidBy: { select: { name: true } } } },
     },
   })
   return orders.map((o) => {
     const paid = o.payments.reduce((sum, p) => sum + Number(p.amount), 0)
     return { id: o.id.toString(), number: o.orderNumber, createdAt: o.createdAt.toISOString(), branch: o.branch.name, table: o.orderType === 'takeaway' ? 'تيك أواي' : o.cafeTable.number, creator: o.createdBy?.name ?? null, cashier: o.payments.length > 0 ? o.payments[o.payments.length - 1]?.paidBy?.name ?? null : null, orderType: o.orderType, notes: o.notes, discountType: o.discountType === 'percentage' || o.discountType === 'amount' ? o.discountType : null, discountValue: Number(o.discountValue).toFixed(2),
-      status: o.status, paymentStatus: settled(Number(o.total), paid) ? 'paid' : o.paymentStatus, subtotal: Number(o.itemsSubtotal).toFixed(2), itemDiscount: Number(o.itemDiscountAmount).toFixed(2), discountEligibleBase: Number(o.discountEligibleBase).toFixed(2), discount: Number(o.discountAmount).toFixed(2), tax: Number(o.taxAmount).toFixed(2), total: Number(o.total).toFixed(2), paid: paid.toFixed(2), remaining: Math.max(0, Number(o.total) - paid).toFixed(2), cancelledAt: o.cancelledAt?.toISOString() ?? null, cancelReason: o.cancelReason ?? null,
+      status: o.status, paymentStatus: isInvoiceSettled(Number(o.total), paid) ? 'paid' : o.paymentStatus, subtotal: Number(o.itemsSubtotal).toFixed(2), itemDiscount: Number(o.itemDiscountAmount).toFixed(2), discountEligibleBase: Number(o.discountEligibleBase).toFixed(2), discount: Number(o.discountAmount).toFixed(2), tax: Number(o.taxAmount).toFixed(2), total: Number(o.total).toFixed(2), paid: paid.toFixed(2), remaining: Math.max(0, Number(o.total) - paid).toFixed(2), cancelledAt: o.cancelledAt?.toISOString() ?? null, cancelReason: o.cancelReason ?? null,
       items: o.items.map((i) => {
         const relationLabels = orderedVariantLabels(i.productVariant?.values.map((entry) => entry.value) ?? [])
         const variantLabels = i.productVariantId || i.productVariantSnapshot ? resolveVariantLabels(relationLabels, i.productVariantSnapshot) : []
         const persistedModifierLabels = modifierSnapshotLabels(i.optionsSnapshot)
         const details = persistedModifierLabels.length ? persistedModifierLabels : snapshotLabels(i.optionsSnapshot)
-        return { id: i.id.toString(), productId: i.productId.toString(), variantId: i.productVariantId?.toString() ?? null, variantLabel: variantLabels.length ? variantLabels.join(' · ') : null, name: i.productName, quantity: i.quantity, unitPrice: Number(i.unitPrice).toFixed(2), lineTotal: Number(i.lineTotal).toFixed(2), discountType: i.discountType === 'percentage' || i.discountType === 'amount' ? i.discountType : null, discountValue: Number(i.discountValue).toFixed(2), discountAmount: Number(i.discountAmount).toFixed(2), eligibleForInvoiceDiscount: i.eligibleForInvoiceDiscount, notes: i.notes, details }
+        return { id: i.id.toString(), productId: i.productId.toString(), variantId: i.productVariantId?.toString() ?? null, variantLabel: variantLabels.length ? variantLabels.join(' · ') : null, name: i.productName, quantity: i.quantity, unitPrice: Number(i.unitPrice).toFixed(2), lineTotal: Number(i.lineTotal).toFixed(2), discountType: i.discountType === 'percentage' || i.discountType === 'amount' ? i.discountType : null, discountValue: Number(i.discountValue).toFixed(2), discountAmount: Number(i.discountAmount).toFixed(2), eligibleForInvoiceDiscount: i.eligibleForInvoiceDiscount, notes: i.notes, details, updatedAt: i.updatedAt.toISOString() }
       }),
       payments: o.payments.map((p) => ({ id: p.id.toString(), method: p.method, amount: Number(p.amount).toFixed(2), createdAt: p.createdAt.toISOString(), collector: p.paidBy?.name ?? null })),
     }
@@ -108,6 +113,17 @@ export async function editOpenInvoice(session: StaffSession, orderIdRaw: string,
     const issues = parsed.error.issues.map((i) => `${String(i.path.join('.'))}: ${i.message}`).join(', ')
     throw new InvoiceError(`Invalid invoice edit: ${issues}`, 400)
   }
+  if (parsed.data.action === 'quantity') {
+    try {
+      return await adjustOrderItem(session, orderIdRaw, parsed.data.orderItemId, {
+        action: 'quantity', targetQuantity: parsed.data.quantity, reason: parsed.data.reason,
+        expectedUpdatedAt: parsed.data.expectedUpdatedAt, idempotencyKey: parsed.data.idempotencyKey,
+      })
+    } catch (error) {
+      if (error instanceof OrderItemAdjustmentError) throw new InvoiceError(error.message, error.status)
+      throw error
+    }
+  }
   const orderId = BigInt(orderIdRaw)
   const order = await prisma.order.findUnique({ where: { id: orderId }, select: { branchId: true } })
   if (!order || !staffCanAccessBranch(session, order.branchId)) throw new InvoiceError('Invoice not found', 404)
@@ -117,9 +133,18 @@ export async function editOpenInvoice(session: StaffSession, orderIdRaw: string,
     const locked = orderRows[0]
     if (!locked || locked.status === 'cancelled') throw new InvoiceError('Invoice is not editable', 409)
     const existingPaid = await tx.payment.aggregate({ where: { orderId, status: 'completed' }, _sum: { amount: true } })
-    if (settled(Number(locked.total), Number(existingPaid._sum.amount ?? 0))) throw new InvoiceError('A paid invoice cannot be edited', 409)
+    if (isInvoiceSettled(Number(locked.total), Number(existingPaid._sum.amount ?? 0))) throw new InvoiceError('A paid invoice cannot be edited', 409)
     let financials: { discountType: DiscountKind; discountValue: bigint; notes: string | null } | null = null
     if (parsed.data.action === 'add') {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('order-item-adjustment:' || ${orderIdRaw}))`
+      const operationType = 'invoice_item_add'
+      const fingerprint = createHash('sha256').update(JSON.stringify({ orderId: orderIdRaw, ...parsed.data })).digest('hex')
+      const operationKey = { branchId_actorId_operationType_idempotencyKey: { branchId: order.branchId, actorId: session.id, operationType, idempotencyKey: parsed.data.idempotencyKey } }
+      const repeated = await tx.financialOperation.findUnique({ where: operationKey })
+      if (repeated) {
+        if (repeated.fingerprint !== fingerprint) throw new InvoiceError('مفتاح العملية مستخدم لتعديل مختلف', 409)
+        return repeated.result
+      }
       const product = await tx.product.findFirst({ where: { id: BigInt(parsed.data.productId!), branchId: order.branchId, isActive: true, isAvailable: true, deletedAt: null }, select: { id: true, name: true, price: true } })
       if (!product) throw new InvoiceError('Product is unavailable', 422)
       let productVariantId: string | null = null
@@ -135,14 +160,12 @@ export async function editOpenInvoice(session: StaffSession, orderIdRaw: string,
         })
         if (!variant) throw new InvoiceError('Product variant is unavailable', 422)
         productVariantId = variant.id.toString()
-        await tx.orderItem.create({ data: { orderId, productId: product.id, productVariantId: BigInt(productVariantId), productVariantSnapshot: createOrderItemVariantSnapshot(variant.combinationKey, variant.values.map((entry) => entry.value)), productName: product.name, unitPrice: variant.price, quantity: parsed.data.quantity, lineTotal: (Number(variant.price) * parsed.data.quantity).toFixed(2) } })
+        const created = await tx.orderItem.create({ data: { orderId, productId: product.id, productVariantId: BigInt(productVariantId), productVariantSnapshot: createOrderItemVariantSnapshot(variant.combinationKey, variant.values.map((entry) => entry.value)), productName: product.name, unitPrice: variant.price, quantity: parsed.data.quantity, lineTotal: (Number(variant.price) * parsed.data.quantity).toFixed(2) } })
+        try { await reserveOrderItemInventory(tx, orderId, created.id) } catch (error) { if (error instanceof StockError) throw new InvoiceError(error.message, error.status); throw error }
       } else {
-        await tx.orderItem.create({ data: { orderId, productId: product.id, productName: product.name, unitPrice: product.price, quantity: parsed.data.quantity, lineTotal: (Number(product.price) * parsed.data.quantity).toFixed(2) } })
+        const created = await tx.orderItem.create({ data: { orderId, productId: product.id, productName: product.name, unitPrice: product.price, quantity: parsed.data.quantity, lineTotal: (Number(product.price) * parsed.data.quantity).toFixed(2) } })
+        try { await reserveOrderItemInventory(tx, orderId, created.id) } catch (error) { if (error instanceof StockError) throw new InvoiceError(error.message, error.status); throw error }
       }
-    } else if (parsed.data.action === 'quantity') {
-      const item = await tx.orderItem.findFirst({ where: { id: BigInt(parsed.data.orderItemId!), orderId, isVoided: false }, select: { id: true, unitPrice: true } })
-      if (!item) throw new InvoiceError('Invoice item not found', 404)
-      await tx.orderItem.update({ where: { id: item.id }, data: { quantity: parsed.data.quantity, lineTotal: (Number(item.unitPrice) * parsed.data.quantity).toFixed(2) } })
     } else if (parsed.data.action === 'line_discount') {
       const item = await tx.orderItem.findFirst({ where: { id: BigInt(parsed.data.orderItemId), orderId, isVoided: false }, select: { id: true } })
       if (!item) throw new InvoiceError('Invoice item not found', 404)
@@ -150,8 +173,9 @@ export async function editOpenInvoice(session: StaffSession, orderIdRaw: string,
       const value = discountValue(kind, parsed.data.discountValue)
       await tx.orderItem.update({ where: { id: item.id }, data: { discountType: kind === 'none' ? null : kind, discountValue: kind === 'amount' ? centsText(value) : value.toString(), eligibleForInvoiceDiscount: parsed.data.eligibleForInvoiceDiscount } })
     } else {
-      const kind = parsed.data.discountType
-      financials = { discountType: kind, discountValue: discountValue(kind, parsed.data.discountValue), notes: parsed.data.notes?.trim() || null }
+      const financial = parsed.data as { action: 'financials'; discountType: 'percentage' | 'amount' | 'none'; discountValue: string | number; notes?: string | null }
+      const kind = financial.discountType
+      financials = { discountType: kind, discountValue: discountValue(kind, financial.discountValue), notes: financial.notes?.trim() || null }
     }
     const invoiceKind = financials?.discountType ?? discountKind(locked.discount_type)
     const invoiceValue = financials?.discountValue ?? discountValue(invoiceKind, locked.discount_value)
@@ -164,6 +188,12 @@ export async function editOpenInvoice(session: StaffSession, orderIdRaw: string,
     const { calculated, tax, total } = result
     await tx.order.update({ where: { id: orderId }, data: { itemsSubtotal: centsText(calculated.subtotalCents), itemDiscountAmount: centsText(calculated.itemDiscountCents), discountEligibleBase: centsText(calculated.eligibleBaseCents), discountAmount: centsText(calculated.itemDiscountCents + calculated.invoiceDiscountCents), taxAmount: centsText(tax), total: centsText(total), paymentStatus: 'unpaid', ...(financials ? { discountType: financials.discountType === 'none' ? null : financials.discountType, discountValue: financials.discountType === 'amount' ? centsText(financials.discountValue) : financials.discountValue.toString(), notes: financials.notes } : {}) } })
     await tx.auditLog.create({ data: { userId: session.id, branchId: order.branchId, action: 'invoice.edit', entityType: 'order', entityId: orderId, newValues: { action: parsed.data.action, subtotal: centsText(calculated.subtotalCents), itemDiscount: centsText(calculated.itemDiscountCents), invoiceDiscount: centsText(calculated.invoiceDiscountCents), total: centsText(total) } } })
+    if (parsed.data.action === 'add') {
+      await notifyRole(tx, ROLE.KITCHEN, order.branchId, { type: 'order.created', title: 'إضافة صنف إلى طلب مفتوح', body: 'تمت الإضافة بواسطة الكاشير', orderId })
+      const resultValue = { id: orderId.toString(), total: centsText(total) }
+      await tx.financialOperation.create({ data: { branchId: order.branchId, actorId: session.id, operationType: 'invoice_item_add', idempotencyKey: parsed.data.idempotencyKey, fingerprint: createHash('sha256').update(JSON.stringify({ orderId: orderIdRaw, ...parsed.data })).digest('hex'), result: resultValue } })
+      return resultValue
+    }
     return { id: orderId.toString(), total: centsText(total) }
   })
 }

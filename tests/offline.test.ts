@@ -7,6 +7,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { planStockCount } from '../src/lib/stock-count-policy'
 
 import { getPublicEnv } from '../src/lib/env'
@@ -17,6 +18,8 @@ import { safeInternalRedirect } from '../src/lib/auth/safe-redirect'
 import { calculatePayrollPreview, INITIAL_PAYROLL_POLICY } from '../src/lib/payroll-preview-policy'
 import { calculatePayroll } from '../src/lib/hr-payroll-calculation'
 import { calculateInvoiceDiscounts } from '../src/lib/invoice-discounts'
+import { calculateInvoiceTaxCents, centsText } from '../src/lib/invoice-recalculation'
+import { invoiceDeletionRejection } from '../src/lib/invoice-deletion-policy'
 import { nextPayrollStatus, toCents as payrollToCents } from '../src/lib/staff-payroll-write'
 import { normalizeStaffUsername, staffIdentityEmail, staffLoginEmail, staffUsernameEmail, usernameFromStaffEmail } from '../src/lib/staff-username'
 import { initialBranchSchema } from '../src/lib/branch-bootstrap'
@@ -61,7 +64,7 @@ import {
 import { floatMovementSchema } from '../src/lib/staff-float'
 import { financialShiftLockName } from '../src/lib/financial-shift-lock'
 import { assertRefundAmount, assertRefundReservation, refundAffectsTill, remainingRefundableCents, remainingReservableRefundCents } from '../src/lib/refund-accounting'
-import { editOpenInvoice, recalculateInvoiceTotals, resolveVariantLabels, splitInvoices, type InvoiceRow } from '../src/lib/staff-invoices'
+import { editOpenInvoice, isInvoiceSettled, recalculateInvoiceTotals, resolveVariantLabels, splitInvoices, type InvoiceRow } from '../src/lib/staff-invoices'
 import { receiptInvoiceForSettlement, receiptSettlementBreakdown } from '../src/lib/receipt-settlement'
 import { captureReceiptPrintTimestamp, formatReceiptPrintTime, receiptOrderTypeLabel } from '../src/lib/receipt-display'
 import { posDraftKey, restorePosDraft } from '../src/lib/pos-draft'
@@ -1752,7 +1755,7 @@ test('payroll lifecycle only permits ordered immutable transitions', () => {
   assert.equal(payrollToCents('12.5'), 1250)
 })
 
-test('invoice discounts apply general discount on subtotal after item discounts (canonical order)', () => {
+test('invoice discounts apply the general percentage only to eligible post-item-discount amounts', () => {
   const result = calculateInvoiceDiscounts([
     { unitCents: 10_000n, quantity: 2, discountType: 'percentage', discountValue: 10n, eligibleForInvoiceDiscount: true },
     { unitCents: 5_000n, quantity: 3, discountType: 'amount', discountValue: 2_000n, eligibleForInvoiceDiscount: true },
@@ -1761,15 +1764,114 @@ test('invoice discounts apply general discount on subtotal after item discounts 
   assert.equal(result.subtotalCents, 38_000n)
   assert.equal(result.itemDiscountCents, 4_000n)
   assert.equal(result.afterItemDiscountCents, 34_000n)
-  assert.equal(result.eligibleBaseCents, 34_000n) // general discount base = all post-item-discount totals
-  assert.equal(result.invoiceDiscountCents, 3_400n) // 10% of 34_000
-  assert.equal(result.finalCents, 30_600n)
-  assert.equal(result.excludedCents, 0n)
+  assert.equal(result.eligibleBaseCents, 31_000n)
+  assert.equal(result.excludedCents, 3_000n)
+  assert.equal(result.invoiceDiscountCents, 3_100n)
+  assert.equal(result.finalCents, 30_900n)
 })
 
 test('invoice discounts reject discounts above their authoritative bases', () => {
   assert.throws(() => calculateInvoiceDiscounts([{ unitCents: 100n, quantity: 1, discountType: 'amount', discountValue: 101n, eligibleForInvoiceDiscount: true }], 'none', 0n), /Line fixed/)
-  assert.throws(() => calculateInvoiceDiscounts([{ unitCents: 100n, quantity: 1, discountType: 'none', discountValue: 0n, eligibleForInvoiceDiscount: false }], 'amount', 101n), /Invoice discount exceeds subtotal after item discounts/)
+  assert.throws(() => calculateInvoiceDiscounts([{ unitCents: 100n, quantity: 1, discountType: 'none', discountValue: 0n, eligibleForInvoiceDiscount: false }], 'amount', 1n), /eligible subtotal/)
+})
+
+test('invoice discounts leave an all-ineligible invoice unchanged', () => {
+  const result = calculateInvoiceDiscounts([
+    { unitCents: 12_50n, quantity: 2, discountType: 'none', discountValue: 0n, eligibleForInvoiceDiscount: false },
+  ], 'percentage', 100n)
+  assert.equal(result.eligibleBaseCents, 0n)
+  assert.equal(result.excludedCents, 25_00n)
+  assert.equal(result.invoiceDiscountCents, 0n)
+  assert.equal(result.finalCents, 25_00n)
+})
+
+test('invoice discounts reject a fixed discount above the eligible base even when excluded value is sufficient', () => {
+  assert.throws(() => calculateInvoiceDiscounts([
+    { unitCents: 10_00n, quantity: 1, discountType: 'none', discountValue: 0n, eligibleForInvoiceDiscount: true },
+    { unitCents: 90_00n, quantity: 1, discountType: 'none', discountValue: 0n, eligibleForInvoiceDiscount: false },
+  ], 'amount', 10_01n), /eligible subtotal/)
+})
+
+test('invoice discounts preserve excluded items under a 100 percent global discount', () => {
+  const result = calculateInvoiceDiscounts([
+    { unitCents: 40_00n, quantity: 1, discountType: 'none', discountValue: 0n, eligibleForInvoiceDiscount: true },
+    { unitCents: 15_00n, quantity: 2, discountType: 'none', discountValue: 0n, eligibleForInvoiceDiscount: false },
+  ], 'percentage', 100n)
+  assert.equal(result.invoiceDiscountCents, 40_00n)
+  assert.equal(result.excludedCents, 30_00n)
+  assert.equal(result.finalCents, 30_00n)
+})
+
+test('invoice discounts apply item discounts before splitting eligible and excluded bases', () => {
+  const result = calculateInvoiceDiscounts([
+    { unitCents: 100_00n, quantity: 1, discountType: 'percentage', discountValue: 25n, eligibleForInvoiceDiscount: true },
+    { unitCents: 50_00n, quantity: 2, discountType: 'amount', discountValue: 20_00n, eligibleForInvoiceDiscount: false },
+  ], 'percentage', 10n)
+  assert.equal(result.itemDiscountCents, 45_00n)
+  assert.equal(result.eligibleBaseCents, 75_00n)
+  assert.equal(result.excludedCents, 80_00n)
+  assert.equal(result.invoiceDiscountCents, 7_50n)
+  assert.equal(result.finalCents, 147_50n)
+})
+
+test('invoice discounts use authoritative variant and modifier adjusted unit cents', () => {
+  const variantWithModifiersCents = 18_75n
+  const result = calculateInvoiceDiscounts([
+    { unitCents: variantWithModifiersCents, quantity: 3, discountType: 'none', discountValue: 0n, eligibleForInvoiceDiscount: true },
+  ], 'percentage', 20n)
+  assert.equal(result.subtotalCents, 56_25n)
+  assert.equal(result.invoiceDiscountCents, 11_25n)
+  assert.equal(result.finalCents, 45_00n)
+})
+
+test('invoice discounts handle zero-value eligible lines and deterministic half-cent rounding', () => {
+  const zero = calculateInvoiceDiscounts([
+    { unitCents: 0n, quantity: 3, discountType: 'none', discountValue: 0n, eligibleForInvoiceDiscount: true },
+    { unitCents: 5_00n, quantity: 1, discountType: 'none', discountValue: 0n, eligibleForInvoiceDiscount: false },
+  ], 'percentage', 100n)
+  assert.equal(zero.eligibleBaseCents, 0n)
+  assert.equal(zero.finalCents, 5_00n)
+
+  const rounded = calculateInvoiceDiscounts([
+    { unitCents: 1n, quantity: 1, discountType: 'none', discountValue: 0n, eligibleForInvoiceDiscount: true },
+  ], 'percentage', 50n)
+  assert.equal(rounded.invoiceDiscountCents, 1n)
+  assert.equal(rounded.finalCents, 0n)
+})
+
+test('invoice discount tax policy remains based on the final post-discount total', () => {
+  const result = calculateInvoiceDiscounts([
+    { unitCents: 100_00n, quantity: 1, discountType: 'none', discountValue: 0n, eligibleForInvoiceDiscount: true },
+    { unitCents: 50_00n, quantity: 1, discountType: 'none', discountValue: 0n, eligibleForInvoiceDiscount: false },
+  ], 'percentage', 10n)
+  assert.equal(result.finalCents, 140_00n)
+  assert.equal(calculateInvoiceTaxCents(result.finalCents, '14.00'), 19_60n)
+})
+
+test('invoice discount persisted cent values recalculate consistently after reload', () => {
+  const lines = [
+    { unitCents: 33_33n, quantity: 3, discountType: 'none' as const, discountValue: 0n, eligibleForInvoiceDiscount: true },
+    { unitCents: 10_00n, quantity: 1, discountType: 'none' as const, discountValue: 0n, eligibleForInvoiceDiscount: false },
+  ]
+  const first = calculateInvoiceDiscounts(lines, 'amount', 12_34n)
+  const reloadedDiscount = BigInt(centsText(first.invoiceDiscountCents).replace('.', ''))
+  const second = calculateInvoiceDiscounts(lines, 'amount', reloadedDiscount)
+  assert.deepEqual(second, first)
+})
+
+test('paid invoice settlement boundary remains immutable', () => {
+  assert.equal(isInvoiceSettled(100, 100), true)
+  assert.equal(isInvoiceSettled(100, 99.995), true)
+  assert.equal(isInvoiceSettled(100, 99.99), false)
+  const source = readFileSync('src/lib/staff-invoices.ts', 'utf8')
+  assert.match(source, /isInvoiceSettled\(Number\(locked\.total\), Number\(existingPaid\._sum\.amount/)
+  assert.match(source, /A paid invoice cannot be edited/)
+})
+
+test('cashier totals render only persisted server invoice totals', () => {
+  const source = readFileSync('src/components/cashier/invoice-board.tsx', 'utf8')
+  for (const field of ['invoice.subtotal', 'invoice.discount', 'invoice.tax', 'invoice.total', 'invoice.paid', 'invoice.remaining']) assert.match(source, new RegExp(field.replace('.', '\\.')))
+  assert.doesNotMatch(source, /function Totals[^}]+(?:subtotal|total)\s*[-+*/]/)
 })
 
 // --- Task: Sequential Invoice Discount Calculation regression tests ---
@@ -1873,8 +1975,8 @@ test('invoice discounts: line fixed discount exceeding line subtotal is rejected
 })
 
 // Invalid: invoice fixed discount exceeds subtotal after item discounts
-test('invoice discounts: general fixed discount exceeding subtotal after item discounts is rejected', () => {
-  assert.throws(() => calculateInvoiceDiscounts([{ unitCents: 100n, quantity: 1, discountType: 'none', discountValue: 0n, eligibleForInvoiceDiscount: true }], 'amount', 101n), /Invoice discount exceeds subtotal after item discounts/)
+test('invoice discounts: general fixed discount exceeding eligible subtotal is rejected', () => {
+  assert.throws(() => calculateInvoiceDiscounts([{ unitCents: 100n, quantity: 1, discountType: 'none', discountValue: 0n, eligibleForInvoiceDiscount: true }], 'amount', 101n), /eligible subtotal/)
 })
 
 // Invalid: invoice percentage exceeds 100
@@ -1950,6 +2052,19 @@ test('regression: resolveRoleHome returns null for unknown roles', () => {
   assert.equal(resolveRoleHome(ROLE.KITCHEN), '/kitchen')
   assert.equal(resolveRoleHome(ROLE.WAITER), '/waiter')
   assert.equal(resolveRoleHome('unknown'), null)
+})
+
+test('regression: /dashboard compat route never redirects to itself or creates a loop', () => {
+  // /dashboard is not a canonical home for any role, so the compat route
+  // always forwards to a real role home and never loops back to /dashboard.
+  for (const role of [ROLE.OWNER, ROLE.MANAGER, ROLE.CASHIER, ROLE.KITCHEN, ROLE.WAITER]) {
+    assert.notEqual(resolveRoleHome(role), '/dashboard')
+    assert.notEqual(homeForRole(role), '/dashboard')
+  }
+  // Owner specifically lands on /owner, never /dashboard.
+  assert.equal(resolveRoleHome(ROLE.OWNER), '/owner')
+  assert.equal(homeForRole(ROLE.OWNER), '/owner')
+  assert.equal(canSeeRoute(ROLE.OWNER, [], '/owner'), true)
 })
 
 test('regression: operational roles are exactly waiter/kitchen/cashier', () => {
@@ -2106,6 +2221,25 @@ test('order item removal blocks paid, served, terminal, and final-item invoices'
   assert.equal(orderItemVoidBlocker({ status: 'ready', paymentStatus: 'unpaid', completedPayments: 0, servedQuantity: 1, activeItems: 2 }), 'served')
   assert.equal(orderItemVoidBlocker({ status: 'cancelled', paymentStatus: 'unpaid', completedPayments: 0, servedQuantity: 0, activeItems: 2 }), 'closed')
   assert.equal(orderItemVoidBlocker({ status: 'preparing', paymentStatus: 'unpaid', completedPayments: 0, servedQuantity: 0, activeItems: 1 }), 'last_item')
+})
+
+test('invoice deletion is rejected for paid and unpaid invoices without a mutation path', () => {
+  const paid = invoiceDeletionRejection({ role: ROLE.OWNER })
+  const unpaid = invoiceDeletionRejection({ role: ROLE.OWNER })
+  assert.deepEqual(paid, unpaid)
+  assert.equal(paid.status, 405)
+  assert.equal(paid.allow, 'PATCH')
+
+  const route = readFileSync('src/app/api/staff/invoices/[id]/route.ts', 'utf8')
+  assert.doesNotMatch(route, /\b(?:payment|order)\.(?:delete|deleteMany)\b/)
+  assert.doesNotMatch(route, /@\/lib\/prisma/)
+})
+
+test('invoice deletion keeps authentication and authorization boundaries', () => {
+  assert.equal(invoiceDeletionRejection(null).status, 401)
+  assert.equal(invoiceDeletionRejection({ role: ROLE.CASHIER }).status, 403)
+  assert.equal(invoiceDeletionRejection({ role: ROLE.MANAGER }).status, 403)
+  assert.equal(invoiceDeletionRejection({ role: ROLE.OWNER }).status, 405)
 })
 
 // --- Employee edit regression tests (offline: authorization + validation only) ---
