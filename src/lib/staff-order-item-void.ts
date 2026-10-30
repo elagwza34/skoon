@@ -15,6 +15,7 @@ export class OrderItemVoidError extends Error {
 const inputSchema = z.object({
   reason: z.string().trim().min(3, 'سبب إزالة الصنف مطلوب').max(255),
   idempotencyKey: z.string().trim().min(8).max(100),
+  releaseStock: z.preprocess((value) => value === 'true' || value === true, z.boolean().default(true)).optional(),
 })
 
 export type OrderItemVoidResult = { orderId: string; orderItemId: string; total: string; status: string; alreadyRemoved?: boolean }
@@ -85,7 +86,9 @@ export async function voidOpenOrderItem(session: StaffSession, orderIdRaw: strin
       if (item.preparationStartedAt || item.preparedQuantity > 0) {
         await consumeOrderReservations(tx, orderId, session.id, 'waste', parsed.data.reason, [{ orderItemId, quantity: item.quantity }])
       }
-      await releaseOrderItemReservations(tx, orderId, orderItemId)
+      if (parsed.data.releaseStock !== false) {
+        await releaseOrderItemReservations(tx, orderId, orderItemId)
+      }
     } catch (error) {
       if (error instanceof StockError) throw new OrderItemVoidError(error.message, error.status)
       throw error
