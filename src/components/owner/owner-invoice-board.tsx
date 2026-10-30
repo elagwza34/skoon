@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition, useMemo } from 'react'
+import { useState, useTransition, useMemo, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -19,16 +19,25 @@ const key = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.ran
 
 type InvoiceTab = 'open' | 'paid' | 'cancelled'
 
+type RangePreset = 'day' | 'week' | 'month' | 'custom'
+
 export function OwnerInvoiceBoard({ invoices, session }: { invoices: InvoiceRow[]; session: { role: string; name: string; branchId: string | null } }) {
   const [tab, setTab] = useState<InvoiceTab>('open')
   const [query, setQuery] = useState('')
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [deleteModal, setDeleteModal] = useState<{ id: string; number: string } | null>(null)
-  const [removeModal, setRemoveModal] = useState<{ id: string; number: string; items: InvoiceRow['items'] } | null>(null)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [deleteModal, setDeleteModal] = useState<string[]>([])
   const [releaseStock, setReleaseStock] = useState(true)
-  const [removeReason, setRemoveReason] = useState('')
   const [notice, setNotice] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
+
+  // Date range export controls (paid invoices only)
+  const [rangePreset, setRangePreset] = useState<RangePreset>('day')
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
+
+  const clearNotice = () => setTimeout(() => setNotice(null), 5000)
+  function setNotice_(message: string | null) { setNotice(message); if (message) clearNotice() }
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -41,51 +50,73 @@ export function OwnerInvoiceBoard({ invoices, session }: { invoices: InvoiceRow[
     })
   }, [invoices, query, tab])
 
-  const selected = rows.find((invoice) => invoice.id === selectedId) ?? null
+  const isSelected = (id: string) => selectedIds.has(id)
+  const toggleSelection = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
+  const toggleSelectAll = useCallback(() => {
+    if (selectedIds.size === rows.length && rows.length > 0) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(rows.map((r) => r.id)))
+    }
+  }, [rows, selectedIds.size])
+  const selectedInvoices = rows.filter((r) => selectedIds.has(r.id))
 
-  const clearNotice = () => setTimeout(() => setNotice(null), 5000)
-  function setNotice_(message: string | null) { setNotice(message); if (message) clearNotice() }
-
-  function openDelete(invoice: InvoiceRow) { setDeleteModal({ id: invoice.id, number: invoice.number }) }
-  function openRemove(invoice: InvoiceRow) {
-    setRemoveModal({ id: invoice.id, number: invoice.number, items: invoice.items })
-    setReleaseStock(true)
-    setRemoveReason('')
+  async function confirmDeleteBulk(ids: string[]) {
+    if (pending || ids.length === 0) return
+    setDeleteModal(ids)
   }
 
-  async function confirmDelete() {
-    if (!deleteModal || pending) return
+  async function executeDeleteBulk() {
+    if (pending || deleteModal.length === 0) return
     startTransition(async () => {
-      const response = await fetch(`/api/staff/invoices/${deleteModal.id}`, { method: 'DELETE' })
-      const body = await response.json().catch(() => ({}))
-      setDeleteModal(null)
-      setSelectedId(null)
-      if (response.ok) setNotice_(`تم حذف الفاتورة ${deleteModal.number}.`)
-      else setNotice_(body.error ?? `تعذر حذف الفاتورة ${deleteModal.number}.`)
+      let failed = 0
+      for (const id of deleteModal) {
+        const response = await fetch(`/api/staff/invoices/${id}`, { method: 'DELETE' })
+        if (!response.ok) failed++
+      }
+      setDeleteModal([])
+      setSelectedIds(new Set())
+      if (failed === 0) setNotice_(`تم حذف ${deleteModal.length} فاتورة بنجاح.`)
+      else setNotice_(`تم حذف ${deleteModal.length - failed} فاتورة، وفشل ${failed} فاتورة.`)
     })
   }
 
-  async function confirmRemove() {
-    if (!removeModal || pending) return
-    const item = removeModal.items[0]
-    if (!item) return
-    if (!removeReason || removeReason.trim().length < 3) return setNotice_('سبب الإزالة مطلوب (3 أحرف على الأقل).')
-    startTransition(async () => {
-      const response = await fetch(`/api/staff/orders/${removeModal.id}/items/${item.id}/void`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', 'Idempotency-Key': key() },
-        body: JSON.stringify({ reason: removeReason.trim(), idempotencyKey: key(), releaseStock }),
-      })
-      const body = await response.json().catch(() => ({}))
-      setRemoveModal(null)
-      if (response.ok) setNotice_(`تم إزالة الصنف ${item.name}. ${releaseStock ? 'تم إرجاع الكمية للمخزون.' : 'بقيت الكمية محجوزة (لم تُخصم من المخزون).'}`)
-      else setNotice_(body.error ?? 'تعذر إزالة الصنف.')
-    })
+  function toggleExpand(id: string) {
+    setExpandedId((prev) => (prev === id ? null : id))
+    // Keep selection independent of expansion
   }
 
   function printInvoice(invoice: InvoiceRow) {
     if (Number(invoice.paid) <= 0) return setNotice_('لا يمكن طباعة فاتورة غير محصلة.')
     window.location.assign(`/api/staff/invoices?format=csv`)
+  }
+
+  function exportPaidToExcel() {
+    const params = new URLSearchParams({ format: 'csv' })
+    if (fromDate) params.set('from', fromDate)
+    if (toDate) params.set('to', toDate)
+    window.location.assign(`/api/staff/invoices?${params.toString()}`)
+  }
+
+  const rangeEnd = () => {
+    const now = new Date()
+    const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999))
+    return end.toISOString().slice(0, 10)
+  }
+  const rangeStart = () => {
+    const now = new Date()
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+    if (rangePreset === 'week') d.setUTCDate(d.getUTCDate() - 6)
+    if (rangePreset === 'month') d.setUTCMonth(d.getUTCMonth() - 1, 1)
+    if (rangePreset === 'day') return d.toISOString().slice(0, 10)
+    return fromDate || d.toISOString().slice(0, 10)
   }
 
   const tabs: { value: InvoiceTab; label: string }[] = [
@@ -109,57 +140,127 @@ export function OwnerInvoiceBoard({ invoices, session }: { invoices: InvoiceRow[
           ))}
         </div>
       </div>
+
+      {tab === 'paid' && (
+        <div className="mb-4 rounded-lg border border-border p-3 bg-muted/50 flex flex-wrap items-center gap-3 text-sm">
+          <span className="font-medium">نطاق التصدير:</span>
+          <div className="flex items-center gap-2">
+            {'الكل'}
+            {['day', 'week', 'month'].map((p) => (
+              <Button key={p} size="sm" variant={rangePreset === p ? 'secondary' : 'outline'} onClick={() => { setRangePreset(p as RangePreset); setFromDate(''); setToDate('') }}>
+                {p === 'day' ? 'يوم' : p === 'week' ? 'أسبوع' : 'شهر'}
+              </Button>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-[11px] text-muted-foreground">من</label>
+            <Input type="date" value={fromDate} onChange={(e) => { setFromDate(e.target.value); setRangePreset('custom') }} className="w-32" />
+            <label className="text-[11px] text-muted-foreground ml-1">إلى</label>
+            <Input type="date" value={toDate} onChange={(e) => { setToDate(e.target.value); setRangePreset('custom') }} className="w-32" />
+          </div>
+          <Button size="sm" variant="outline" onClick={exportPaidToExcel}>تصدير إكسيل (مدفوعة)</Button>
+        </div>
+      )}
+
       <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ابحث برقم الفاتورة أو المنشئ" className="mb-4" />
       {notice && <p className="mb-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">{notice}</p>}
-      {selectedId && selected && (
-        <div className="mb-4 rounded-xl border p-3 bg-card text-right">
-          <div className="flex justify-between gap-2 mb-2"><strong>{selected.number}</strong><span className="text-xs text-muted-foreground">{dateTime(selected.createdAt)}</span></div>
-          <div className="flex justify-between text-sm mb-1"><span>الطاولة:</span><span>{selected.table ? `طاولة ${selected.table}` : 'تيك أواي'}</span></div>
-          <div className="flex justify-between text-sm mb-1"><span>المنشئ:</span><span>{selected.creator ?? '—'}</span></div>
-          <div className="flex justify-between text-sm font-medium mb-2"><span>الإجمالي:</span><span>{money(selected.total)}</span></div>
-          <div className="flex justify-between text-sm mb-2"><span>المدفوع:</span><span>{money(selected.paid)}</span></div>
-          <div className="flex justify-between text-sm font-bold mb-3"><span>المتبقي:</span><span>{money(selected.remaining)}</span></div>
-          <div className="text-xs text-muted-foreground mb-2">الأصناف: {selected.items.length} · {selected.items.map((i) => `${i.name} × ${i.quantity}`).join(' ، ')}</div>
-          <div className="flex flex-wrap gap-2">
-            {Number(selected.remaining) <= 0 && selected.status !== 'cancelled' && <Button size="sm" variant="outline" onClick={() => printInvoice(selected)}>طباعة</Button>}
-            <Button size="sm" variant="outline" onClick={() => openDelete(selected)}>حذف الفاتورة</Button>
-            {selected.status !== 'cancelled' && selected.items.length > 0 && <Button size="sm" variant="outline" onClick={() => openRemove(selected)}>إزالة صنف</Button>}
+
+      {selectedIds.size > 0 && (
+        <div className="mb-3 rounded-lg border border-rose-200 bg-rose-50 p-3 flex flex-wrap items-center justify-between gap-2 text-sm">
+          <span>تم تحديد {selectedIds.size} فاتورة</span>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => setSelectedIds(new Set())}>إلغاء تحديد الكل</Button>
+            <Button variant="destructive" size="sm" disabled={pending} onClick={() => confirmDeleteBulk([...selectedIds])}>حذف المحدد</Button>
           </div>
         </div>
       )}
+
       {!rows.length ? (
         <EmptyState title="لا توجد فواتير" description="لا توجد سجلات مطابقة لهذا القسم." />
       ) : (
         <div className="space-y-2">
-          {rows.map((invoice) => (
-            <button
-              key={invoice.id}
-              onClick={() => setSelectedId(selectedId === invoice.id ? null : invoice.id)}
-              className={`w-full rounded-xl border p-3 text-right transition-colors ${selectedId === invoice.id ? 'border-primary bg-accent/40' : 'border-border bg-card'}`}
-            >
-              <div className="flex justify-between gap-3 mb-1"><strong>{invoice.number}</strong><span className="font-bold">{money(invoice.total)}</span></div>
-              <div className="mt-1 flex justify-between text-xs text-muted-foreground">
-                <span>{invoice.creator ?? '—'} · {dateTime(invoice.createdAt)}</span>
-                <span>{invoice.table ? `طاولة ${invoice.table}` : 'تيك أواي'} · المتبقي {money(invoice.remaining)}</span>
+{tab === 'paid' && rows.length > 0 && (
+  <div className="flex items-center gap-2 mb-1">
+    <input
+      type="checkbox"
+      checked={selectedIds.size === rows.length && rows.length > 0}
+      onChange={toggleSelectAll}
+      className="rounded border-border bg-text"
+    />
+    <span className="text-xs text-muted-foreground">تحديد الكل ({rows.length})</span>
+  </div>
+)}
+{rows.map((invoice) => {
+            const isOpen = expandedId === invoice.id
+            const paid = Number(invoice.paid)
+            const remaining = Number(invoice.remaining)
+            const isPaid = tab === 'paid'
+            return (
+              <div key={invoice.id} className="overflow-hidden rounded-xl border border-border bg-card transition-all">
+                <button
+                  onClick={(event) => { event.stopPropagation(); toggleExpand(invoice.id) }}
+                  className={`w-full border-b border-border/50 p-3 text-right transition-colors hover:bg-accent/30 ${isOpen ? 'bg-amber-50' : ''} flex items-center justify-between`}
+                >
+                  <div className="flex items-center gap-2">
+                    {tab === 'paid' && (
+                      <input
+                        type="checkbox"
+                        checked={isSelected(invoice.id)}
+                        onChange={() => toggleSelection(invoice.id)}
+                        className="rounded border-border bg-text shrink-0"
+                      />
+                    )}
+                    <div className="flex justify-between gap-3 w-full min-w-0">
+                      <strong className="truncate">{invoice.number}</strong>
+                      <span className="font-bold">{money(invoice.total)}</span>
+                      <Icon name={isOpen ? 'chevronDown' : 'chevronRight'} size={14} className="shrink-0 text-muted-foreground" />
+                    </div>
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                    <span>{invoice.creator ?? '—'} · {dateTime(invoice.createdAt)}</span>
+                    <span>{invoice.table ? `طاولة ${invoice.table}` : 'تيك أواي'} · المتبقي {money(invoice.remaining)}</span>
+                    <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 border border-border/50">
+                      <Icon name={invoice.status === 'cancelled' ? 'trash' : invoice.status === 'paid' ? 'check' : 'clock'} size={12} />
+                      {invoice.status === 'cancelled' ? 'ملغاة' : invoice.status === 'paid' ? 'مدفوعة' : 'مفتوحة'}
+                    </span>
+                  </div>
+                </button>
+                {isOpen && (
+                  <CardContent className="border-t border-border/60 bg-amber-50/40 p-3 text-right">
+                    <div className="grid gap-2 sm:grid-cols-4 text-sm">
+                      <div><span className="text-[11px] text-muted-foreground block">الطاولة</span><span>{invoice.table ? `طاولة ${invoice.table}` : 'تيك أواي'}</span></div>
+                      <div><span className="text-[11px] text-muted-foreground block">المنشئ</span><span>{invoice.creator ?? '—'}</span></div>
+                      <div><span className="text-[11px] text-muted-foreground block">الإجمالي</span><span>{money(invoice.total)}</span></div>
+                      <div><span className="text-[11px] text-muted-foreground block">المدفوع</span><span>{money(invoice.paid)}</span></div>
+                      <div><span className="text-[11px] text-muted-foreground block">المتبقي</span><span className="font-medium">{money(invoice.remaining)}</span></div>
+                      <div><span className="text-[11px] text-muted-foreground block">الأصناف</span><span>{invoice.items.length}</span></div>
+                      <div><span className="text-[11px] text-muted-foreground block">التفاصيل</span><span className="truncate">{invoice.items.map((i) => `${i.name} × ${i.quantity}`).join(' ، ')}</span></div>
+                      <div><span className="text-[11px] text-muted-foreground block">الحالة</span><span>{invoice.paymentStatus}</span></div>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {!isPaid && remaining <= 0 && invoice.status !== 'cancelled' && (
+                        <Button size="sm" variant="outline" onClick={() => printInvoice(invoice)}>طباعة</Button>
+                      )}
+                      <Button size="sm" variant="outline" onClick={(event) => { event.stopPropagation(); setDeleteModal([invoice.id]); setExpandedId(null) }}>
+                        حذف الفاتورة
+                      </Button>
+                    </div>
+                  </CardContent>
+                )}
               </div>
-              <div className="mt-2 flex flex-wrap gap-1">
-                <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs border border-border/50">
-                  <Icon name={invoice.status === 'cancelled' ? 'trash' : invoice.status === 'paid' ? 'check' : 'clock'} size={12} />
-                  {invoice.status === 'cancelled' ? 'ملغاة' : invoice.status === 'paid' ? 'مدفوعة' : 'مفتوحة'}
-                </span>
-              </div>
-            </button>
-          ))}
+            )}
+          )}
         </div>
       )}
-      {deleteModal && (
+
+      {deleteModal.length > 0 && (
         <div role="dialog" aria-modal="true" aria-labelledby="delete-invoice-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <Card className="w-full max-w-md p-5" dir="rtl">
             <CardHeader>
-              <CardTitle id="delete-invoice-title">تأكيد حذف الفاتورة {deleteModal.number}</CardTitle>
+              <CardTitle id="delete-invoice-title">تأكيد حذف الفاتورة{deleteModal.length > 1 ? ` (${deleteModal.length} فواتير)` : ` ${deleteModal[0]}`}</CardTitle>
             </CardHeader>
             <CardContent className="mt-4">
-              <p className="text-sm text-muted-foreground">هل أنت متأكد من حذف هذه الفاتورة نهائياً؟</p>
+              <p className="text-sm text-muted-foreground">هل أنت متأكد من حذف هذه {deleteModal.length > 1 ? 'الفواتير المحددة نهائياً' : 'الفاتورة نهائياً'}؟</p>
               <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50/60 p-3">
                 <p className="text-xs text-amber-800">ملاحظة: الحذف الدائم للفواتير غير متاح حفاظاً على السجلات المالية. إذا لم يكن الحذف متاحاً، استخدم الإلغاء أو الاسترداد المعتمد.</p>
               </div>
@@ -169,35 +270,8 @@ export function OwnerInvoiceBoard({ invoices, session }: { invoices: InvoiceRow[
               </label>
             </CardContent>
             <div className="mt-4 flex justify-end gap-2">
-              <Button variant="outline" size="sm" onClick={() => setDeleteModal(null)}>إلغاء</Button>
-              <Button variant="destructive" size="sm" disabled={pending} onClick={confirmDelete}>تأكيد الحذف</Button>
-            </div>
-          </Card>
-        </div>
-      )}
-      {removeModal && (
-        <div role="dialog" aria-modal="true" aria-labelledby="remove-item-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <Card className="w-full max-w-md p-5" dir="rtl">
-            <CardHeader>
-              <CardTitle id="remove-item-title">إزالة صنف من الفاتورة {removeModal.number}</CardTitle>
-            </CardHeader>
-            <CardContent className="mt-4">
-              <div className="mb-3"><label className="block text-xs text-muted-foreground mb-1">الصنف</label>
-                <select value={removeModal.items[0]?.id ?? ''} disabled className="rounded-lg border bg-background p-2 text-sm w-full">
-                  {removeModal.items.map((i) => <option key={i.id} value={i.id}>{i.name}{i.variantLabel ? ` — ${i.variantLabel}` : ''} × {i.quantity}</option>)}
-                </select>
-              </div>
-              <div className="mb-3"><label className="block text-xs text-muted-foreground mb-1">سبب الإزالة</label>
-                <Input value={removeReason} onChange={(event) => setRemoveReason(event.target.value)} placeholder="أضف سبب الإزالة…" />
-              </div>
-              <label className="block flex items-center gap-2 text-sm cursor-pointer">
-                <input type="checkbox" checked={releaseStock} onChange={(event) => setReleaseStock(event.target.checked)} />
-                <span>خصم من المخزون — {releaseStock ? 'نعم: إرجاع الكمية للمخزون' : 'لا: تبقى الكمية محجوزة'}</span>
-              </label>
-            </CardContent>
-            <div className="mt-4 flex justify-end gap-2">
-              <Button variant="outline" size="sm" onClick={() => setRemoveModal(null)}>إلغاء</Button>
-              <Button variant="destructive" size="sm" disabled={pending || !removeReason.trim()} onClick={confirmRemove}>تأكيد الإزالة</Button>
+              <Button variant="outline" size="sm" onClick={() => setDeleteModal([])}>إلغاء</Button>
+              <Button variant="destructive" size="sm" disabled={pending} onClick={executeDeleteBulk}>تأكيد الحذف</Button>
             </div>
           </Card>
         </div>
