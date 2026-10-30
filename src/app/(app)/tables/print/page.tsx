@@ -8,11 +8,17 @@ export const metadata = {
   title: 'طباعة رموز QR — Skoon',
 }
 
-export default async function TablePrintPage() {
+export default async function TablePrintPage({ searchParams }: { searchParams: Promise<{ table?: string }> }) {
   await requirePageAccess('/tables')
 
+  const { table } = await searchParams
+  const tableFilter = table?.trim()
+
   const tables = await prisma.cafeTable.findMany({
-    where: { isActive: true },
+    where: {
+      isActive: true,
+      ...(tableFilter ? { number: tableFilter } : {}),
+    },
     orderBy: { number: 'asc' },
     include: {
       branch: { select: { name: true } },
