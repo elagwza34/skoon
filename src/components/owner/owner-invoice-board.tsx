@@ -142,23 +142,23 @@ export function OwnerInvoiceBoard({ invoices, session }: { invoices: InvoiceRow[
       </div>
 
       {tab === 'paid' && (
-        <div className="mb-4 rounded-lg border border-border p-3 bg-muted/50 flex flex-wrap items-center gap-3 text-sm">
-          <span className="font-medium">نطاق التصدير:</span>
-          <div className="flex items-center gap-2">
+        <div className="mb-4 rounded-lg border border-border p-3 bg-muted/50 flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3 text-sm w-full">
+          <span className="font-medium text-foreground">نطاق التصدير:</span>
+          <div className="flex flex-wrap items-center gap-1.5 w-full sm:w-auto">
             {'الكل'}
             {['day', 'week', 'month'].map((p) => (
-              <Button key={p} size="sm" variant={rangePreset === p ? 'secondary' : 'outline'} onClick={() => { setRangePreset(p as RangePreset); setFromDate(''); setToDate('') }}>
+              <Button key={p} size="sm" variant={rangePreset === p ? 'secondary' : 'outline'} onClick={() => { setRangePreset(p as RangePreset); setFromDate(''); setToDate('') }} className="flex-shrink-0">
                 {p === 'day' ? 'يوم' : p === 'week' ? 'أسبوع' : 'شهر'}
               </Button>
             ))}
           </div>
-          <div className="flex items-center gap-2">
-            <label className="text-[11px] text-muted-foreground">من</label>
-            <Input type="date" value={fromDate} onChange={(e) => { setFromDate(e.target.value); setRangePreset('custom') }} className="w-32" />
-            <label className="text-[11px] text-muted-foreground ml-1">إلى</label>
-            <Input type="date" value={toDate} onChange={(e) => { setToDate(e.target.value); setRangePreset('custom') }} className="w-32" />
+          <div className="flex flex-wrap items-center gap-1.5 w-full sm:w-auto">
+            <label className="text-[11px] text-muted-foreground whitespace-nowrap">من</label>
+            <Input type="date" value={fromDate} onChange={(e) => { setFromDate(e.target.value); setRangePreset('custom') }} className="w-full sm:w-32" />
+            <label className="text-[11px] text-muted-foreground whitespace-nowrap sm:ml-1">إلى</label>
+            <Input type="date" value={toDate} onChange={(e) => { setToDate(e.target.value); setRangePreset('custom') }} className="w-full sm:w-32" />
           </div>
-          <Button size="sm" variant="outline" onClick={exportPaidToExcel}>تصدير إكسيل (مدفوعة)</Button>
+          <Button size="sm" variant="outline" onClick={exportPaidToExcel} className="w-full sm:w-auto">تصدير إكسيل (مدفوعة)</Button>
         </div>
       )}
 
