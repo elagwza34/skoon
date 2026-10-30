@@ -166,8 +166,8 @@ export function OwnerInvoiceBoard({ invoices, session }: { invoices: InvoiceRow[
       {notice && <p className="mb-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">{notice}</p>}
 
       {selectedIds.size > 0 && (
-        <div className="mb-3 rounded-lg border border-rose-200 bg-rose-50 p-3 flex flex-wrap items-center justify-between gap-2 text-sm">
-          <span>تم تحديد {selectedIds.size} فاتورة</span>
+        <div className="mb-3 rounded-lg border border-rose-500/30 bg-rose-900/20 p-3 flex flex-wrap items-center justify-between gap-2 text-sm">
+          <span className="text-rose-300">تم تحديد {selectedIds.size} فاتورة</span>
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={() => setSelectedIds(new Set())}>إلغاء تحديد الكل</Button>
             <Button variant="destructive" size="sm" disabled={pending} onClick={() => confirmDeleteBulk([...selectedIds])}>حذف المحدد</Button>
@@ -185,9 +185,9 @@ export function OwnerInvoiceBoard({ invoices, session }: { invoices: InvoiceRow[
       type="checkbox"
       checked={selectedIds.size === rows.length && rows.length > 0}
       onChange={toggleSelectAll}
-      className="rounded border-border bg-text"
+      className="rounded border-border bg-background shrink-0"
     />
-    <span className="text-xs text-muted-foreground">تحديد الكل ({rows.length})</span>
+    <span className="text-xs text-foreground">تحديد الكل ({rows.length})</span>
   </div>
 )}
 {rows.map((invoice) => {
@@ -199,7 +199,7 @@ export function OwnerInvoiceBoard({ invoices, session }: { invoices: InvoiceRow[
               <div key={invoice.id} className="overflow-hidden rounded-xl border border-border bg-card transition-all">
                 <button
                   onClick={(event) => { event.stopPropagation(); toggleExpand(invoice.id) }}
-                  className={`w-full border-b border-border/50 p-3 text-right transition-colors hover:bg-accent/30 ${isOpen ? 'bg-amber-50' : ''} flex items-center justify-between`}
+                  className={`w-full border-b border-border/50 p-3 text-right transition-colors hover:bg-muted/50 ${isOpen ? 'bg-muted/40 border-primary/50' : ''} flex items-center justify-between`}
                 >
                   <div className="flex items-center gap-2">
                     {tab === 'paid' && (
@@ -226,16 +226,16 @@ export function OwnerInvoiceBoard({ invoices, session }: { invoices: InvoiceRow[
                   </div>
                 </button>
                 {isOpen && (
-                  <CardContent className="border-t border-border/60 bg-amber-50/40 p-3 text-right">
+                  <CardContent className="border-t border-border p-3 text-right bg-card">
                     <div className="grid gap-2 sm:grid-cols-4 text-sm">
-                      <div><span className="text-[11px] text-muted-foreground block">الطاولة</span><span>{invoice.table ? `طاولة ${invoice.table}` : 'تيك أواي'}</span></div>
-                      <div><span className="text-[11px] text-muted-foreground block">المنشئ</span><span>{invoice.creator ?? '—'}</span></div>
-                      <div><span className="text-[11px] text-muted-foreground block">الإجمالي</span><span>{money(invoice.total)}</span></div>
-                      <div><span className="text-[11px] text-muted-foreground block">المدفوع</span><span>{money(invoice.paid)}</span></div>
-                      <div><span className="text-[11px] text-muted-foreground block">المتبقي</span><span className="font-medium">{money(invoice.remaining)}</span></div>
-                      <div><span className="text-[11px] text-muted-foreground block">الأصناف</span><span>{invoice.items.length}</span></div>
-                      <div><span className="text-[11px] text-muted-foreground block">التفاصيل</span><span className="truncate">{invoice.items.map((i) => `${i.name} × ${i.quantity}`).join(' ، ')}</span></div>
-                      <div><span className="text-[11px] text-muted-foreground block">الحالة</span><span>{invoice.paymentStatus}</span></div>
+                      <div><span className="text-[11px] text-muted-foreground block">الطاولة</span><span className="text-foreground">{invoice.table ? `طاولة ${invoice.table}` : 'تيك أواي'}</span></div>
+                      <div><span className="text-[11px] text-muted-foreground block">المنشئ</span><span className="text-foreground">{invoice.creator ?? '—'}</span></div>
+                      <div><span className="text-[11px] text-muted-foreground block">الإجمالي</span><span className="text-foreground font-medium">{money(invoice.total)}</span></div>
+                      <div><span className="text-[11px] text-muted-foreground block">المدفوع</span><span className="text-foreground">{money(invoice.paid)}</span></div>
+                      <div><span className="text-[11px] text-muted-foreground block">المتبقي</span><span className="text-foreground font-bold">{money(invoice.remaining)}</span></div>
+                      <div><span className="text-[11px] text-muted-foreground block">الأصناف</span><span className="text-foreground">{invoice.items.length}</span></div>
+                      <div><span className="text-[11px] text-muted-foreground block">التفاصيل</span><span className="text-foreground truncate">{invoice.items.map((i) => `${i.name} × ${i.quantity}`).join(' ، ')}</span></div>
+                      <div><span className="text-[11px] text-muted-foreground block">الحالة</span><span className="text-foreground">{invoice.paymentStatus}</span></div>
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2">
                       {!isPaid && remaining <= 0 && invoice.status !== 'cancelled' && (
