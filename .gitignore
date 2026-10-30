@@ -54,3 +54,27 @@ Thumbs.db
 /.local-pg17-payroll-data/
 /.tmp-prisma-generate/
 /supabase/.temp/
+
+# Temporary diagnostic / fix scripts (generated during troubleshooting — never commit)
+fix*.py
+fix_modal*.py
+write_wb.py
+add_props.py
+check_tsc*.py
+check-tables.js
+diagnose-auth-state.ts
+tmp-inspect.cjs
+tmp-fix-waiter-board.ps1
+tmp-tab-replace.ps1
+tsc_output.txt
+diff_output.txt
+test_first.txt
+test_last.txt
+actions_snapshot.txt
+test-payment.js
+
+# Local backups of schema
+prisma/schema.prisma.bak
+
+# Temporary work files
+*.tmp
