@@ -3,9 +3,11 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { formatCurrency } from '@/lib/format'
+import { cn } from '@/lib/utils'
 import type { StaffSession } from '@/lib/session'
 import type { PosCatalog } from '@/lib/staff-pos'
-import { getStaffTables } from '@/lib/staff-tables'
+
+import { Input } from '@/components/ui/input'
 
 interface TablesSidebarProps {
   catalog: PosCatalog
@@ -14,16 +16,17 @@ interface TablesSidebarProps {
 
 /** Sidebar showing table status - fixed on north, scrollable product list */
 export function TablesSidebar({ catalog }: TablesSidebarProps) {
-  const [tables] = getStaffTables({ role: 'owner', branchId: '0', branchName: '' }) // TODO: pass session
+  const tables: any[] = [] // TODO: fetch staff tables via getStaffTables with session
   const [openModal, setOpenModal] = useState(false)
   const [selectedTable, setSelectedTable] = useState<string | null>(null)
+  const [tableNumber, setTableNumber] = useState('')
 
   return (
     <div className="fixed top-0 left-0 right-0 h-full bg-background/80 backdrop-blur flex flex-col z-40 overflow-y-auto p-4">
       <Card className="h-full">
         <CardHeader className="flex items-center justify-between gap-2 border-b border-border pb-2">
           <CardTitle>إدارة الطاولات</CardTitle>
-          <Badge variant="outline" onClick={() => setOpenModal(true)}>جديدة</Badge>
+          <Badge tone="default" onClick={() => setOpenModal(true)}>جديدة</Badge>
         </CardHeader>
         <CardContent className="flex-1 overflow-auto">
           <div className="space-y-2">

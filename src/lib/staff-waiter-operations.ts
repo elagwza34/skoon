@@ -524,3 +524,44 @@ export async function cancelTableTransfer(session: StaffSession, transferIdRaw: 
     return { id: transferId.toString(), cancelled: true }
   })
 }
+
+/**
+ * List unclaimed QR orders for the waiter's branch.
+ * Returns QR orders with no responsible waiter yet, ordered by newest first.
+ */
+export async function listUnclaimedQrOrders(session: StaffSession) {
+  requireWaiter(session)
+
+  const branchId = BigInt(session.branchId as string)
+  await requireOperationalShift(session, branchId)
+
+  return prisma.order.findMany({
+    where: {
+      source: 'qr',
+      responsibleWaiterId: null,
+      branchId,
+      status: 'NEW',
+      isArchived: false,
+    },
+    orderBy: { createdAt: 'desc' },
+    select: {
+      id: true,
+      orderNumber: true,
+      orderRef: true,
+      status: true,
+      paymentStatus: true,
+      total: true,
+      customerName: true,
+      customerPhone: true,
+      notes: true,
+      createdAt: true,
+      cafeTable: {
+        select: {
+          id: true,
+          number: true,
+          name: true,
+        },
+      },
+    },
+  })
+}

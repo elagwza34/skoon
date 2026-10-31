@@ -146,7 +146,7 @@ export async function listStaffOrders(
 }
 
 /** My waiter orders: only orders currently assigned to the authenticated waiter. */
-export async function listMyOrders(session: StaffSession, opts: { limit?: number } = {}): Promise<MyOrderRow[]> {
+export async function listMyOrders(session: StaffSession, opts: { limit?: number } = {}): Promise<StaffOrderRow[]> {
   const branchScope = session.role === ROLE.OWNER ? {} : { branchId: BigInt(session.branchId as string) }
   const orders = await prisma.order.findMany({
     where: {
@@ -181,6 +181,7 @@ export async function listMyOrders(session: StaffSession, opts: { limit?: number
         orderBy: { id: 'asc' },
         select: {
           id: true,
+          productName: true,
           productId: true,
           productVariantId: true,
           productVariantSnapshot: true,
@@ -207,7 +208,7 @@ export async function listMyOrders(session: StaffSession, opts: { limit?: number
     total: Number(o.total),
     customerName: o.customerName,
     source: o.source,
-    notes: o.notes,
+    orderNotes: o.notes,
     tableNumber: o.cafeTable.number,
     createdAt: o.createdAt.toISOString(),
     updatedAt: o.updatedAt.toISOString(),

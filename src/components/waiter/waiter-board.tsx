@@ -12,6 +12,7 @@ import { PosCheckout } from '@/components/pos/pos-checkout'
 import { formatCurrency } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import type { WaiterWorkspace } from '@/lib/staff-waiter'
+import type { PosCatalog } from '@/lib/staff-pos'
 
 type WorkspaceTab = 'pos' | 'tables' | 'orders' | 'qr' | 'shift'
 
@@ -591,7 +592,7 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
   const [cartOpen, setCartOpen] = useState(false)
   const [posCartSummary, setPosCartSummary] = useState({ itemCount: 0, total: 0, tableId: '' })
 
-  const catalog = useMemo(() => ({
+  const catalog: PosCatalog = useMemo(() => ({
     draftScope: { userId: workspace.currentUserId, branchId: workspace.branchId },
     categories: workspace.categories,
     products: workspace.products.map((product) => ({ ...product, categoryName: workspace.categories.find((category) => category.id === product.categoryId)?.name ?? '—' })),

@@ -208,7 +208,7 @@ export async function readReservationTableId(session: StaffSession, reservationI
  *  Returns the reserved table id. Caller must finalize order_id after creating
  *  the order in the same transaction. */
 export async function validateAndClaimWaiterReservationTx(
-  tx,
+  tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0],
   waiterId: string,
   branchId: bigint,
   reservationId: string,
@@ -232,7 +232,7 @@ export async function validateAndClaimWaiterReservationTx(
 /** Finalize a reservation by attaching the confirmed order id. Idempotent: only
  *  attaches while order_id is still NULL. */
 export async function finalizeReservationTx(
-  tx,
+  tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0],
   reservationId: string,
   orderId: bigint,
 ): Promise<void> {
