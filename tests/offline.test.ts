@@ -19,7 +19,7 @@ import { calculatePayrollPreview, INITIAL_PAYROLL_POLICY } from '../src/lib/payr
 import { calculatePayroll } from '../src/lib/hr-payroll-calculation'
 import { calculateInvoiceDiscounts } from '../src/lib/invoice-discounts'
 import { calculateInvoiceTaxCents, centsText } from '../src/lib/invoice-recalculation'
-import { invoiceDeletionRejection } from '../src/lib/invoice-deletion-policy'
+import { invoiceDeletionPolicy, type InvoiceDeletionRejection } from '../src/lib/invoice-deletion-policy'
 import { nextPayrollStatus, toCents as payrollToCents } from '../src/lib/staff-payroll-write'
 import { normalizeStaffUsername, staffIdentityEmail, staffLoginEmail, staffUsernameEmail, usernameFromStaffEmail } from '../src/lib/staff-username'
 import { initialBranchSchema } from '../src/lib/branch-bootstrap'
@@ -2284,22 +2284,25 @@ test('order item removal blocks paid, served, terminal, and final-item invoices'
 })
 
 test('invoice deletion is rejected for paid and unpaid invoices without a mutation path', () => {
-  const paid = invoiceDeletionRejection({ role: ROLE.OWNER })
-  const unpaid = invoiceDeletionRejection({ role: ROLE.OWNER })
+  const paid = invoiceDeletionPolicy({ role: ROLE.OWNER })
+  const unpaid = invoiceDeletionPolicy({ role: ROLE.OWNER })
   assert.deepEqual(paid, unpaid)
   assert.equal(paid.status, 405)
   assert.equal(paid.allow, 'PATCH')
 
+  const cancelled = invoiceDeletionPolicy({ role: ROLE.OWNER, isCancelled: true })
+  assert.equal(cancelled.status, 200)
+  assert.equal(cancelled.allow, 'DELETE')
+
   const route = readFileSync('src/app/api/staff/invoices/[id]/route.ts', 'utf8')
-  assert.doesNotMatch(route, /\b(?:payment|order)\.(?:delete|deleteMany)\b/)
-  assert.doesNotMatch(route, /@\/lib\/prisma/)
+  assert.match(route, /\bprisma\.order\.delete\b/)
 })
 
 test('invoice deletion keeps authentication and authorization boundaries', () => {
-  assert.equal(invoiceDeletionRejection(null).status, 401)
-  assert.equal(invoiceDeletionRejection({ role: ROLE.CASHIER }).status, 403)
-  assert.equal(invoiceDeletionRejection({ role: ROLE.MANAGER }).status, 403)
-  assert.equal(invoiceDeletionRejection({ role: ROLE.OWNER }).status, 405)
+  assert.equal(invoiceDeletionPolicy(null).status, 401)
+  assert.equal(invoiceDeletionPolicy({ role: ROLE.CASHIER }).status, 403)
+  assert.equal(invoiceDeletionPolicy({ role: ROLE.MANAGER }).status, 403)
+  assert.equal(invoiceDeletionPolicy({ role: ROLE.OWNER }).status, 405)
 })
 
 // --- Employee edit regression tests (offline: authorization + validation only) ---

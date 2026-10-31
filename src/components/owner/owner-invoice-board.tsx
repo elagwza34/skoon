@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition, useMemo, useCallback } from 'react'
+import { useState, useTransition, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -25,7 +25,6 @@ export function OwnerInvoiceBoard({ invoices, session }: { invoices: InvoiceRow[
   const [tab, setTab] = useState<InvoiceTab>('open')
   const [query, setQuery] = useState('')
   const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [deleteModal, setDeleteModal] = useState<string[]>([])
   const [releaseStock, setReleaseStock] = useState(true)
   const [notice, setNotice] = useState<string | null>(null)
@@ -45,34 +44,11 @@ export function OwnerInvoiceBoard({ invoices, session }: { invoices: InvoiceRow[
       const match = !q || invoice.number.toLowerCase().includes(q) || (invoice.creator ?? '').toLowerCase().includes(q)
       if (!match) return false
       if (tab === 'cancelled') return invoice.status === 'cancelled'
-      if (tab === 'deleted') return invoice.status === 'cancelled' || invoice.cancelledAt != null
+      if (tab === 'deleted') return invoice.status === 'cancelled'
       if (tab === 'paid') return invoice.status !== 'cancelled' && Number(invoice.remaining) <= 0
       return invoice.status !== 'cancelled' && Number(invoice.remaining) > 0
     })
   }, [invoices, query, tab])
-
-  const isSelected = (id: string) => selectedIds.has(id)
-  const toggleSelection = useCallback((id: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }, [])
-  const toggleSelectAll = useCallback(() => {
-    if (selectedIds.size === rows.length && rows.length > 0) {
-      setSelectedIds(new Set())
-    } else {
-      setSelectedIds(new Set(rows.map((r) => r.id)))
-    }
-  }, [rows, selectedIds.size])
-  const selectedInvoices = rows.filter((r) => selectedIds.has(r.id))
-
-  async function confirmDeleteBulk(ids: string[]) {
-    if (pending || ids.length === 0) return
-    setDeleteModal(ids)
-  }
 
   async function executeDeleteBulk() {
     if (pending || deleteModal.length === 0) return
@@ -83,7 +59,6 @@ export function OwnerInvoiceBoard({ invoices, session }: { invoices: InvoiceRow[
         if (!response.ok) failed++
       }
       setDeleteModal([])
-      setSelectedIds(new Set())
       if (failed === 0) setNotice_(`تم حذف ${deleteModal.length} فاتورة بنجاح.`)
       else setNotice_(`تم حذف ${deleteModal.length - failed} فاتورة، وفشل ${failed} فاتورة.`)
     })
@@ -167,31 +142,10 @@ export function OwnerInvoiceBoard({ invoices, session }: { invoices: InvoiceRow[
       <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ابحث برقم الفاتورة أو المنشئ" className="mb-4" />
       {notice && <p className="mb-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">{notice}</p>}
 
-      {selectedIds.size > 0 && (
-        <div className="mb-3 rounded-lg border border-rose-500/30 bg-rose-900/20 p-3 flex flex-wrap items-center justify-between gap-2 text-sm">
-          <span className="text-rose-300">تم تحديد {selectedIds.size} فاتورة</span>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => setSelectedIds(new Set())}>إلغاء تحديد الكل</Button>
-            <Button variant="destructive" size="sm" disabled={pending} onClick={() => confirmDeleteBulk([...selectedIds])}>حذف المحدد</Button>
-          </div>
-        </div>
-      )}
-
       {!rows.length ? (
         <EmptyState title="لا توجد فواتير" description="لا توجد سجلات مطابقة لهذا القسم." />
       ) : (
         <div className="space-y-2">
-{tab === 'paid' && rows.length > 0 && (
-  <div className="flex items-center gap-2 mb-1">
-    <input
-      type="checkbox"
-      checked={selectedIds.size === rows.length && rows.length > 0}
-      onChange={toggleSelectAll}
-      className="rounded border-border bg-background shrink-0"
-    />
-    <span className="text-xs text-foreground">تحديد الكل ({rows.length})</span>
-  </div>
-)}
 {rows.map((invoice) => {
             const isOpen = expandedId === invoice.id
             const paid = Number(invoice.paid)
@@ -204,14 +158,6 @@ export function OwnerInvoiceBoard({ invoices, session }: { invoices: InvoiceRow[
                   className={`w-full border-b border-border/50 p-3 text-right transition-colors hover:bg-muted/50 ${isOpen ? 'bg-muted/40 border-primary/50' : ''} flex items-center justify-between`}
                 >
                   <div className="flex items-center gap-2">
-                    {tab === 'paid' && (
-                      <input
-                        type="checkbox"
-                        checked={isSelected(invoice.id)}
-                        onChange={() => toggleSelection(invoice.id)}
-                        className="rounded border-border bg-text shrink-0"
-                      />
-                    )}
                     <div className="flex justify-between gap-3 w-full min-w-0">
                       <strong className="truncate">{invoice.number}</strong>
                       <span className="font-bold">{money(invoice.total)}</span>
@@ -243,9 +189,11 @@ export function OwnerInvoiceBoard({ invoices, session }: { invoices: InvoiceRow[
                       {!isPaid && remaining <= 0 && invoice.status !== 'cancelled' && (
                         <Button size="sm" variant="outline" onClick={() => printInvoice(invoice)}>طباعة</Button>
                       )}
-                      <Button size="sm" variant="outline" onClick={(event) => { event.stopPropagation(); setDeleteModal([invoice.id]); setExpandedId(null) }}>
-                        حذف الفاتورة
-                      </Button>
+                      {tab === 'cancelled' && (
+                        <Button size="sm" variant="destructive" onClick={(event) => { event.stopPropagation(); setDeleteModal([invoice.id]); setExpandedId(null) }}>
+                          احذف نهائياً
+                        </Button>
+                      )}
                     </div>
                   </CardContent>
                 )}

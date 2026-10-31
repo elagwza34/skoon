@@ -1,25 +1,28 @@
 import { ROLE } from '@/lib/authz'
 
-type InvoiceDeletionActor = { role: string } | null
+type InvoiceDeletionActor = { role: string; isCancelled?: boolean } | null
 
 export type InvoiceDeletionRejection = {
-  status: 401 | 403 | 405
-  error: string
+  status: 200 | 401 | 403 | 405
+  error: string | null
   allow?: string
 }
 
 /**
- * Permanent invoice deletion is intentionally unavailable at runtime.
+ * Permanent invoice deletion.
  *
- * Authentication and role checks remain explicit so callers receive the same
- * security boundary without any order/payment lookup or destructive write.
+ * - Unauthenticated -> 401
+ * - Non-owner -> 403
+ * - Owner deleting a cancelled invoice -> allowed (200 + Allow: DELETE)
+ * - Owner deleting a non-cancelled invoice -> 405 (use cancellation/refund instead)
  */
-export function invoiceDeletionRejection(actor: InvoiceDeletionActor): InvoiceDeletionRejection {
-  if (!actor) return { status: 401, error: 'Not authenticated' }
-  if (actor.role !== ROLE.OWNER) return { status: 403, error: 'غير مصرح — إدارة السجلات المالية للمالك فقط' }
+export function invoiceDeletionPolicy(actor: InvoiceDeletionActor): InvoiceDeletionRejection {
+  if (!actor) return { status: 401, error: 'Not authenticated', allow: undefined }
+  if (actor.role !== ROLE.OWNER) return { status: 403, error: 'غير مصرح — إدارة السجلات المالية للمالك فقط', allow: undefined }
+  if (actor.isCancelled) return { status: 200, error: null, allow: 'DELETE' }
   return {
     status: 405,
-    error: 'الحذف الدائم للفواتير غير متاح حفاظًا على السجلات المالية. استخدم إجراءات الإلغاء أو الاسترداد المعتمدة.',
+    error: 'لا يمكن حذف فاتورة غير ملغاة نهائيًا. استخدم الإلغاء أو الاسترداد المعتمد.',
     allow: 'PATCH',
   }
 }
