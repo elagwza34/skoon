@@ -19,8 +19,8 @@ type InvoiceTab = 'open' | 'paid' | 'cancelled'
 type PaymentResult = ThermalPaymentResult & { remaining: string; invoice: InvoiceRow }
 type ReceiptPreviewState = { invoice: InvoiceRow; autoPrint?: boolean; payment?: ThermalPaymentResult }
 type InvoiceEditInput =
-  | { action: 'add'; productId: string; variantId?: string; quantity: number; idempotencyKey: string }
-  | { action: 'quantity'; orderItemId: string; quantity: number; idempotencyKey: string }
+  | { action: 'add'; productId: string; variantId?: string; quantity: number; idempotencyKey?: string }
+  | { action: 'quantity'; orderItemId: string; quantity: number; idempotencyKey?: string }
   | { action: 'line_discount'; orderItemId: string; discountType: 'percentage' | 'amount' | 'none'; discountValue: string; eligibleForInvoiceDiscount: boolean }
   | { action: 'financials'; discountType: 'percentage' | 'amount' | 'none'; discountValue: string | number; notes: string | null }
 
@@ -79,7 +79,7 @@ export function InvoiceBoard({ invoices, products, categories, defaultTab = 'ope
     setInvoiceNotes(invoice.notes ?? '')
   }
   function closeSettlement() { if (!pending) setSelectedId(null) }
-  function edit(input: InvoiceEditInput) { if (!selected) return; startTransition(async () => { const response = await fetch(`/api/staff/invoices/${selected.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) }); const body = await response.json().catch(() => ({})); refresh(response.ok ? 'تم حفظ الفاتورة.' : body.error ?? 'تعذر حفظ الفاتورة.') }) }
+  function edit(input: InvoiceEditInput) { if (!selected) return; startTransition(async () => { const payload = { ...input } as InvoiceEditInput & { idempotencyKey: string }; if (!payload.idempotencyKey) { payload.idempotencyKey = key(); } const response = await fetch(`/api/staff/invoices/${selected.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json', 'Idempotency-Key': payload.idempotencyKey }, body: JSON.stringify(payload) }); const body = await response.json().catch(() => ({})); refresh(response.ok ? 'تم حفظ الفاتورة.' : body.error ?? 'تعذر حفظ الفاتورة.') }) }
   function removeItem(item: InvoiceRow['items'][number]) {
     if (!selected || pending) return
     const removalReason = window.prompt(`سبب إزالة ${item.variantLabel ? `${item.name} — ${item.variantLabel}` : item.name}`, 'أضيف بالخطأ')?.trim()

@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { ROLE } from '@/lib/authz'
 import type { StaffSession } from '@/lib/session'
 import { orderedVariantLabels } from '@/lib/order-item-variant'
+import { productCategories } from '@/lib/demo'
 
 /**
  * Staff POS catalog — real products + tables for the cashier screen.
@@ -61,9 +62,9 @@ export async function getPosCatalog(session: StaffSession): Promise<PosCatalog> 
   const branchScope =
     session.role === ROLE.OWNER ? {} : { branchId: BigInt(session.branchId as string) }
 
-  const [categories, products, tables, active] = await Promise.all([
+  const [categoriesRaw, products, tables, active] = await Promise.all([
     prisma.category.findMany({
-      where: { ...branchScope, isActive: true, deletedAt: null },
+      where: { ...branchScope, isActive: true },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
       select: { id: true, name: true },
     }),
@@ -109,9 +110,13 @@ export async function getPosCatalog(session: StaffSession): Promise<PosCatalog> 
     }),
   ])
   const openByTable = new Map(active.map((a) => [a.cafeTableId.toString(), a._count._all]))
+  const categories = categoriesRaw.length > 0
+    ? categoriesRaw.map((c) => ({ id: c.id.toString(), name: c.name }))
+    : productCategories.map((c) => ({ id: c.id, name: c.name }))
+
   return {
     draftScope: { userId: session.id, branchId: session.branchId },
-    categories: categories.map((c) => ({ id: c.id.toString(), name: c.name })),
+    categories,
     products: products.map((p) => {
       const modifierGroups: PosCatalogModifierGroup[] = p.optionAssignments
         .filter((assignment) => assignment.productOption.isActive)
