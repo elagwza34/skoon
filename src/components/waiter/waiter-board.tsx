@@ -9,7 +9,6 @@ import { Badge } from '@/components/ui/badge'
 import { Segmented } from '@/components/ui/segmented'
 import { Icon } from '@/components/ui/icon'
 import { PosCheckout } from '@/components/pos/pos-checkout'
-import { OrderStatusTracker } from '@/components/order/order-status-tracker'
 import { formatCurrency } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import type { WaiterWorkspace } from '@/lib/staff-waiter'
@@ -80,7 +79,7 @@ function OrderCards({
           const isMine = order.responsibleWaiterId === currentUserId
           const isPending = pendingId === order.id
           return (
-            <Card key={order.id} className={cn('border rounded-lg p-4', isMine ? 'border-primary/40 bg-primary/5' : 'border-border')}>
+            <Card key={order.id} className={cn('border rounded-lg p-3', isMine ? 'border-primary/40 bg-primary/5' : 'border-border')}>
               <CardHeader className="flex-row items-center justify-between gap-2">
                 <div>
                   <CardTitle className="text-sm">{order.number}</CardTitle>
@@ -140,13 +139,6 @@ function OrderCards({
                   )}
                 </div>
               </CardContent>
-              <OrderStatusTracker
-                id={order.id}
-                orderNumber={order.number}
-                initialStatus={order.status}
-                branchName="—"
-                tableNumber={order.tableNumber}
-              />
             </Card>
           )
         })
@@ -507,9 +499,9 @@ function ShiftPanel({
                 إرسال
               </Button>
               <Button variant="ghost" onClick={() => { /* close handled by parent */ }} size="sm">إغلاق</Button>
-                </div>
-              </CardContent>
-            </Card>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       <Card>
@@ -603,7 +595,7 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
     draftScope: { userId: workspace.currentUserId, branchId: workspace.branchId },
     categories: workspace.categories,
     products: workspace.products.map((product) => ({ ...product, categoryName: workspace.categories.find((category) => category.id === product.categoryId)?.name ?? '—' })),
-    tables: workspace.tables.map(({ id, number, name }) => ({ id, number, name })),
+    tables: workspace.tables.map(({ id, number, name, openOrders }) => ({ id, number, name, status: openOrders > 0 ? 'occupied' : 'available', openOrders })),
   }), [workspace])
   const selectedTable = workspace.tables.find((table) => table.id === selectedTableId) ?? null
   const selectedOrders = selectedTable ? workspace.openOrders.filter((order) => order.tableNumber === selectedTable.number) : []

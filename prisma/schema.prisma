@@ -35,6 +35,7 @@ model CafeBranch {
 
   users                       User[]
   cafeTables                  CafeTable[]
+  waiterTableReservations     WaiterTableReservation[]
   categories                  Category[]
   products                    Product[]
   productAttributes           ProductAttribute[]
@@ -640,6 +641,7 @@ model CafeTable {
   transferredFrom      OrderTableTransfer[]  @relation("orderTransferFromTable")
   transferredTo        OrderTableTransfer[]  @relation("orderTransferToTable")
   waiterTableTransfers WaiterTableTransfer[]
+  waiterTableReservations WaiterTableReservation[]
 
   @@unique([branchId, number])
   @@index([branchId, isActive])
@@ -1075,6 +1077,32 @@ model OrderTableTransfer {
   @@index([branchId, toTableId, createdAt])
   @@map("order_table_transfers")
 }
+
+/// Temporary waiter seat reservations. A waiter must hold a live, unexpired
+/// reservation before opening POS for a table. Rows are finalized when the
+/// waiter confirms an order (order_id becomes set) or reclaimed after the TTL
+/// elapses (order_id stays null).
+model WaiterTableReservation {
+  id         BigInt   @id @default(autoincrement())
+  branchId   BigInt   @map("branch_id")
+  tableId    BigInt   @map("table_id")
+  waiterId   String   @map("waiter_id") @db.Uuid
+  orderId    BigInt?  @map("order_id")
+  expiresAt  DateTime @map("expires_at")
+
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  branch CafeBranch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  table  CafeTable @relation(fields: [tableId], references: [id], onDelete: Restrict)
+
+  @@unique([tableId, orderId])
+  @@index([branchId, tableId])
+  @@index([waiterId])
+  @@map("waiter_table_reservations")
+}
+
+
 
 /// A responsibility handover must be accepted by the recipient before any order
 /// owner is changed. It is separate from cash handover on Shift.

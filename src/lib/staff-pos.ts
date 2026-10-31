@@ -44,7 +44,7 @@ export interface PosCatalog {
   draftScope: { userId: string; branchId: string | null }
   categories: { id: string; name: string }[]
   products: PosCatalogProduct[]
-  tables: { id: string; number: string; name: string | null }[]
+  tables: { id: string; number: string; name: string | null; status: 'available' | 'occupied'; openOrders: number }[]
 }
 
 export class PosError extends Error {
@@ -61,7 +61,7 @@ export async function getPosCatalog(session: StaffSession): Promise<PosCatalog> 
   const branchScope =
     session.role === ROLE.OWNER ? {} : { branchId: BigInt(session.branchId as string) }
 
-  const [categories, products, tables] = await Promise.all([
+  const [categories, products, tables, active] = await Promise.all([
     prisma.category.findMany({
       where: { ...branchScope, isActive: true, deletedAt: null },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
@@ -102,7 +102,13 @@ export async function getPosCatalog(session: StaffSession): Promise<PosCatalog> 
       orderBy: [{ sortOrder: 'asc' }, { number: 'asc' }],
       select: { id: true, number: true, name: true },
     }),
+    prisma.order.groupBy({
+      by: ['cafeTableId'],
+      where: { ...branchScope, status: { in: ['new', 'preparing', 'ready'] } },
+      _count: { _all: true },
+    }),
   ])
+  const openByTable = new Map(active.map((a) => [a.cafeTableId.toString(), a._count._all]))
   return {
     draftScope: { userId: session.id, branchId: session.branchId },
     categories: categories.map((c) => ({ id: c.id.toString(), name: c.name })),
@@ -133,7 +139,10 @@ export async function getPosCatalog(session: StaffSession): Promise<PosCatalog> 
         modifierGroups,
       }
     }),
-    tables: tables.map((t) => ({ id: t.id.toString(), number: t.number, name: t.name })),
+    tables: tables.map((t) => {
+      const open = openByTable.get(t.id.toString()) ?? 0
+      return { id: t.id.toString(), number: t.number, name: t.name, status: open > 0 ? 'occupied' : 'available', openOrders: open }
+    }),
   }
 }
 

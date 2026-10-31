@@ -25,7 +25,7 @@ export async function getStaffTables(session: StaffSession): Promise<StaffTable[
     prisma.cafeTable.findMany({
       where: { ...branchScope, isActive: true, deletedAt: null },
       orderBy: [{ sortOrder: 'asc' }, { number: 'asc' }],
-      select: { id: true, number: true, name: true, capacity: true, publicToken: true, sortOrder: true, floorPlanZone: true, floorPlanX: true, floorPlanY: true, floorPlanRotation: true },
+      select: { id: true, number: true, name: true, capacity: true, publicToken: true, floorPlanZone: true, floorPlanX: true, floorPlanY: true, floorPlanRotation: true },
     }),
     prisma.order.groupBy({
       by: ['cafeTableId'],
@@ -43,26 +43,4 @@ export async function getStaffTables(session: StaffSession): Promise<StaffTable[
       floorPlanZone: t.floorPlanZone, floorPlanX: t.floorPlanX === null ? null : Number(t.floorPlanX), floorPlanY: t.floorPlanY === null ? null : Number(t.floorPlanY), floorPlanRotation: t.floorPlanRotation,
     }
   })
-}
-
-/**
- * Re-number all active tables in a branch so their `number` and `sortOrder`
- * are consecutive starting at 1, ordered by current sortOrder then number.
- * Safe to call after create/update/archive because orders reference cafeTableId,
- * not the display number.
- */
-export async function renumberTables(branchId: bigint): Promise<void> {
-  const tables = await prisma.cafeTable.findMany({
-    where: { branchId, isActive: true, deletedAt: null },
-    orderBy: [{ sortOrder: 'asc' }, { number: 'asc' }],
-    select: { id: true },
-  })
-  await prisma.$transaction(
-    tables.map((table, index) =>
-      prisma.cafeTable.update({
-        where: { id: table.id },
-        data: { number: String(index + 1), sortOrder: index + 1 },
-      })
-    )
-  )
 }

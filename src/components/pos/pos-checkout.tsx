@@ -30,6 +30,7 @@ type PosCartSummary = { itemCount: number; total: number; tableId: string }
 export function PosCheckout({
   catalog,
   initialTableId,
+  reservationId,
   takeawayOrders = [],
   mode = 'cashier',
   cartOpen = false,
@@ -40,6 +41,7 @@ export function PosCheckout({
 }: {
   catalog: PosCatalog
   initialTableId?: string
+  reservationId?: string
   takeawayOrders?: StaffOrderRow[]
   mode?: 'cashier' | 'waiter'
   cartOpen?: boolean
@@ -319,6 +321,7 @@ export function PosCheckout({
           body: JSON.stringify({
             orderType,
             ...(orderType === 'dine_in' ? { tableId } : {}),
+            ...(isWaiter && reservationId ? { reservationId } : {}),
             customerName: customerName.trim() || undefined,
             customerPhone: customerPhone.trim() || undefined,
             notes: orderNotes.trim() || undefined,
@@ -461,7 +464,20 @@ export function PosCheckout({
           onChange={(value) => setOrderType(value as 'dine_in' | 'takeaway')}
           ariaLabel="نوع الطلب"
         /> : <Badge tone="info" className="justify-center">طلب داخل الكافيه</Badge>}
-        {orderType === 'dine_in' ? <Dropdown label="الطاولة" options={tableOptions} value={tableId} onChange={setTableId} className="w-full" /> : <Badge tone="warning" className="whitespace-normal text-center leading-5">تيك أواي · الدفع إلزامي قبل المطبخ</Badge>}
+        {orderType === 'dine_in' ? (
+          isWaiter && Boolean(initialTableId) ? (
+            <div className="w-full">
+              <div className="flex items-center justify-between gap-2 border rounded-lg bg-primary/5 px-3 py-3">
+                <span className="text-sm font-semibold text-muted-foreground">
+                  الطاولة {catalog.tables.find((t) => t.id === initialTableId)?.number ?? '—'}
+                </span>
+                <Badge tone="warning" className="shrink-0">مقفول — لا يمكن التغيير</Badge>
+              </div>
+            </div>
+          ) : (
+            <Dropdown label="الطاولة" options={tableOptions} value={tableId} onChange={setTableId} className="w-full" />
+          )
+        ) : <Badge tone="warning" className="whitespace-normal text-center leading-5">تيك أواي · الدفع إلزامي قبل المطبخ</Badge>}
         <Input icon="customers" value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="اسم العميل (اختياري)" aria-label="اسم العميل" />
         <Input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} inputMode="tel" autoComplete="tel" maxLength={30} placeholder="رقم الهاتف (اختياري)" aria-label="رقم الهاتف (اختياري)" />
         <Input value={orderNotes} onChange={(event) => setOrderNotes(event.target.value)} maxLength={2000} placeholder="ملاحظات الطلب (اختياري)" />

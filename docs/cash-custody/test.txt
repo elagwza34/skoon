@@ -1,0 +1,3 @@
+# Test file for cash custody design
+
+This file is a placeholder to test creation.

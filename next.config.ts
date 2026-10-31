@@ -13,6 +13,9 @@ const nextConfig: NextConfig = {
   // Keep Prisma/bcrypt out of the client bundle and off the bundler's radar.
   serverExternalPackages: ["@prisma/client", "bcryptjs"],
   images: {
+    // Defense in depth: remote images are raster-only. Do not opt into SVG
+    // optimization even when a configured host returns an SVG payload.
+    dangerouslyAllowSVG: false,
     // next/image refuses to optimise any host that is not allow-listed here,
     // which renders every external <Image> broken at runtime. Allow-list the
     // hosts the landing page actually pulls from.

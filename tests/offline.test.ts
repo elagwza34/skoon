@@ -1108,6 +1108,34 @@ test('waiter item adjustment plans incremental preparation and subset variant re
   assert.deepEqual(planOrderItemAdjustment({ action: 'variant', currentQuantity: 5, preparedQuantity: 2, servedQuantity: 0, replaceQuantity: 5 }), { blocked: null, wasteQuantity: 2, releasedUnits: 3, addedUnits: 5 })
 })
 
+// Cashier/waiter cannot reduce quantity below prepared without waste attribution.
+test('cashier item adjustment: reducing below prepared records waste and preserves remaining prepared', () => {
+  // current=10, prepared=6, target=4: 2 prepared become waste, 4 remain all prepared
+  assert.deepEqual(planOrderItemAdjustment({ action: 'quantity', currentQuantity: 10, preparedQuantity: 6, servedQuantity: 0, targetQuantity: 4 }), { blocked: null, wasteQuantity: 2, releasedUnits: 4, addedUnits: 0 })
+  // current=10, prepared=3, target=8: no waste (target >= prepared), release 2 unprepared
+  assert.deepEqual(planOrderItemAdjustment({ action: 'quantity', currentQuantity: 10, preparedQuantity: 3, servedQuantity: 0, targetQuantity: 8 }), { blocked: null, wasteQuantity: 0, releasedUnits: 2, addedUnits: 0 })
+})
+
+// Served items block all adjustments.
+test('cashier item adjustment: any served quantity blocks adjustment', () => {
+  assert.equal(planOrderItemAdjustment({ action: 'quantity', currentQuantity: 5, preparedQuantity: 0, servedQuantity: 1, targetQuantity: 3 }).blocked, 'served')
+  assert.equal(planOrderItemAdjustment({ action: 'variant', currentQuantity: 5, preparedQuantity: 0, servedQuantity: 1, replaceQuantity: 3 }).blocked, 'served')
+})
+
+// Variant replacement beyond unprepared records waste for prepared portion.
+test('cashier item adjustment: variant replacement beyond unprepared records waste', () => {
+  // current=10, prepared=4, replace=8: unprepared=6, waste=8-6=2 prepared items
+  assert.deepEqual(planOrderItemAdjustment({ action: 'variant', currentQuantity: 10, preparedQuantity: 4, servedQuantity: 0, replaceQuantity: 8 }), { blocked: null, wasteQuantity: 2, releasedUnits: 6, addedUnits: 8 })
+  // current=10, prepared=4, replace=4: replace only unprepared, no waste
+  assert.deepEqual(planOrderItemAdjustment({ action: 'variant', currentQuantity: 10, preparedQuantity: 4, servedQuantity: 0, replaceQuantity: 4 }), { blocked: null, wasteQuantity: 0, releasedUnits: 4, addedUnits: 4 })
+})
+
+// Variant replacement cannot exceed total quantity.
+test('cashier item adjustment: variant replacement cannot exceed total quantity', () => {
+  const result = planOrderItemAdjustment({ action: 'variant', currentQuantity: 5, preparedQuantity: 0, servedQuantity: 0, replaceQuantity: 6 })
+  assert.equal(result.blocked, 'quantity')
+})
+
 test('waiter item adjustment contract requires concurrency and idempotency tokens', () => {
   const base = { action: 'quantity' as const, targetQuantity: 3, reason: 'customer change', expectedUpdatedAt: '2026-10-29T10:00:00.000Z', idempotencyKey: 'adjustment-key-1' }
   assert.equal(orderItemAdjustmentSchema.safeParse(base).success, true)
@@ -1967,6 +1995,38 @@ test('invoice discounts: 0% general discount leaves subtotal unchanged', () => {
   ], 'percentage', 0n)
   assert.equal(result.invoiceDiscountCents, 0n)
   assert.equal(result.finalCents, 100_00n)
+})
+
+// FIN-002 regression: line marked ineligible for invoice discount must be
+// excluded from the general-discount eligible base.
+test('invoice discounts: ineligible line excluded from general-discount base', () => {
+  // Gross: 200.00 (eligible) + 100.00 (ineligible) = 300.00
+  // Item discounts: 0, After items: 300.00
+  // Eligible base: 200.00, Excluded: 100.00
+  // General 50% on eligible base: 100.00, Final: 200.00
+  const result = calculateInvoiceDiscounts([
+    { unitCents: 200_00n, quantity: 1, discountType: 'none', discountValue: 0n, eligibleForInvoiceDiscount: true },
+    { unitCents: 100_00n, quantity: 1, discountType: 'none', discountValue: 0n, eligibleForInvoiceDiscount: false },
+  ], 'percentage', 50n)
+  assert.equal(result.subtotalCents, 300_00n)
+  assert.equal(result.itemDiscountCents, 0n)
+  assert.equal(result.afterItemDiscountCents, 300_00n)
+  assert.equal(result.eligibleBaseCents, 200_00n)
+  assert.equal(result.excludedCents, 100_00n)
+  assert.equal(result.invoiceDiscountCents, 100_00n)
+  assert.equal(result.finalCents, 200_00n)
+})
+
+// FIN-002 regression: ineligible line remains payable even under 100% general discount.
+test('invoice discounts: ineligible line remains payable under 100% general discount', () => {
+  // Gross: 100.00 (eligible) + 50.00 (ineligible) = 150.00
+  // General 100% on eligible base: 100.00, Final: 50.00 (ineligible only)
+  const result = calculateInvoiceDiscounts([
+    { unitCents: 100_00n, quantity: 1, discountType: 'none', discountValue: 0n, eligibleForInvoiceDiscount: true },
+    { unitCents: 50_00n, quantity: 1, discountType: 'none', discountValue: 0n, eligibleForInvoiceDiscount: false },
+  ], 'percentage', 100n)
+  assert.equal(result.invoiceDiscountCents, 100_00n)
+  assert.equal(result.finalCents, 50_00n)
 })
 
 // Invalid: line fixed discount exceeds its subtotal

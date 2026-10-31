@@ -29,7 +29,7 @@ export function invoiceDiscountValue(kind: DiscountKind, value: unknown): bigint
   return result
 }
 
-function taxCents(base: bigint, rate: unknown) {
+export function calculateInvoiceTaxCents(base: bigint, rate: unknown) {
   return (base * cents(rate) + 5_000n) / 10_000n
 }
 
@@ -58,7 +58,7 @@ export async function recalculateOpenOrderInvoice(
     where: { id: line.id },
     data: { lineTotal: centsText(calculated.lineTotals[index].afterDiscountCents), discountAmount: centsText(calculated.lineTotals[index].itemDiscountCents) },
   })))
-  const tax = taxCents(calculated.finalCents, taxRate)
+  const tax = calculateInvoiceTaxCents(calculated.finalCents, taxRate)
   const total = calculated.finalCents + tax
   return { calculated, tax, total }
 }

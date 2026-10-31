@@ -92,14 +92,14 @@ async function recalculate(tx: Tx, orderId: bigint, order: { discount_type: stri
 }
 
 export async function adjustOrderItem(session: StaffSession, orderIdRaw: string, itemIdRaw: string, input: unknown) {
-  if (session.role !== ROLE.WAITER) throw new OrderItemAdjustmentError('صلاحية النادل مطلوبة', 403)
+  if (session.role !== ROLE.WAITER && session.role !== ROLE.CASHIER) throw new OrderItemAdjustmentError('غير مصرح بتعديل أصناف الطلب', 403)
   if (!/^\d+$/.test(orderIdRaw) || !/^\d+$/.test(itemIdRaw)) throw new OrderItemAdjustmentError('الطلب أو الصنف غير موجود', 404)
   const parsed = orderItemAdjustmentSchema.safeParse(input)
   if (!parsed.success) throw new OrderItemAdjustmentError(parsed.error.issues[0]?.message ?? 'طلب التعديل غير صالح')
   const orderId = BigInt(orderIdRaw); const itemId = BigInt(itemIdRaw)
   const order = await prisma.order.findUnique({ where: { id: orderId }, select: { branchId: true, responsibleWaiterId: true } })
   if (!order || !staffCanAccessBranch(session, order.branchId)) throw new OrderItemAdjustmentError('الطلب غير موجود', 404)
-  if (order.responsibleWaiterId !== session.id) throw new OrderItemAdjustmentError('لا يمكنك تعديل طلب نادل آخر', 403)
+  if (session.role === ROLE.WAITER && order.responsibleWaiterId !== session.id) throw new OrderItemAdjustmentError('لا يمكنك تعديل طلب نادل آخر', 403)
   const shift = requiresOperationalShift(session.role) ? await getOpenShift(session.id, order.branchId) : null
   if (requiresOperationalShift(session.role) && !shift) throw new OrderItemAdjustmentError('يلزم وجود وردية مفتوحة', 409)
   const operationType = 'order_item_adjustment'
@@ -119,7 +119,7 @@ export async function adjustOrderItem(session: StaffSession, orderIdRaw: string,
     const lockedOrder = rows[0]
     if (!lockedOrder || !['new', 'preparing', 'ready'].includes(lockedOrder.status)) throw new OrderItemAdjustmentError('لا يمكن تعديل طلب مغلق', 409)
     if (lockedOrder.payment_status === 'paid' || await tx.payment.count({ where: { orderId, status: 'completed' } })) throw new OrderItemAdjustmentError('لا يمكن للنادل تعديل طلب تم تحصيله', 409)
-    if (lockedOrder.responsible_waiter_id !== session.id) throw new OrderItemAdjustmentError('تغيّرت مسؤولية الطلب؛ حدّث الصفحة', 409)
+    if (session.role === ROLE.WAITER && lockedOrder.responsible_waiter_id !== session.id) throw new OrderItemAdjustmentError('تغيّرت مسؤولية الطلب؛ حدّث الصفحة', 409)
     const repeated = await tx.financialOperation.findUnique({ where: operationKey })
     if (repeated) { if (repeated.fingerprint !== fingerprint) throw new OrderItemAdjustmentError('مفتاح العملية مستخدم لتعديل مختلف', 409); return repeated.result }
     await tx.$queryRaw`SELECT id FROM order_items WHERE id = ${itemId} AND order_id = ${orderId} FOR UPDATE`

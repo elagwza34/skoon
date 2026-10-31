@@ -4,11 +4,13 @@
  * 1. Gross subtotal = sum(item.unitPrice * item.quantity)
  * 2. Apply individual item discounts
  * 3. Subtotal after item discounts = gross subtotal - item discounts
- * 4. General invoice discount applied to subtotal after item discounts
- * 5. Final payable = subtotal after item discounts - general discount
+ * 4. Split post-item-discount amounts into eligible and excluded bases
+ * 5. General invoice discount applied to the eligible base only
+ * 6. Final payable = subtotal after item discounts - general discount
  *
  * Item-level discounts are applied first; the general invoice discount is
- * then calculated on the remaining subtotal after all item discounts.
+ * then calculated only on eligible remaining amounts. Excluded lines always
+ * remain payable, including under a 100% invoice discount.
  * Historical/settled invoices are never touched by this function.
  */
 
@@ -33,10 +35,14 @@ export function calculateInvoiceDiscounts(lines: readonly DiscountLine[], invoic
   const subtotalCents = lineTotals.reduce((sum, line) => sum + line.subtotalCents, 0n)
   const itemDiscountCents = lineTotals.reduce((sum, line) => sum + line.itemDiscountCents, 0n)
   const afterItemDiscountCents = subtotalCents - itemDiscountCents
-  // General discount base = subtotal after ALL item discounts (canonical formula).
-  // eligibleBaseCents mirrors afterItemDiscountCents for persisted/reporting use.
-  const eligibleBaseCents = afterItemDiscountCents
-  const invoiceDiscountCents = invoiceType === 'none' ? 0n : invoiceType === 'percentage' ? percentage(afterItemDiscountCents, invoiceValue) : invoiceValue
-  if (invoiceDiscountCents > afterItemDiscountCents) fail('Invoice discount exceeds subtotal after item discounts')
-  return { subtotalCents, itemDiscountCents, afterItemDiscountCents, eligibleBaseCents, excludedCents: 0n, invoiceDiscountCents, finalCents: afterItemDiscountCents - invoiceDiscountCents, lineTotals }
+  const eligibleBaseCents = lineTotals.reduce(
+    (sum, line, index) => sum + (lines[index].eligibleForInvoiceDiscount ? line.afterDiscountCents : 0n),
+    0n,
+  )
+  const excludedCents = afterItemDiscountCents - eligibleBaseCents
+  const invoiceDiscountCents = invoiceType === 'none' ? 0n : invoiceType === 'percentage' ? percentage(eligibleBaseCents, invoiceValue) : invoiceValue
+  if (invoiceDiscountCents > eligibleBaseCents) fail('Invoice discount exceeds eligible subtotal after item discounts')
+  const finalCents = afterItemDiscountCents - invoiceDiscountCents
+  if (finalCents < 0n) fail('Invoice total cannot be negative')
+  return { subtotalCents, itemDiscountCents, afterItemDiscountCents, eligibleBaseCents, excludedCents, invoiceDiscountCents, finalCents, lineTotals }
 }

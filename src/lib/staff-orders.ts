@@ -78,6 +78,11 @@ export interface StaffOrderRow {
   updatedAt: string
   items: { id: string; productId: string; variantId: string | null; name: string; variantLabel: string | null; details: string[]; qty: number; servedQty: number; preparedQty: number; preparationStartedAt: string | null; unitPrice: number; note: string | null; updatedAt: string }[]
   itemsCount: number
+  createdById?: string | null
+  qrClaimedAt?: string | null
+  qrApprovedAt?: string | null
+  qrRejectedAt?: string | null
+  qrDecisionById?: string | null
   /** Set once the waiter has pushed the order to the kitchen ("إرسال للمطبخ"). */
   sentToKitchen: boolean
   sentToKitchenAt: string | null
@@ -139,6 +144,103 @@ export async function listStaffOrders(
     itemsCount: o.items.reduce((n, i) => n + i.quantity, 0),
   }))
 }
+
+/** My waiter orders: only orders currently assigned to the authenticated waiter. */
+export async function listMyOrders(session: StaffSession, opts: { limit?: number } = {}): Promise<MyOrderRow[]> {
+  const branchScope = session.role === ROLE.OWNER ? {} : { branchId: BigInt(session.branchId as string) }
+  const orders = await prisma.order.findMany({
+    where: {
+      ...branchScope,
+      responsibleWaiterId: session.id,
+      status: { in: ['new', 'preparing', 'ready', 'served', 'cancelled'] },
+    },
+    orderBy: { createdAt: 'desc' },
+    take: Math.min(opts.limit ?? 100, 200),
+    select: {
+      id: true,
+      orderNumber: true,
+      status: true,
+      paymentStatus: true,
+      orderType: true,
+      total: true,
+      customerName: true,
+      source: true,
+      notes: true,
+      createdAt: true,
+      updatedAt: true,
+      sentToKitchenAt: true,
+      cancelReason: true,
+      createdById: true,
+      qrClaimedAt: true,
+      qrApprovedAt: true,
+      qrRejectedAt: true,
+      qrDecisionById: true,
+      cafeTable: { select: { number: true } },
+      items: {
+        where: { isVoided: false },
+        orderBy: { id: 'asc' },
+        select: {
+          id: true,
+          productId: true,
+          productVariantId: true,
+          productVariantSnapshot: true,
+          optionsSnapshot: true,
+          productVariant: { select: { values: { select: { value: { select: { label: true, attribute: { select: { sortOrder: true } } } } } } } },
+          quantity: true,
+          servedQuantity: true,
+          preparedQuantity: true,
+          preparationStartedAt: true,
+          unitPrice: true,
+          notes: true,
+          updatedAt: true,
+        },
+      },
+    },
+  })
+
+  return orders.map((o) => ({
+    id: o.id.toString(),
+    number: o.orderNumber,
+    status: o.status,
+    paymentStatus: o.paymentStatus,
+    orderType: o.orderType,
+    total: Number(o.total),
+    customerName: o.customerName,
+    source: o.source,
+    notes: o.notes,
+    tableNumber: o.cafeTable.number,
+    createdAt: o.createdAt.toISOString(),
+    updatedAt: o.updatedAt.toISOString(),
+    sentToKitchen: o.sentToKitchenAt != null,
+    sentToKitchenAt: o.sentToKitchenAt?.toISOString() ?? null,
+    cancelReason: o.cancelReason ?? null,
+    createdById: o.createdById?.toString() ?? null,
+    qrClaimedAt: o.qrClaimedAt?.toISOString() ?? null,
+    qrApprovedAt: o.qrApprovedAt?.toISOString() ?? null,
+    qrRejectedAt: o.qrRejectedAt?.toISOString() ?? null,
+    qrDecisionById: o.qrDecisionById?.toString() ?? null,
+    items: o.items.map((i) => {
+      const labels = i.productVariantId || i.productVariantSnapshot ? resolveOrderItemVariantLabels(i.productVariantSnapshot, orderedVariantLabels(i.productVariant?.values.map((entry) => entry.value) ?? [])) : []
+      return {
+        id: i.id.toString(),
+        productId: i.productId.toString(),
+        variantId: i.productVariantId?.toString() ?? null,
+        name: i.productName,
+        variantLabel: labels.length ? labels.join(' · ') : null,
+        details: modifierSnapshotLabels(i.optionsSnapshot),
+        qty: i.quantity,
+        servedQty: i.servedQuantity,
+        preparedQty: i.preparedQuantity,
+        preparationStartedAt: i.preparationStartedAt?.toISOString() ?? null,
+        unitPrice: Number(i.unitPrice),
+        note: i.notes,
+        updatedAt: i.updatedAt.toISOString(),
+      }
+    }),
+    itemsCount: o.items.reduce((n, i) => n + i.quantity, 0),
+  }))
+}
+
 
 /** Kitchen-only queue: a new ticket is actionable only after dispatch. */
 export async function listKitchenOrders(session: StaffSession, limit = 100): Promise<StaffOrderRow[]> {

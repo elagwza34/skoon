@@ -1,0 +1,18 @@
+diff --git a/tests/offline.test.ts b/tests/offline.test.ts
+--- a/tests/offline.test.ts
++++ b/tests/offline.test.ts
+@@ -371,8 +371,15 @@ test('route-access: ops-shell exception lets only the cashier render /cashier', () => {
+   assert.equal(canRenderInOpsShell('cashier', '/cashier'), true)
+   assert.equal(canRenderInOpsShell('cashier', '/products'), true)
+   assert.equal(canRenderInOpsShell('waiter', '/cashier'), false)
+   assert.equal(canRenderInOpsShell('kitchen', '/cashier'), false)
+   assert.equal(canRenderInOpsShell('manager', '/cashier'), false)
+ })
++
++test('route-access: an absent middleware pathname never creates an operational home loop', () => {
++  assert.equal(shouldRedirectOperationalUserToHome(ROLE.CASHIER, ''), false)
++  assert.equal(shouldRedirectOperationalUserToHome(ROLE.CASHIER, '/cashier'), false)
++  assert.equal(shouldRedirectOperationalUserToHome(ROLE.CASHIER, '/dashboard'), true)
++  assert.equal(shouldRedirectOperationalUserToHome(ROLE.MANAGER, '/dashboard'), false)
++})
+ import { StaffProvisionError } from '../src/lib/staff-provision-write'

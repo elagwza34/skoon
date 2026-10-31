@@ -27,7 +27,7 @@ const editSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('add'), productId: z.string().regex(/^\d+$/), variantId: z.string().regex(/^\d+$/).optional(), quantity: z.coerce.number().int().min(1).max(99), idempotencyKey: z.string().trim().min(8).max(100) }),
   z.object({ action: z.literal('quantity'), orderItemId: z.string().regex(/^\d+$/), quantity: z.coerce.number().int().min(1).max(99), expectedUpdatedAt: z.string().datetime(), idempotencyKey: z.string().trim().min(8).max(100), reason: z.string().trim().min(3).max(255) }),
   z.object({ action: z.literal('line_discount'), orderItemId: z.string().regex(/^\d+$/), discountType: z.enum(['percentage', 'amount', 'none']), discountValue: z.union([z.string().trim().min(1).max(32), z.number().finite()]), eligibleForInvoiceDiscount: z.boolean() }),
-  z.object({ action: z.literal('financials'), discountType: z.enum(['percentage', 'amount', 'none']), discountValue: z.union([z.string().trim().min(1).max(32), z.number().finite()]), notes: z.string().trim().max(2_000).optional() }),
+  z.object({ action: z.literal('financials'), discountType: z.enum(['percentage', 'amount', 'none']), discountValue: z.union([z.string().trim().min(1).max(32), z.number().finite()]), notes: z.string().trim().max(2_000).nullable().optional() }),
 ])
 
 export function isInvoiceSettled(total: number, paid: number) { return paid >= total - 0.005 }
@@ -60,7 +60,7 @@ export async function getCashierInvoices(session: StaffSession, range: { from?: 
   const orders = await prisma.order.findMany({ where: { ...scope, ...(createdAt ? { createdAt } : {}) }, orderBy: { createdAt: 'desc' }, take: 150,
       select: { id: true, orderNumber: true, createdAt: true, cancelledAt: true, cancelReason: true, status: true, paymentStatus: true, orderType: true, notes: true, discountType: true, discountValue: true, itemsSubtotal: true, itemDiscountAmount: true, discountEligibleBase: true, discountAmount: true, taxAmount: true, total: true,
         branch: { select: { name: true } }, cafeTable: { select: { number: true } }, createdBy: { select: { name: true } },
-        items: { where: { isVoided: false }, select: { id: true, productId: true, productVariantId: true, productName: true, quantity: true, unitPrice: true, lineTotal: true, discountType: true, discountValue: true, discountAmount: true, eligibleForInvoiceDiscount: true, notes: true, updatedAt: true, optionsSnapshot: true, productVariantSnapshot: true, productVariant: { select: { values: { select: { value: { select: { label: true, attribute: { select: { sortOrder: true } } } } } } } } } },
+        items: { where: { isVoided: false }, orderBy: { id: 'asc' }, select: { id: true, productId: true, productVariantId: true, productName: true, quantity: true, unitPrice: true, lineTotal: true, discountType: true, discountValue: true, discountAmount: true, eligibleForInvoiceDiscount: true, notes: true, updatedAt: true, optionsSnapshot: true, productVariantSnapshot: true, productVariant: { select: { values: { select: { value: { select: { label: true, attribute: { select: { sortOrder: true } } } } } } } } } },
       payments: { where: { status: 'completed' }, select: { id: true, method: true, amount: true, createdAt: true, paidBy: { select: { name: true } } } },
     },
   })
@@ -189,6 +189,13 @@ export async function editOpenInvoice(session: StaffSession, orderIdRaw: string,
     await tx.order.update({ where: { id: orderId }, data: { itemsSubtotal: centsText(calculated.subtotalCents), itemDiscountAmount: centsText(calculated.itemDiscountCents), discountEligibleBase: centsText(calculated.eligibleBaseCents), discountAmount: centsText(calculated.itemDiscountCents + calculated.invoiceDiscountCents), taxAmount: centsText(tax), total: centsText(total), paymentStatus: 'unpaid', ...(financials ? { discountType: financials.discountType === 'none' ? null : financials.discountType, discountValue: financials.discountType === 'amount' ? centsText(financials.discountValue) : financials.discountValue.toString(), notes: financials.notes } : {}) } })
     await tx.auditLog.create({ data: { userId: session.id, branchId: order.branchId, action: 'invoice.edit', entityType: 'order', entityId: orderId, newValues: { action: parsed.data.action, subtotal: centsText(calculated.subtotalCents), itemDiscount: centsText(calculated.itemDiscountCents), invoiceDiscount: centsText(calculated.invoiceDiscountCents), total: centsText(total) } } })
     if (parsed.data.action === 'add') {
+      // If the order was already marked ready, newly added items need kitchen
+      // preparation — revert to preparing so the new lines are not silently
+      // skipped. This mirrors the guard in adjustOrderItem (line 187-190).
+      if (locked.status === 'ready') {
+        await tx.order.update({ where: { id: orderId }, data: { status: 'preparing', readyAt: null } })
+        await tx.orderStatusHistory.create({ data: { orderId, fromStatus: 'ready', toStatus: 'preparing', changedById: session.id, note: 'إضافة أصناف جديدة إلى طلب جاهز — عادت الحالة إلى قيد التحضير' } })
+      }
       await notifyRole(tx, ROLE.KITCHEN, order.branchId, { type: 'order.created', title: 'إضافة صنف إلى طلب مفتوح', body: 'تمت الإضافة بواسطة الكاشير', orderId })
       const resultValue = { id: orderId.toString(), total: centsText(total) }
       await tx.financialOperation.create({ data: { branchId: order.branchId, actorId: session.id, operationType: 'invoice_item_add', idempotencyKey: parsed.data.idempotencyKey, fingerprint: createHash('sha256').update(JSON.stringify({ orderId: orderIdRaw, ...parsed.data })).digest('hex'), result: resultValue } })

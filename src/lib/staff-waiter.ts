@@ -166,6 +166,11 @@ export async function getWaiterWorkspace(session: StaffSession): Promise<WaiterW
       sentToKitchen: o.sentToKitchenAt != null,
       sentToKitchenAt: o.sentToKitchenAt?.toISOString() ?? null,
       cancelReason: o.cancelReason ?? null,
+      createdById: o.createdById?.toString() ?? null,
+      qrClaimedAt: o.qrClaimedAt?.toISOString() ?? null,
+      qrApprovedAt: o.qrApprovedAt?.toISOString() ?? null,
+      qrRejectedAt: o.qrRejectedAt?.toISOString() ?? null,
+      qrDecisionById: o.qrDecisionById?.toString() ?? null,
       responsibleWaiterId: o.responsibleWaiterId,
       responsibleWaiterName: o.responsibleWaiter?.name ?? null,
       items: o.items.map((i) => { const labels = i.productVariantId || i.productVariantSnapshot ? resolveOrderItemVariantLabels(i.productVariantSnapshot, orderedVariantLabels(i.productVariant?.values.map((entry) => entry.value) ?? [])) : []; return { id: i.id.toString(), productId: i.productId.toString(), variantId: i.productVariantId?.toString() ?? null, name: i.productName, variantLabel: labels.length ? labels.join(' · ') : null, details: modifierSnapshotLabels(i.optionsSnapshot), qty: i.quantity, servedQty: i.servedQuantity, preparedQty: i.preparedQuantity, preparationStartedAt: i.preparationStartedAt?.toISOString() ?? null, unitPrice: Number(i.unitPrice), note: i.notes, updatedAt: i.updatedAt.toISOString() } }),
@@ -223,12 +228,13 @@ function loadWaiterWorkspaceData(session: StaffSession, branchScope: { branchId:
       select: { id: true, number: true, name: true, capacity: true },
     }),
     prisma.order.findMany({
-      where: { ...branchScope, status: { in: ['new', 'preparing', 'ready', 'cancelled'] } },
+      where: { ...branchScope, responsibleWaiterId: session.id, status: { in: ['new', 'preparing', 'ready', 'cancelled'] } },
       orderBy: { createdAt: 'desc' },
       take: 100,
       select: {
         id: true, orderNumber: true, status: true, paymentStatus: true, orderType: true, total: true, customerName: true,
-        source: true, notes: true, createdAt: true, updatedAt: true, sentToKitchenAt: true, cancelReason: true, responsibleWaiterId: true,
+        source: true, notes: true, createdAt: true, updatedAt: true, sentToKitchenAt: true, cancelReason: true, responsibleWaiterId: true, createdById: true,
+        qrClaimedAt: true, qrApprovedAt: true, qrRejectedAt: true, qrDecisionById: true,
         responsibleWaiter: { select: { name: true } },
         cafeTable: { select: { number: true } },
         items: {

@@ -13,7 +13,6 @@ export const navGroups: NavGroup[] = [
     { href: '/cashier', label: 'لوحة الكاشير والفواتير', icon: 'pos' },
     { href: '/tables', label: 'الطاولات ورموز QR', icon: 'tables' },
     { href: '/kitchen', label: 'مراقبة المطبخ', icon: 'kitchen' },
-    { href: '/waiter', label: 'مراقبة الويتر والخدمة', icon: 'waiter' },
     { href: '/owner/invoices', label: 'الفواتير', icon: 'orders' },
   ] },
   { title: 'المخزون والكتالوج', items: [

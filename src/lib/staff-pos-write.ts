@@ -8,6 +8,11 @@ import { getOpenShift } from '@/lib/staff-shifts'
 import { createOrderItemVariantSnapshot } from '@/lib/order-item-variant'
 import { calculateInvoiceDiscounts, type DiscountKind } from '@/lib/invoice-discounts'
 import { containsDiscountSubmission } from '@/lib/pos-discount-policy'
+import {
+  readReservationTableId,
+  validateAndClaimWaiterReservationTx,
+  finalizeReservationTx,
+} from '@/lib/table-reservations'
 
 export type PosOrderResult = { id: string; orderNumber: string; orderType: 'dine_in' | 'takeaway'; total: string; itemsCount: number }
 
@@ -18,7 +23,7 @@ function centsText(value: bigint) { return `${value / 100n}.${(value % 100n).toS
  * Staff POS order creation — server-side pricing, one transaction.
  * Cashier+ and waiter (own branch). Kitchen is forbidden.
  */
-export async function createPosOrder(session: StaffSession, input: unknown, idempotencyKey?: string | null) {
+export async function createPosOrder(session: StaffSession, input: unknown, idempotencyKey?: string | null, reservationId?: string | null) {
   if (session.role === ROLE.KITCHEN) throw new PosError('Forbidden', 403)
   const parsed = posOrderSchema.safeParse(input)
   if (!parsed.success) throw new PosError(parsed.error.issues[0]?.message ?? 'بيانات غير صالحة', 400)
@@ -48,7 +53,11 @@ export async function createPosOrder(session: StaffSession, input: unknown, idem
   }
 
   let tableId: bigint
-  if (parsed.data.tableId) {
+  if (session.role === ROLE.WAITER) {
+    // Non-authoritative read for idempotency fingerprinting; the authoritative
+    // locked validation happens inside the transaction below.
+    tableId = await readReservationTableId(session, reservationId!)
+  } else if (parsed.data.tableId) {
     const table = await prisma.cafeTable.findFirst({
       where: { id: BigInt(parsed.data.tableId), branchId, isActive: true, deletedAt: null },
       select: { id: true },
@@ -153,6 +162,23 @@ export async function createPosOrder(session: StaffSession, input: unknown, idem
         return prior.result as unknown as PosOrderResult
       }
     }
+    if (session.role === ROLE.WAITER) {
+      const claimedTableId = await validateAndClaimWaiterReservationTx(
+        tx, session.id, branchId, reservationId!,
+      )
+      if (claimedTableId !== tableId) throw new PosError('الحجز لم يعد سارياً للطاولة المحددة', 409)
+    } else if (parsed.data.orderType === 'dine_in') {
+      const occupied = await tx.order.findFirst({
+        where: {
+          branchId,
+          cafeTableId: tableId,
+          status: { in: ['new', 'preparing', 'ready'] },
+        },
+        select: { id: true },
+      })
+      if (occupied) throw new PosError('الطاولة مشغولة حالياً، اختر طاولة أخرى', 409)
+    }
+
     const order = await tx.order.create({
       data: {
         branchId, cafeTableId: tableId,
@@ -193,6 +219,10 @@ export async function createPosOrder(session: StaffSession, input: unknown, idem
         data: { orderId: order.id, branchId, assignedToId: session.id, assignedById: session.id, source: 'manual_create', reason: 'Manual waiter order creation' },
       })
     }
+    if (session.role === ROLE.WAITER) {
+      await finalizeReservationTx(tx, reservationId!, order.id)
+    }
+
     // Ring the branch's waiters — a new POS order needs their attention (or, if
     // the waiter placed it themselves, it still shows on their own board).
     await notifyRole(tx, ROLE.WAITER, branchId, {
