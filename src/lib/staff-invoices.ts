@@ -18,7 +18,7 @@ export class InvoiceError extends Error { constructor(message: string, readonly 
 export type InvoiceRow = {
   id: string; number: string; createdAt: string; branch: string; table: string; creator: string | null; cashier: string | null
   status: string; paymentStatus: string; orderType?: string; notes?: string | null; discountType?: 'percentage' | 'amount' | null; discountValue?: string; subtotal: string; itemDiscount?: string; discountEligibleBase?: string; discount: string; tax: string; total: string; paid: string; remaining: string
-  cancelledAt: string | null; cancelReason: string | null
+  cancelledAt: string | null; cancelReason: string | null; isArchived: boolean
   items: { id: string; productId: string; name: string; quantity: number; unitPrice: string; lineTotal: string; discountType: 'percentage' | 'amount' | null; discountValue: string; discountAmount: string; eligibleForInvoiceDiscount: boolean; variantId: string | null; variantLabel: string | null; notes?: string | null; details?: string[]; updatedAt: string }[]
   payments: { id: string; method: string; amount: string; createdAt: string; collector: string | null }[]
 }
@@ -60,6 +60,7 @@ export async function getCashierInvoices(session: StaffSession, range: { from?: 
   const orders = await prisma.order.findMany({ where: { ...scope, ...(createdAt ? { createdAt } : {}) }, orderBy: { createdAt: 'desc' }, take: 150,
       select: { id: true, orderNumber: true, createdAt: true, cancelledAt: true, cancelReason: true, status: true, paymentStatus: true, orderType: true, notes: true, discountType: true, discountValue: true, itemsSubtotal: true, itemDiscountAmount: true, discountEligibleBase: true, discountAmount: true, taxAmount: true, total: true,
         branch: { select: { name: true } }, cafeTable: { select: { number: true } }, createdBy: { select: { name: true } },
+        isArchived: true,
         items: { where: { isVoided: false }, orderBy: { id: 'asc' }, select: { id: true, productId: true, productVariantId: true, productName: true, quantity: true, unitPrice: true, lineTotal: true, discountType: true, discountValue: true, discountAmount: true, eligibleForInvoiceDiscount: true, notes: true, updatedAt: true, optionsSnapshot: true, productVariantSnapshot: true, productVariant: { select: { values: { select: { value: { select: { label: true, attribute: { select: { sortOrder: true } } } } } } } } } },
       payments: { where: { status: 'completed' }, select: { id: true, method: true, amount: true, createdAt: true, paidBy: { select: { name: true } } } },
     },
@@ -67,7 +68,7 @@ export async function getCashierInvoices(session: StaffSession, range: { from?: 
   return orders.map((o) => {
     const paid = o.payments.reduce((sum, p) => sum + Number(p.amount), 0)
     return { id: o.id.toString(), number: o.orderNumber, createdAt: o.createdAt.toISOString(), branch: o.branch.name, table: o.orderType === 'takeaway' ? 'تيك أواي' : o.cafeTable.number, creator: o.createdBy?.name ?? null, cashier: o.payments.length > 0 ? o.payments[o.payments.length - 1]?.paidBy?.name ?? null : null, orderType: o.orderType, notes: o.notes, discountType: o.discountType === 'percentage' || o.discountType === 'amount' ? o.discountType : null, discountValue: Number(o.discountValue).toFixed(2),
-      status: o.status, paymentStatus: isInvoiceSettled(Number(o.total), paid) ? 'paid' : o.paymentStatus, subtotal: Number(o.itemsSubtotal).toFixed(2), itemDiscount: Number(o.itemDiscountAmount).toFixed(2), discountEligibleBase: Number(o.discountEligibleBase).toFixed(2), discount: Number(o.discountAmount).toFixed(2), tax: Number(o.taxAmount).toFixed(2), total: Number(o.total).toFixed(2), paid: paid.toFixed(2), remaining: Math.max(0, Number(o.total) - paid).toFixed(2), cancelledAt: o.cancelledAt?.toISOString() ?? null, cancelReason: o.cancelReason ?? null,
+      status: o.status, paymentStatus: isInvoiceSettled(Number(o.total), paid) ? 'paid' : o.paymentStatus, subtotal: Number(o.itemsSubtotal).toFixed(2), itemDiscount: Number(o.itemDiscountAmount).toFixed(2), discountEligibleBase: Number(o.discountEligibleBase).toFixed(2), discount: Number(o.discountAmount).toFixed(2), tax: Number(o.taxAmount).toFixed(2),     total: Number(o.total).toFixed(2), paid: paid.toFixed(2), remaining: Math.max(0, Number(o.total) - paid).toFixed(2), cancelledAt: o.cancelledAt?.toISOString() ?? null, cancelReason: o.cancelReason ?? null, isArchived: o.isArchived,
       items: o.items.map((i) => {
         const relationLabels = orderedVariantLabels(i.productVariant?.values.map((entry) => entry.value) ?? [])
         const variantLabels = i.productVariantId || i.productVariantSnapshot ? resolveVariantLabels(relationLabels, i.productVariantSnapshot) : []

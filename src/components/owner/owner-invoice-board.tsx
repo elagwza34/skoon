@@ -43,10 +43,10 @@ export function OwnerInvoiceBoard({ invoices, session }: { invoices: InvoiceRow[
     return invoices.filter((invoice) => {
       const match = !q || invoice.number.toLowerCase().includes(q) || (invoice.creator ?? '').toLowerCase().includes(q)
       if (!match) return false
-      if (tab === 'cancelled') return invoice.status === 'cancelled'
-      if (tab === 'deleted') return invoice.status === 'cancelled'
-      if (tab === 'paid') return invoice.status !== 'cancelled' && Number(invoice.remaining) <= 0
-      return invoice.status !== 'cancelled' && Number(invoice.remaining) > 0
+      if (tab === 'cancelled') return invoice.status === 'cancelled' && !invoice.isArchived
+      if (tab === 'deleted') return invoice.isArchived
+      if (tab === 'paid') return invoice.status !== 'cancelled' && !invoice.isArchived && Number(invoice.remaining) <= 0
+      return invoice.status !== 'cancelled' && !invoice.isArchived && Number(invoice.remaining) > 0
     })
   }, [invoices, query, tab])
 
@@ -168,8 +168,8 @@ export function OwnerInvoiceBoard({ invoices, session }: { invoices: InvoiceRow[
                     <span>{invoice.creator ?? '—'} · {dateTime(invoice.createdAt)}</span>
                     <span>{invoice.table ? `طاولة ${invoice.table}` : 'تيك أواي'} · المتبقي {money(invoice.remaining)}</span>
                     <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 border border-border/50">
-                      <Icon name={invoice.status === 'cancelled' ? 'trash' : invoice.status === 'paid' ? 'check' : 'clock'} size={12} />
-                      {invoice.status === 'cancelled' ? 'ملغاة' : invoice.status === 'paid' ? 'مدفوعة' : 'مفتوحة'}
+                      <Icon name={invoice.isArchived ? 'trash' : invoice.status === 'cancelled' ? 'trash' : invoice.status === 'paid' ? 'check' : 'clock'} size={12} />
+                      {invoice.isArchived ? 'محذوفة' : invoice.status === 'cancelled' ? 'ملغاة' : invoice.status === 'paid' ? 'مدفوعة' : 'مفتوحة'}
                     </span>
                   </div>
                 </button>

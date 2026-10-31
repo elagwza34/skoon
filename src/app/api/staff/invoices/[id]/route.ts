@@ -7,7 +7,7 @@ export async function PATCH(_req: Request, _context: { params: Promise<{ id: str
   const session = await getStaffSession()
   if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   return NextResponse.json(
-    { error: 'تعديل الفاتورات من خلال واجهة الفواتير المفتوحة فقط.' },
+    { error: 'تعديل الفواتير من خلال واجهة الفواتير المفتوحة فقط.' },
     { status: 405, headers: { Allow: 'DELETE' } },
   )
 }
@@ -19,16 +19,17 @@ export async function DELETE(_req: Request, context: { params: Promise<{ id: str
 
   const order = await prisma.order.findUnique({
     where: { id: BigInt(id) },
-    select: { id: true, cancelledAt: true, status: true, branchId: true },
+    select: { id: true, cancelledAt: true, status: true, isArchived: true },
   })
   if (!order) return NextResponse.json({ error: 'الفاتورة غير موجودة' }, { status: 404 })
+  if (order.isArchived) return NextResponse.json({ error: 'الفاتورة مؤرشفة بالفعل' }, { status: 409 })
 
   const policy = invoiceDeletionPolicy({ role: session.role, isCancelled: !!order.cancelledAt })
   if (policy.status !== 200 || !policy.allow) {
     return NextResponse.json({ error: policy.error }, { status: policy.status, headers: policy.allow ? { Allow: policy.allow } : undefined })
   }
 
-  // Permanent deletion of a cancelled invoice only.
-  await prisma.order.delete({ where: { id: BigInt(id) } })
-  return NextResponse.json({ id, deleted: true })
+  // archive (soft delete) a cancelled invoice only — moves it from cancelled to deleted tab
+  await prisma.order.update({ where: { id: BigInt(id) }, data: { isArchived: true } })
+  return NextResponse.json({ id, archived: true })
 }

@@ -2295,7 +2295,8 @@ test('invoice deletion is rejected for paid and unpaid invoices without a mutati
   assert.equal(cancelled.allow, 'DELETE')
 
   const route = readFileSync('src/app/api/staff/invoices/[id]/route.ts', 'utf8')
-  assert.match(route, /\bprisma\.order\.delete\b/)
+  assert.match(route, /\bprisma\.order\.update\b/)
+  assert.doesNotMatch(route, /\bprisma\.order\.delete\b/)
 })
 
 test('invoice deletion keeps authentication and authorization boundaries', () => {
