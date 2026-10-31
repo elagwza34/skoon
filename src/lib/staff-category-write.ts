@@ -5,10 +5,27 @@ import { staffCanAccessBranch, type StaffSession } from '@/lib/session'
 import { CatalogError, canManageProducts, requireManager } from '@/lib/staff-catalog-write'
 import { resolveCatalogBranch } from '@/lib/catalog-branch'
 
-/**
- * Category CRUD — server-only. Owner/manager only, branch-scoped.
- * Name unique per branch (soft-deleted rows excluded from the check).
- */
+/** التصنيف الافتراضي الذي تنتقل إليه منتجات التصنيف المحذوف. */
+const UNCATEGORIZED_CATEGORY_NAME = 'منتجات بدون تصنيف'
+
+async function getOrCreateUncategorizedCategory(branchId: bigint): Promise<bigint> {
+  const existing = await prisma.category.findFirst({
+    where: { branchId, name: UNCATEGORIZED_CATEGORY_NAME, deletedAt: null },
+    select: { id: true },
+  })
+  if (existing) return existing.id
+  const created = await prisma.category.create({
+    data: {
+      branchId,
+      name: UNCATEGORIZED_CATEGORY_NAME,
+      slug: makeSlug(UNCATEGORIZED_CATEGORY_NAME),
+      sortOrder: 9999,
+      isActive: true,
+    },
+    select: { id: true },
+  })
+  return created.id
+}
 
 export interface CategoryRow {
   id: string
@@ -97,15 +114,23 @@ export async function deleteStaffCategory(session: StaffSession, id: string) {
 
   const row = await prisma.category.findFirst({
     where: { id: BigInt(id), deletedAt: null },
-    select: { id: true, branchId: true, _count: { select: { products: { where: { deletedAt: null } } } } },
+    select: { id: true, branchId: true, name: true },
   })
   if (!row) throw new CatalogError('التصنيف غير موجود', 404)
   if (!staffCanAccessBranch(session, row.branchId)) throw new CatalogError('Forbidden', 403)
-  if (row._count.products > 0)
-    throw new CatalogError('لا يمكن حذف تصنيف يحتوي منتجات — انقل المنتجات أولاً', 409)
+  if (row.name === UNCATEGORIZED_CATEGORY_NAME)
+    throw new CatalogError('لا يمكن حذف التصنيف الافتراضي "منتجات بدون تصنيف"', 409)
 
-  // Soft delete to preserve history/FK integrity.
-  await prisma.category.update({ where: { id: row.id }, data: { deletedAt: new Date() } })
+  const uncategorizedId = await getOrCreateUncategorizedCategory(row.branchId)
+
+  // نقل كل المنتجات غير المحذوفة إلى التصنيف الافتراضي، ثم حذف التصنيف الأصل ناعماً.
+  await prisma.$transaction([
+    prisma.product.updateMany({
+      where: { categoryId: row.id, branchId: row.branchId, deletedAt: null },
+      data: { categoryId: uncategorizedId },
+    }),
+    prisma.category.update({ where: { id: row.id }, data: { deletedAt: new Date() } }),
+  ])
   return { id }
 }
 
