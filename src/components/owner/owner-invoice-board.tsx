@@ -17,7 +17,7 @@ const dateTime = (value: string) => {
 }
 const key = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`
 
-type InvoiceTab = 'open' | 'paid' | 'cancelled'
+type InvoiceTab = 'open' | 'paid' | 'cancelled' | 'deleted'
 
 type RangePreset = 'day' | 'week' | 'month' | 'custom'
 
@@ -45,6 +45,7 @@ export function OwnerInvoiceBoard({ invoices, session }: { invoices: InvoiceRow[
       const match = !q || invoice.number.toLowerCase().includes(q) || (invoice.creator ?? '').toLowerCase().includes(q)
       if (!match) return false
       if (tab === 'cancelled') return invoice.status === 'cancelled'
+      if (tab === 'deleted') return invoice.status === 'cancelled' || invoice.cancelledAt != null
       if (tab === 'paid') return invoice.status !== 'cancelled' && Number(invoice.remaining) <= 0
       return invoice.status !== 'cancelled' && Number(invoice.remaining) > 0
     })
@@ -123,6 +124,7 @@ export function OwnerInvoiceBoard({ invoices, session }: { invoices: InvoiceRow[
     { value: 'open', label: 'مفتوحة' },
     { value: 'paid', label: 'مدفوعة' },
     { value: 'cancelled', label: 'ملغاة' },
+    { value: 'deleted', label: 'محذوفة' },
   ]
 
   return (
