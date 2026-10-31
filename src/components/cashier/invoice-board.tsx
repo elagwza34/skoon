@@ -19,8 +19,8 @@ type InvoiceTab = 'open' | 'paid' | 'cancelled'
 type PaymentResult = ThermalPaymentResult & { remaining: string; invoice: InvoiceRow }
 type ReceiptPreviewState = { invoice: InvoiceRow; autoPrint?: boolean; payment?: ThermalPaymentResult }
 type InvoiceEditInput =
-  | { action: 'add'; productId: string; variantId?: string; quantity: number }
-  | { action: 'quantity'; orderItemId: string; quantity: number }
+  | { action: 'add'; productId: string; variantId?: string; quantity: number; idempotencyKey: string }
+  | { action: 'quantity'; orderItemId: string; quantity: number; idempotencyKey: string }
   | { action: 'line_discount'; orderItemId: string; discountType: 'percentage' | 'amount' | 'none'; discountValue: string; eligibleForInvoiceDiscount: boolean }
   | { action: 'financials'; discountType: 'percentage' | 'amount' | 'none'; discountValue: string | number; notes: string | null }
 

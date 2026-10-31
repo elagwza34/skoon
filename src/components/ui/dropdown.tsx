@@ -28,6 +28,8 @@ export interface DropdownProps {
   /** Accessible name when no visible label is present. */
   ariaLabel?: string
   align?: 'start' | 'end'
+  /** Extra classes applied to the open menu (e.g. max-h-48 overflow-y-auto for scrolling). */
+  menuClassName?: string
 }
 
 export function Dropdown({
@@ -38,6 +40,7 @@ export function Dropdown({
   className,
   ariaLabel,
   align = 'start',
+  menuClassName,
 }: DropdownProps) {
   const [open, setOpen] = useState(false)
   const [active, setActive] = useState(0)
@@ -118,6 +121,7 @@ export function Dropdown({
           className={cn(
             'absolute z-30 mt-2 min-w-48 overflow-hidden rounded-lg border border-border bg-card p-1 shadow-lg',
             align === 'end' ? 'end-0' : 'start-0',
+            menuClassName ?? '',
           )}
         >
           {options.map((opt, i) => (

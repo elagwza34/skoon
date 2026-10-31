@@ -54,6 +54,7 @@ export function PosCheckout({
   const canUseDiscounts = canRenderPosDiscountControls(mode)
   const router = useRouter()
   const [category, setCategory] = useState('all')
+  const [savingCategory, setSavingCategory] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [cart, setCart] = useState<
     {
@@ -206,6 +207,24 @@ export function PosCheckout({
       if (ex) return prev.map((l) => (l.id === id && !l.variantId ? { ...l, qty: Math.min(20, l.qty + 1) } : l))
       return [...prev, { id, modifierSelections: {}, qty: 1 }]
     })
+  }
+
+  async function reclassifyProduct(productId: string, categoryId: string) {
+    setSavingCategory(productId)
+    try {
+      const response = await fetch(`/api/staff/products/${productId}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ categoryId }),
+      })
+      const body = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(body.error ?? 'تعذر تحديث التصنيف')
+      router.refresh()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'تعذر تحديث التصنيف')
+    } finally {
+      setSavingCategory(null)
+    }
   }
 
   function modifierSelectionsEqual(a: Record<string, string[]>, b: Record<string, string[]>): boolean {
@@ -562,10 +581,22 @@ export function PosCheckout({
               const variantPrice = p.variants.length > 0 ? Math.min(...p.variants.map((v) => Number(v.price))) : Number(p.price)
               return (
                 <button key={p.id} type="button" disabled={!p.isAvailable} onClick={() => add(p.id)} className={cn('flex min-h-28 min-w-0 flex-col items-center justify-center gap-1.5 rounded-lg border border-border bg-card p-3 text-center sm:p-4', p.isAvailable ? 'hover:border-primary/50 hover:bg-accent/40' : 'cursor-not-allowed opacity-50')}>
-                  <span className="break-words text-sm font-medium text-foreground">{p.name}</span>
-                  {p.variants.length > 0 ? <span className="text-xs text-muted-foreground">اختر متغير</span> : <span className="text-xs text-muted-foreground">{p.categoryName}</span>}
-                  <span className="text-sm font-semibold text-primary">{formatCurrency(variantPrice)}</span>
-                  {!p.isAvailable ? <Badge tone="muted">غير متوفر</Badge> : null}
+                <span className="break-words text-sm font-medium text-foreground">{p.name}</span>
+                <div className="w-full" onClick={(e) => e.stopPropagation()}>
+                  <Dropdown
+                    label="التصنيف"
+                    options={catalog.categories.map((c) => ({ value: c.id, label: c.name }))}
+                    value={p.categoryId}
+                    onChange={(cid) => reclassifyProduct(p.id, cid)}
+                    ariaLabel={`تصنيف ${p.name}`}
+                    menuClassName="max-h-48 overflow-y-auto"
+                    className="w-full text-xs"
+                  />
+                </div>
+                {p.variants.length > 0 ? <span className="text-xs text-muted-foreground">اختر متغير</span> : null}
+                <span className="text-sm font-semibold text-primary">{formatCurrency(variantPrice)}</span>
+                {!p.isAvailable ? <Badge tone="muted">غير متوفر</Badge> : null}
+                {savingCategory === p.id ? <span className="text-[10px] text-muted-foreground">جارٍ التحديث…</span> : null}
                 </button>
               )
             })}
