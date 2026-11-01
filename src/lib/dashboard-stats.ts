@@ -183,7 +183,7 @@ export async function getDashboardStats(session: StaffSession): Promise<Dashboar
     }),
     prisma.order.groupBy({
       by: ['cafeTableId'],
-      where: { ...branchScope, status: { in: ['new', 'preparing', 'ready'] } },
+      where: { ...branchScope, status: { in: ['new', 'preparing', 'ready'] }, paymentStatus: 'unpaid' },
       _count: { _all: true },
     }),
   ])
