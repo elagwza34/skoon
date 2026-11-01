@@ -6,6 +6,7 @@ import { prisma } from '@/lib/prisma'
 import { getCashierInvoices } from '@/lib/staff-invoices'
 import { getPosCatalog } from '@/lib/staff-pos'
 import { getSharedFloatSummary } from '@/lib/staff-float'
+import { getWaiterWorkspace } from '@/lib/staff-waiter'
 import { CashierWorkspace } from '@/components/cashier/cashier-workspace'
 
 export const dynamic = 'force-dynamic'
@@ -28,7 +29,7 @@ export default async function CashierPage() {
     }
   }
 
-  const [board, invoices, catalog, sharedFloat] = await Promise.all([getShiftsBoard(session), getCashierInvoices(session), getPosCatalog(session), getSharedFloatSummary(session)])
+  const [board, invoices, catalog, sharedFloat, waiterWorkspace] = await Promise.all([getShiftsBoard(session), getCashierInvoices(session), getPosCatalog(session), getSharedFloatSummary(session), getWaiterWorkspace(session)])
 
   return <CashierWorkspace
     session={session}
@@ -38,5 +39,6 @@ export default async function CashierPage() {
     catalog={catalog}
     products={catalog.products.map(({ id, name, price, variants, categoryId, isAvailable, categoryName }) => ({ id, name, price, categoryId, isAvailable, categoryName, variants: variants?.map(v => ({ id: v.id, label: v.label, price: v.price })) }))}
     sharedFloat={sharedFloat}
+    openOrders={waiterWorkspace.openOrders}
   />
 }
