@@ -476,7 +476,7 @@ export function PosCheckout({
         </div>
       </CardHeader>
         <CardContent className={cn('flex min-h-0 flex-col gap-3', isWaiter && 'overflow-y-auto p-4')}>
-          {isWaiter ? <Dropdown label="الطاولة" options={tableOptions} value={tableId ?? ''} onChange={(v) => setTableId(v ? v : ('' as any))} menuClassName="max-h-48 overflow-y-auto" /> : <Segmented
+          {isWaiter ? <Dropdown label="الطاولة" options={tableOptions} value={tableId ?? ''} onChange={(v) => setTableId(v ? v : ('' as any))} menuClassName="max-h-40 overflow-y-auto" /> : <Segmented
             options={[
               { value: 'dine_in', label: 'داخل الكافيه' },
               { value: 'takeaway', label: 'تيك أواي' },
