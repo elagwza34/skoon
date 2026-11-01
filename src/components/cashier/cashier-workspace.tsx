@@ -15,13 +15,15 @@ import type { InvoiceRow } from '@/lib/staff-invoices'
 import type { SharedFloatSummary } from '@/lib/staff-float'
 import type { PosCatalog } from '@/lib/staff-pos'
 import { PosCheckout } from '@/components/pos/pos-checkout'
+import { TablesSidebar } from './tables-sidebar'
 import { CashierDashboard } from './cashier-dashboard'
 import { InvoiceBoard } from './invoice-board'
 import { SharedFloatPanel } from './shared-float-panel'
 
-type Tab = 'pos' | 'open' | 'paid' | 'cancelled' | 'balances' | 'shifts'
+type Tab = 'pos' | 'tables' | 'open' | 'paid' | 'cancelled' | 'balances' | 'shifts'
 const tabs: { value: Tab; label: string }[] = [
-  { value: 'pos', label: 'POS' }, { value: 'open', label: 'الفواتير المفتوحة' },
+  { value: 'pos', label: 'POS' }, { value: 'tables', label: 'الطاولات' },
+  { value: 'open', label: 'الفواتير المفتوحة' },
   { value: 'paid', label: 'فواتير مدفوعة' }, { value: 'cancelled', label: 'فواتير ملغاة' },
   { value: 'balances', label: 'الأرصدة' }, { value: 'shifts', label: 'الورديات' },
 ]
@@ -63,6 +65,7 @@ export function CashierWorkspace({ session, board, branchName, invoices, product
     <main className="w-full p-4 lg:p-6">
       {error && <p role="alert" className="mb-4 rounded border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{error}</p>}
       {tab === 'pos' && <div className="flex flex-col gap-5"><PosCheckout catalog={catalog} /><InvoiceBoard key="pos" invoices={invoices} products={products} defaultTab="open" workspace /></div>}
+      {tab === 'tables' && <div className="flex flex-col gap-5"><TablesSidebar catalog={catalog} invoices={invoices} /></div>}
       {tab === 'open' && <InvoiceBoard key="open" invoices={invoices} products={products} defaultTab="open" />}
       {tab === 'paid' && <InvoiceBoard key="paid" invoices={invoices} products={products} defaultTab="paid" />}
       {tab === 'cancelled' && <InvoiceBoard key="cancelled" invoices={invoices} products={products} defaultTab="cancelled" />}

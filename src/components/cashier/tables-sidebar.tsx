@@ -1,22 +1,35 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { formatCurrency } from '@/lib/format'
 import { cn } from '@/lib/utils'
-import type { StaffSession } from '@/lib/session'
 import type { PosCatalog } from '@/lib/staff-pos'
+import type { InvoiceRow } from '@/lib/staff-invoices'
 
 import { Input } from '@/components/ui/input'
 
 interface TablesSidebarProps {
   catalog: PosCatalog
-  sharedFloat: any
+  invoices?: InvoiceRow[]
 }
 
 /** Sidebar showing table status - fixed on north, scrollable product list */
-export function TablesSidebar({ catalog }: TablesSidebarProps) {
-  const tables: any[] = [] // TODO: fetch staff tables via getStaffTables with session
+export function TablesSidebar({ catalog, invoices = [] }: TablesSidebarProps) {
+  const tables = useMemo(
+    () =>
+      (catalog?.tables ?? []).map((table) => {
+        const openCount = Number((table as any).openOrders ?? 0)
+        const hasInvoice = invoices.some((invoice) => invoice.table === table.number && invoice.status !== 'cancelled' && Number(invoice.remaining) > 0)
+        const status = openCount > 0 || hasInvoice ? 'occupied' : 'available'
+        return { ...table, status, openOrders: openCount, hasInvoice }
+      }).sort((a: any, b: any) => {
+        const na = parseInt(a.number) || 0
+        const nb = parseInt(b.number) || 0
+        if (na !== nb) return na - nb
+        return a.number.localeCompare(b.number, 'ar')
+      }),
+    [catalog?.tables, invoices],
+  )
   const [openModal, setOpenModal] = useState(false)
   const [selectedTable, setSelectedTable] = useState<string | null>(null)
   const [tableNumber, setTableNumber] = useState('')
