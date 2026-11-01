@@ -590,7 +590,6 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
   const [transferRecipient, setTransferRecipient] = useState<string>('')
   const [transferNotes, setTransferNotes] = useState('')
   const [cartOpen, setCartOpen] = useState(false)
-  const [posCartSummary, setPosCartSummary] = useState({ itemCount: 0, total: 0, tableId: '' })
 
   const catalog: PosCatalog = useMemo(() => ({
     draftScope: { userId: workspace.currentUserId, branchId: workspace.branchId },
@@ -631,7 +630,6 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
     return () => window.clearInterval(interval)
   }, [])
 
-  const posCartTable = workspace.tables.find((table) => table.id === posCartSummary.tableId)
 
   function openOrderWorkspace(order: WaiterWorkspace['openOrders'][number]) {
     const table = workspace.tables.find((candidate) => candidate.number === order.tableNumber)
@@ -911,12 +909,6 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
         />
       </nav>
 
-      <div className="border-b bg-background px-3 py-2 sm:px-4 lg:px-6">
-        <Button type="button" variant="outline" className="w-full justify-between" onClick={() => setCartOpen(true)}>
-          <span className="flex items-center gap-2"><Icon name="cart" size={17} /> سلة الطلب {posCartTable ? `— طاولة ${posCartTable.number}` : ''}</span>
-          <span>{posCartSummary.itemCount} أصناف · {formatCurrency(posCartSummary.total)}</span>
-        </Button>
-      </div>
 
       <main className="min-w-0 w-full p-3 sm:p-4 lg:p-6">
         <div className="flex min-w-0 w-full flex-col gap-5">
@@ -927,7 +919,6 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
             catalogVisible={tab === 'pos'}
             cartOpen={cartOpen}
             onCartOpenChange={setCartOpen}
-            onCartSummaryChange={setPosCartSummary}
             onOrderCreated={() => setTab('orders')}
           />
 
