@@ -697,7 +697,7 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
     setPendingId(id)
     setError(null)
     try {
-      const res = await fetch(`/api/staff/orders/${id}/qr`, {
+      const res = await fetch(`/api/staff/orders/${id}/waiter`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ action, reason }),
