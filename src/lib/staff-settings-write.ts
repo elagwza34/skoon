@@ -77,7 +77,7 @@ export async function updateBranchSettings(
   session: StaffSession,
   input: unknown,
 ): Promise<SettingsUpdateResult> {
-  if (!hasAtLeast(session.role, ROLE.MANAGER)) throw new SettingsError('غير مصرح', 403)
+  if (!hasAtLeast(session.role, ROLE.MANAGER) && session.role !== ROLE.OWNER) throw new SettingsError('غير مصرح', 403)
 
   const parsed = writeSchema.safeParse(input)
   if (!parsed.success) throw new SettingsError(parsed.error.issues[0]?.message ?? 'بيانات غير صالحة', 400)
@@ -86,18 +86,22 @@ export async function updateBranchSettings(
   // Resolve target branch: manager is pinned to their own branch; owner picks.
   let targetBranchId: bigint
   if (session.role === ROLE.OWNER) {
-    if (!parsed.data.branchId) throw new SettingsError('اختر الفرع أولاً', 400)
-    targetBranchId = BigInt(parsed.data.branchId)
-    const branch = await prisma.cafeBranch.findFirst({
-      where: { id: targetBranchId, isActive: true },
-      select: { id: true },
-    })
-    if (!branch) throw new SettingsError('الفرع غير موجود', 404)
-  } else {
+    if (parsed.data.branchId) {
+      targetBranchId = BigInt(parsed.data.branchId)
+      const branch = await prisma.cafeBranch.findFirst({ where: { id: targetBranchId, isActive: true }, select: { id: true } })
+      if (!branch) throw new SettingsError('الفرع غير موجود', 404)
+    } else {
+      const first = await prisma.cafeBranch.findFirst({ where: { isActive: true }, select: { id: true } })
+      if (!first) throw new SettingsError('لا يوجد فرع', 400)
+      targetBranchId = first.id
+    }
+  } else if (hasAtLeast(session.role, ROLE.MANAGER)) {
     if (!session.branchId) throw new SettingsError('لا يوجد فرع مرتبط بحسابك', 400)
     targetBranchId = BigInt(session.branchId)
     if (parsed.data.branchId && !staffCanAccessBranch(session, parsed.data.branchId))
       throw new SettingsError('غير مصرح بهذا الفرع', 403)
+  } else {
+    throw new SettingsError('غير مصرح', 403)
   }
 
   // Validate every provided key against its allowlist definition.
