@@ -173,6 +173,7 @@ export async function createPosOrder(session: StaffSession, input: unknown, idem
           branchId,
           cafeTableId: tableId,
           status: { in: ['new', 'preparing', 'ready'] },
+          paymentStatus: { not: 'paid' },
         },
         select: { id: true },
       })
