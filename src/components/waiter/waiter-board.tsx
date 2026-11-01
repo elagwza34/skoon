@@ -177,7 +177,14 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
     return result
   }, [workspace.openOrders, orderScope, filter, orderSearch, workspace.currentUserId])
 
-  const visibleTables = useMemo(() => workspace.tables.filter((t) => t.openOrders > 0), [workspace.tables])
+  const visibleTables = useMemo(() => {
+    return [...workspace.tables].sort((a, b) => {
+      const na = parseInt(a.number) || 0
+      const nb = parseInt(b.number) || 0
+      if (na !== nb) return na - nb
+      return String(a.number).localeCompare(String(b.number), 'ar')
+    })
+  }, [workspace.tables])
   const myActiveTableNumbers = useMemo(() => new Set(
     scopedOrders
       .filter((o) => o.responsibleWaiterId === workspace.currentUserId && o.status !== 'served')
@@ -323,14 +330,10 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
                 )}
               </div>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-                {[...visibleTables].sort((a, b) => {
-                  const na = parseInt(a.number) || 0
-                  const nb = parseInt(b.number) || 0
-                  if (na !== nb) return na - nb
-                  return a.number.localeCompare(b.number, 'ar')
-                }).map((table) => {
+                {visibleTables.map((table) => {
                     const isMyActive = myActiveTableNumbers.has(table.number)
                     const tableOrders = workspace.openOrders.filter((o) => o.tableNumber === table.number)
+                    const isOccupied = table.openOrders > 0 || tableOrders.length > 0
                     return (
                       <button
                         key={table.id}
@@ -338,15 +341,14 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
                         onClick={() => router.push(`/waiter/tables/${table.id}`)}
                         className={cn(
                           'rounded-lg border bg-card p-4 text-right transition-colors hover:bg-accent',
-                          isMyActive ? 'border-primary/40 ring-2 ring-primary' : 'border-success/40',
-                          table.openOrders > 0 ? 'border-warning/40' : 'border-success/40'
+                          isMyActive ? 'border-primary/40 ring-2 ring-primary' : isOccupied ? 'border-warning/40' : 'border-success/40'
                         )}
                       >
                       <span className="block text-xl font-bold">الطاولة {table.number}</span>
                       <span className="text-xs text-muted-foreground mt-1">
-                        {tableOrders.length} طلب {table.capacity ? `· سعة ${table.capacity}` : ''}
+                        {isOccupied ? `${tableOrders.length} طلب` : 'متاحة'}{table.capacity ? ` · سعة ${table.capacity}` : ''}
                       </span>
-                      {isMyActive && <span className="mt-2 text-xs text-primary">م 특تك</span>}
+                      {isMyActive && <span className="mt-2 text-xs text-primary">طلبياتي</span>}
                     </button>
                   )
                 })}
