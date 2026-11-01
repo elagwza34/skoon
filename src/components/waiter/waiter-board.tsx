@@ -143,7 +143,13 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
   const [transferNotes, setTransferNotes] = useState('')
 
   const catalog = {
-    products: workspace.products.sort((a, b) => a.name.localeCompare(b.name, 'ar')),
+    products: workspace.products.sort((a, b) => a.name.localeCompare(b.name, 'ar')).map((p) => ({
+      ...p,
+      categoryName: p.categoryId ? workspace.categories.find((c) => c.id === p.categoryId)?.name ?? ' غير مصنف' : 'غير مصنف',
+    })),
+    categories: workspace.categories,
+    tables: workspace.tables,
+    draftScope: { userId: workspace.currentUserId, branchId: workspace.branchId },
   }
 
   const scopedOrders = useMemo(() => {
@@ -239,7 +245,7 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
           <div>
             <h1 className="text-lg font-bold">مساحة النادل</h1>
             <p className="text-sm text-muted-foreground">
-              {workspace.branchName} · {workspace.waiterName}
+              {workspace.branchName} · {workspace.employeeName}
             </p>
           </div>
 
