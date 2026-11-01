@@ -58,30 +58,6 @@ export function OwnerWaiterMonitor({ monitor }: { monitor: OwnerWaiterMonitorDat
 
   return <main dir="rtl" className="min-h-dvh bg-background p-3 sm:p-5">
     <div className="mx-auto flex max-w-[1600px] flex-col gap-5">
-      <header className="rounded-xl border bg-card p-4">
-        <h1 className="text-xl font-bold">مراقبة الويتر والخدمة</h1>
-        <p className="mt-1 text-sm text-muted-foreground">عرض للمالك فقط. هذه الشاشة لا تنفذ اعتماد QR أو تقديم طلبات أو أي إجراء تشغيلي.</p>
-      </header>
-
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="ملخص التشغيل">
-        <StatCard label="الطلبات النشطة" value={String(activeOrders)} icon="orders" hint="طلبات غير مكتملة" />
-        <StatCard label="الطاولات المشغولة" value={`${occupiedTables}/${monitor.tables.length}`} icon="tables" hint="طاولات بها طلب نشط" />
-        <StatCard label="طلبات خدمة معلقة" value={String(pendingRequests)} icon="waiter" hint="بانتظار الاستلام" />
-        <StatCard label="طلبات خدمة متأخرة" value={String(delayedRequests)} icon="clock" hint="20 دقيقة أو أكثر" className={delayedRequests ? 'border-destructive/50' : undefined} />
-      </section>
-
-      <Input value={search} onChange={(event) => setSearch(event.target.value)} icon="search" placeholder="ابحث برقم الطلب أو الطاولة أو الفرع أو الويتر" aria-label="بحث في مراقبة الويتر والخدمة" />
-
-      <section className="space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-bold">الطلبات النشطة وخدمة الطاولات</h2><p className="text-sm text-muted-foreground">المسؤول والحالة وتوقيت إنشاء الطلب.</p></div><Segmented ariaLabel="تصفية الطلبات" value={orderFilter} onChange={setOrderFilter} options={[
-          { value: 'all', label: `الكل (${monitor.orders.length})` }, { value: 'qr_waiting', label: 'QR بانتظار الاعتماد' }, { value: 'qr_approved', label: 'QR معتمد' }, { value: 'awaiting_service', label: 'بانتظار التقديم' }, { value: 'partial', label: 'تقديم جزئي' }, { value: 'served', label: 'تم التقديم' },
-        ]} /></div>
-        {orders.length === 0 ? <EmptyState icon="orders" title="لا توجد طلبات مطابقة" description="غيّر التصفية أو البحث لعرض الطلبات المتاحة." /> : <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{orders.map((order) => {
-          const delayed = order.status !== 'served' && Date.now() - new Date(order.createdAt).getTime() >= delayedAfterMs
-          const group = orderGroup(order)
-          return <Card key={order.id} className={cn(delayed && 'border-warning/60')}><CardHeader className="flex-row items-start justify-between gap-2 space-y-0 pb-2"><div><CardTitle className="text-base">{order.number}</CardTitle><p className="mt-1 text-sm text-muted-foreground">{order.branchName} · طاولة {order.tableNumber}</p></div><Badge tone={(ORDER_STATUS_META[order.status as OrderStatusKey]?.tone ?? 'muted') as BadgeTone}>{ORDER_STATUS_META[order.status as OrderStatusKey]?.label ?? order.status}</Badge></CardHeader><CardContent className="space-y-2 text-sm"><p>الويتر: <b>{order.responsibleWaiterName ?? 'غير معين'}</b></p><p>الأصناف المقدمة: {order.servedItemsCount}/{order.itemsCount}</p><p className={cn('text-muted-foreground', delayed && 'font-medium text-warning')}>منذ {elapsed(order.createdAt)}{delayed ? ' · يحتاج متابعة' : ''}</p><p className="text-xs text-muted-foreground">{group === 'qr_waiting' ? 'طلب QR بانتظار الاعتماد' : group === 'qr_approved' ? 'طلب QR معتمد' : group === 'awaiting_service' ? 'بانتظار تقديم الويتر' : group === 'partial' ? 'تقديم جزئي' : group === 'served' ? 'تم تقديم الطلب' : 'قيد المتابعة'}</p></CardContent></Card>
-        })}</div>}
-      </section>
 
       <section className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-bold">طلبات الخدمة</h2><p className="text-sm text-muted-foreground">طلبات عامة واردة من الطاولات، للمتابعة فقط.</p></div><Segmented ariaLabel="تصفية طلبات الخدمة" value={requestFilter} onChange={setRequestFilter} options={[
