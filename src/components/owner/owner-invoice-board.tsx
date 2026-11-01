@@ -29,6 +29,7 @@ export function OwnerInvoiceBoard({ invoices, session }: { invoices: InvoiceRow[
   const [releaseStock, setReleaseStock] = useState(true)
   const [notice, setNotice] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
+  const [localInvoices, setLocalInvoices] = useState<InvoiceRow[]>(invoices)
 
   // Date range export controls (paid invoices only)
   const [rangePreset, setRangePreset] = useState<RangePreset>('day')
@@ -40,7 +41,7 @@ export function OwnerInvoiceBoard({ invoices, session }: { invoices: InvoiceRow[
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return invoices.filter((invoice) => {
+    return localInvoices.filter((invoice) => {
       const match = !q || invoice.number.toLowerCase().includes(q) || (invoice.creator ?? '').toLowerCase().includes(q)
       if (!match) return false
       if (tab === 'cancelled') return invoice.status === 'cancelled' && !invoice.isArchived
@@ -48,19 +49,24 @@ export function OwnerInvoiceBoard({ invoices, session }: { invoices: InvoiceRow[
       if (tab === 'paid') return invoice.status !== 'cancelled' && !invoice.isArchived && Number(invoice.remaining) <= 0
       return invoice.status !== 'cancelled' && !invoice.isArchived && Number(invoice.remaining) > 0
     })
-  }, [invoices, query, tab])
+  }, [localInvoices, query, tab])
 
   async function executeDeleteBulk() {
     if (pending || deleteModal.length === 0) return
     startTransition(async () => {
       let failed = 0
+      const archived: string[] = []
       for (const id of deleteModal) {
         const response = await fetch(`/api/staff/invoices/${id}`, { method: 'DELETE' })
         if (!response.ok) failed++
+        else archived.push(id)
+      }
+      if (archived.length > 0) {
+        setLocalInvoices((prev) => prev.map((inv) => (archived.includes(inv.id) ? { ...inv, isArchived: true } : inv)))
       }
       setDeleteModal([])
-      if (failed === 0) setNotice_(`تم حذف ${deleteModal.length} فاتورة بنجاح.`)
-      else setNotice_(`تم حذف ${deleteModal.length - failed} فاتورة، وفشل ${failed} فاتورة.`)
+      if (failed === 0) setNotice_(`تم أرشفة ${archived.length} فاتورة بنجاح.`)
+      else setNotice_(`تم أرشفة ${archived.length} فاتورة، وفشل ${failed} فاتورة.`)
     })
   }
 
