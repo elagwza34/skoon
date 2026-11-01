@@ -1,6 +1,6 @@
 ﻿'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, memo } from 'react'
 import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -104,6 +104,7 @@ export function PosCheckout({
   const submissionKey = useRef<string | null>(null)
   const paymentKey = useRef<string | null>(null)
   const skipDraftPersist = useRef(false)
+  const cartSummarySent = useRef(false)
   const [draftReady, setDraftReady] = useState(false)
   const draftKey = posDraftKey(catalog.draftScope.userId, catalog.draftScope.branchId)
 
@@ -160,6 +161,13 @@ export function PosCheckout({
 
   useEffect(() => {
     if (!draftReady) return
+    // Avoid sending cart summary on the very first mount to prevent a
+    // render loop between PosCheckout and its parent (setPosCartSummary).
+    if (cartSummarySent.current) {
+      onCartSummaryChange?.({ itemCount, total: subtotal, tableId })
+      return
+    }
+    cartSummarySent.current = true
     onCartSummaryChange?.({ itemCount, total: subtotal, tableId })
   }, [draftReady, itemCount, onCartSummaryChange, subtotal, tableId])
 
@@ -761,4 +769,6 @@ export function PosCheckout({
     </>
   )
 }
+
+export default memo(PosCheckout)
 
