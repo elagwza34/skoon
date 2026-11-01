@@ -148,7 +148,13 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
       categoryName: p.categoryId ? workspace.categories.find((c) => c.id === p.categoryId)?.name ?? ' غير مصنف' : 'غير مصنف',
     })),
     categories: workspace.categories,
-    tables: workspace.tables,
+    tables: workspace.tables.map(({ id, number, name, openOrders }) => ({
+      id,
+      number,
+      name,
+      status: openOrders > 0 ? 'occupied' : 'available',
+      openOrders,
+    })),
     draftScope: { userId: workspace.currentUserId, branchId: workspace.branchId },
   }
 
@@ -289,8 +295,8 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
           {/* TAB: POS */}
           {tab === 'pos' && (
             <PosCheckout
-              catalog={catalog}
-              initialTableId={selectedTableId}
+              catalog={catalog as any}
+              initialTableId={selectedTableId ?? undefined}
               mode="waiter"
               catalogVisible={true}
               cartOpen={cartOpen}
@@ -318,19 +324,19 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
               </div>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
                 {visibleTables.map((table) => {
-                  const isMyActive = myActiveTableNumbers.has(table.number)
-                  const tableOrders = workspace.openOrders.filter((o) => o.tableNumber === table.number)
-                  return (
-                    <button
-                      key={table.id}
-                      type="button"
-                      onClick={() => router.push(`/waiter/tables/${table.id}`)}
-                      className={cn(
-                        'rounded-lg border bg-card p-4 text-right transition-colors hover:bg-accent',
-                        isMyActive ? 'border-primary/40 ring-2 ring-primary' : 'border-success/40',
-                        table.activeOrders > 0 ? 'border-warning/40' : 'border-success/40'
-                      )}
-                    >
+                    const isMyActive = myActiveTableNumbers.has(table.number)
+                    const tableOrders = workspace.openOrders.filter((o) => o.tableNumber === table.number)
+                    return (
+                      <button
+                        key={table.id}
+                        type="button"
+                        onClick={() => router.push(`/waiter/tables/${table.id}`)}
+                        className={cn(
+                          'rounded-lg border bg-card p-4 text-right transition-colors hover:bg-accent',
+                          isMyActive ? 'border-primary/40 ring-2 ring-primary' : 'border-success/40',
+                          table.openOrders > 0 ? 'border-warning/40' : 'border-success/40'
+                        )}
+                      >
                       <span className="block text-xl font-bold">الطاولة {table.number}</span>
                       <span className="text-xs text-muted-foreground mt-1">
                         {tableOrders.length} طلب {table.capacity ? `· سعة ${table.capacity}` : ''}
@@ -383,7 +389,7 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
                   </div>
                 ) : (
                   scopedOrders.map((order) => {
-                    const isMine = order.responsibleWaiterId === workspace.waiterId
+                    const isMine = order.responsibleWaiterId === workspace.currentUserId
                     return (
                       <OrderCard
                         key={order.id}
@@ -415,7 +421,7 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
                   </div>
                 ) : (
                   scopedOrders.filter((o) => o.source === 'qr').map((order) => {
-                    const isMine = order.responsibleWaiterId === workspace.waiterId
+                    const isMine = order.responsibleWaiterId === workspace.currentUserId
                     return (
                       <OrderCard
                         key={order.id}
@@ -446,7 +452,7 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
                 <>
                   <div className="mb-4">
                     <p className="text-sm text-muted-foreground">حالة الوردية:</p>
-                    <Badge tone="success" className="text-sm px-3 py-2">مفتوحة — {workspace.waiterName}</Badge>
+                    <Badge tone="success" className="text-sm px-3 py-2">مفتوحة — {workspace.employeeName}</Badge>
                   </div>
                   <div className="grid gap-3 sm:grid-cols-2">
                     <Button variant="outline" onClick={() => startTransition(() => router.refresh())}>
@@ -454,7 +460,7 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
                     </Button>
                     <Button variant="destructive" onClick={() => {
                       if (window.confirm('هل أنت متأكد من إغلاق الوردية؟')) {
-                        startTransition(() => router.refresh('/shifts'))
+                        router.push('/shifts')
                       }
                     }}>
                       <Icon name="logout" size={16} /> إغلاق الوردية
@@ -480,8 +486,8 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
             </div>
             <p className="text-sm text-muted-foreground mb-4">الطاولة {editing.tableNumber} · {formatCurrency(editing.total)}</p>
             <PosCheckout
-              catalog={catalog}
-              initialTableId={editing.cafeTable?.id ?? selectedTableId}
+              catalog={catalog as any}
+              initialTableId={(editing as any).cafeTable?.id ?? selectedTableId ?? undefined}
               mode="waiter"
               catalogVisible={true}
               cartOpen={false}
