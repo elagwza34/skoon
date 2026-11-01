@@ -77,7 +77,6 @@ export function OwnerCommandCenter({ stats, managerOperations, waiterReadiness, 
           {managerOperations ? <ManagerOperationsCenterCompact data={managerOperations} /> : null}
         </div>
         <div className="col-span-12 lg:col-span-4 space-y-2">
-          {managerOperations ? <AlertsPanel urgent={managerOperations.urgent} serviceRequests={managerOperations.serviceRequests} /> : null}
           {waiterReadiness ? <ResponsibilityPanel data={waiterReadiness} /> : null}
         </div>
         <div className="col-span-12 lg:col-span-7">
@@ -137,49 +136,6 @@ function ManagerOperationsCenterCompact({ data }: { data: any }) {
               <p className="text-sm sm:text-lg font-bold">{formatCurrency(data.collectedToday)}</p>
             </CardContent>
           </Card>
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-function AlertsPanel({ urgent, serviceRequests }: { urgent: any[]; serviceRequests: any | null }) {
-  return (
-    <Card>
-      <CardHeader className="p-3 sm:p-4">
-        <CardTitle className="text-sm sm:text-base">تنبيهات تشغيلية</CardTitle>
-      </CardHeader>
-      <CardContent className="p-3 sm:p-4">
-        <div className="space-y-2">
-          {urgent.length ? (
-            <ul className="space-y-1">
-              {urgent.slice(0, 5).map((alert, i) => (
-                <li key={`${alert.type}-${i}`} className="rounded border border-destructive/30 p-2">
-                  <p className="text-xs font-medium text-destructive">{alert.title}</p>
-                  <p className="text-[10px] text-muted-foreground">{alert.detail}</p>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-xs text-muted-foreground">لا توجد تنبيهات تشغيلية متأخرة.</p>
-          )}
-          {serviceRequests && (
-            <div className="mt-3 sm:mt-4 grid gap-2 sm:grid-cols-2">
-              {[
-                ['بانتظار', serviceRequests.pending],
-                ['شكاوى', serviceRequests.complaints],
-                ['مصعّدة', serviceRequests.escalated],
-                ['متأخرة', serviceRequests.overdue],
-              ].map(([label, value]) => (
-                <Card key={label} className="p-2 sm:p-3">
-                  <CardContent className="p-0 sm:p-1 pt-2 sm:pt-0">
-                    <p className="text-[10px] sm:text-xs text-muted-foreground">{label}</p>
-                    <p className="text-xs sm:text-sm font-bold">{value}</p>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
         </div>
       </CardContent>
     </Card>
