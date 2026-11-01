@@ -232,7 +232,6 @@ function loadWaiterWorkspaceData(session: StaffSession, branchScope: { branchId:
         ...branchScope,
         responsibleWaiterId: session.id,
         status: { in: ['new', 'preparing', 'ready'] },
-        paymentStatus: 'unpaid',
       },
       orderBy: { createdAt: 'desc' },
       take: 100,
