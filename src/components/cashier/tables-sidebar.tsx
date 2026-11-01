@@ -30,26 +30,26 @@ export function TablesSidebar({ catalog }: TablesSidebarProps) {
         </CardHeader>
         <CardContent className="flex-1 overflow-auto">
           <div className="space-y-2">
-            {tables.map((table) => {
-              const hasActiveOrders = table.openOrders > 0
-              return (
-                <Button
-                  key={table.id}
-                  type="button"
-                  className={cn(
-                    'w-full rounded-lg border p-3 text-right transition-colors hover:bg-accent',
-                    hasActiveOrders ? 'border-warning/40' : 'border-success/40',
-                    selectedTable === table.id ? 'border-primary/40 ring-2 ring-primary' : ''
-                  )}
-                  onClick={() => setSelectedTable(table.id)}
-                >
-                  <span className="text-sm font-medium text-right">
-                   {table.number}{table.name ? ` · ${table.name}` : ''}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    {hasActiveOrders ? 'مشغولة' : 'متاحة'}
-                  </span>
-                </Button>
+              {tables.map((table) => {
+                const hasActiveOrders = table.openOrders > 0
+                return (
+                  <Button
+                    key={table.id}
+                    type="button"
+                    className={cn(
+                      'w-full rounded-lg border p-3 text-right transition-colors hover:bg-accent',
+                      hasActiveOrders ? 'border-warning/40' : 'border-success/40',
+                      selectedTable === table.id ? 'border-primary/40 ring-2 ring-primary' : ''
+                    )}
+                    onClick={() => setSelectedTable(table.id)}
+                  >
+                    <span className="text-sm font-medium text-right">
+                      {table.number}{table.name ? ` · ${table.name}` : ''}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {hasActiveOrders ? 'مشغولة' : 'متاحة'}
+                    </span>
+                  </Button>
               )
             })}
           </div>
