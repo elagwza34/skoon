@@ -73,11 +73,15 @@ function OrderCard({
   onEdit: () => void
   onCancel: () => void
 }) {
+  const waitMinutes = Math.max(0, Math.floor((Date.now() - new Date(order.createdAt).getTime()) / 60000))
   return (
     <Card className={cn('border rounded-lg p-3', isMine ? 'border-primary/40 bg-primary/5' : 'border-border')} data-order-id={order.id}>
       <CardHeader className="flex-row items-center justify-between gap-2">
         <div>
-          <CardTitle className="text-sm">{order.number}</CardTitle>
+          <CardTitle className="text-sm flex items-center gap-2">
+            {order.number}
+            <span className={cn('text-xs', waitMinutes >= 15 ? 'text-destructive' : 'text-muted-foreground')}>منذ {waitMinutes} د</span>
+          </CardTitle>
           <p className="text-xs text-muted-foreground">
             الطاولة {order.tableNumber} · {order.source === 'qr' ? 'QR' : 'الحضور المباشر'}
           </p>
@@ -94,7 +98,7 @@ function OrderCard({
           </div>
         ))}
       </div>
-      <CardFooter className="flex gap-2">
+      <CardFooter className="flex flex-wrap gap-2">
         {order.status === 'new' && (
           <Button size="sm" variant="outline" onClick={onSendToKitchen} disabled={!isMine}>
             <Icon name="orders" size={14} /> إرسال للمطبخ
