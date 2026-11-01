@@ -323,7 +323,12 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
                 )}
               </div>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-                {visibleTables.map((table) => {
+                {[...visibleTables].sort((a, b) => {
+                  const na = parseInt(a.number) || 0
+                  const nb = parseInt(b.number) || 0
+                  if (na !== nb) return na - nb
+                  return a.number.localeCompare(b.number, 'ar')
+                }).map((table) => {
                     const isMyActive = myActiveTableNumbers.has(table.number)
                     const tableOrders = workspace.openOrders.filter((o) => o.tableNumber === table.number)
                     return (
