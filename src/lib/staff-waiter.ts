@@ -101,7 +101,8 @@ export function canViewOwnerWaiterMonitor(role: string): boolean {
 }
 
 /** Only active, non-terminal orders occupy a table in the waiter workspace. */
-export function isWaiterTableOrderActive(status: string): boolean {
+export function isWaiterTableOrderActive(status: string, paymentStatus?: string | null): boolean {
+  if (paymentStatus === 'paid') return false
   return status === 'new' || status === 'preparing' || status === 'ready'
 }
 
@@ -142,11 +143,11 @@ export async function getWaiterWorkspace(session: StaffSession): Promise<WaiterW
   const [branch, tables, orders, categories, products, incomingHandovers, incomingTableTransfers, outgoingTableTransfers] = loaded
 
   const openByTable = new Map<string, number>()
-  for (const o of orders) {
-    if (!isWaiterTableOrderActive(o.status)) continue
-    const key = o.cafeTable.number
-    openByTable.set(key, (openByTable.get(key) ?? 0) + 1)
-  }
+    for (const o of orders) {
+      if (!isWaiterTableOrderActive(o.status, o.paymentStatus)) continue
+      const key = o.cafeTable.number
+      openByTable.set(key, (openByTable.get(key) ?? 0) + 1)
+    }
 
   return {
     currentUserId: session.id,
@@ -201,7 +202,7 @@ export async function getWaiterWorkspace(session: StaffSession): Promise<WaiterW
     incomingHandovers: incomingHandovers.map((handover) => ({
       id: handover.id.toString(), senderName: handover.requestedBy.name,
       requestedAt: handover.createdAt.toISOString(), notes: handover.notes,
-      outstandingOrders: orders.filter((order) => order.responsibleWaiterId === handover.requestedById && isWaiterTableOrderActive(order.status)).map((order) => ({
+      outstandingOrders: orders.filter((order) => order.responsibleWaiterId === handover.requestedById && isWaiterTableOrderActive(order.status, order.paymentStatus)).map((order) => ({
         id: order.id.toString(), number: order.orderNumber, tableNumber: order.cafeTable.number, status: order.status,
       })),
     })),
