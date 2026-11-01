@@ -887,6 +887,16 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
             <p className="text-xs text-muted-foreground">{workspace.branchName} · {workspace.employeeName}</p>
           </div>
           <div className="flex min-w-0 flex-wrap gap-2">
+            {tab === 'pos' && (
+              <Button
+                type="button"
+                variant="outline"
+                className="border-orange-500 text-orange-600 hover:bg-orange-50 hover:text-orange-700"
+                onClick={() => setCartOpen(true)}
+              >
+                <Icon name="cart" size={17} /> سلة الطلب
+              </Button>
+            )}
             {error ? <p role="alert" className="min-w-0 break-words rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}
             {success ? <p className="min-w-0 break-words rounded-md border border-success/40 bg-success/10 px-3 py-2 text-sm text-success">{success}</p> : null}
           </div>
