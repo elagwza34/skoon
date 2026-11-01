@@ -20,13 +20,9 @@ export function TablesSidebar({ catalog, invoices = [], openOrders = [] }: Table
     () =>
       (catalog?.tables ?? [])
         .map((table) => {
-          const openCount = Number((table as any).openOrders ?? 0)
           const hasActiveOrder = openOrders.some((order) => order.tableNumber === String(table.number) && ['new', 'preparing', 'ready'].includes(order.status))
-          const hasInvoice = invoices.some(
-            (invoice) => invoice.table === table.number && invoice.status !== 'cancelled' && Number(invoice.remaining) > 0,
-          )
-          const hasActiveOrders = hasActiveOrder || openCount > 0 || hasInvoice
-          return { ...table, hasActiveOrders, openOrders: openCount }
+          const hasActiveOrders = hasActiveOrder
+          return { ...table, hasActiveOrders }
         })
         .sort((a: any, b: any) => {
           const na = parseInt(a.number) || 0
@@ -34,7 +30,7 @@ export function TablesSidebar({ catalog, invoices = [], openOrders = [] }: Table
           if (na !== nb) return na - nb
           return String(a.number).localeCompare(String(b.number), 'ar')
         }),
-    [catalog?.tables, invoices, openOrders],
+    [catalog?.tables, openOrders],
   )
 
   if (tables.length === 0) {
