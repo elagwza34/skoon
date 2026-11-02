@@ -142,6 +142,10 @@ export interface CollectedStats {
   /** Distinct orders with at least one completed payment in the window. */
   paidOrders: number
   byMethodCents: Record<string, number>
+  /** Completed refund amounts from the Refund table (Phase 2-A). */
+  refundedCentsFromRefunds?: number
+  /** collectedCents - refundedCentsFromRefunds (Phase 2-A). */
+  netCollectedCents?: number
 }
 
 /**
@@ -180,5 +184,60 @@ export async function getCollectedStats(
     // pending / failed / unknown: ignored — never revenue.
   }
   return { collectedCents, refundedCents, paidOrders: paid.length, byMethodCents }
+}
+
+/**
+ * Refund-aware payment-truth aggregation for a payment-date window [start, end).
+ * Extends getCollectedStats by subtracting COMPLETED refund amounts from
+ * collected revenue. Branch-scoped.
+ *
+ * Refund semantics (Phase 2-A):
+ * - Payments remain status='completed' even when refunded (no flip).
+ * - Refund records track the refund lifecycle separately.
+ * - Net collected = completed payments - completed refunds.
+ * - Pending refunds (REQUESTED/APPROVED/PENDING_EXECUTION) are NOT subtracted.
+ */
+export async function getCollectedStatsWithRefunds(
+  session: StaffSession,
+  start: Date,
+  end?: Date,
+): Promise<CollectedStats & { refundedCentsFromRefunds: number; netCollectedCents: number }> {
+  const branchScope = financeBranchScope(session)
+  const createdAt = end ? { gte: start, lt: end } : { gte: start }
+  const [groups, paid, refundGroups] = await Promise.all([
+    prisma.payment.groupBy({
+      by: ['status', 'method'],
+      where: { ...branchScope, createdAt },
+      _sum: { amount: true },
+    }),
+    prisma.payment.groupBy({
+      by: ['orderId'],
+      where: { ...branchScope, createdAt, status: 'completed' },
+    }),
+    prisma.refund.groupBy({
+      by: ['status'],
+      where: { ...branchScope, createdAt, status: 'COMPLETED' },
+      _sum: { amount: true },
+    }),
+  ])
+  let collectedCents = 0
+  let refundedCents = 0
+  const byMethodCents: Record<string, number> = {}
+  for (const g of groups) {
+    const cents = toCents(g._sum.amount?.toString() ?? '0')
+    if (g.status === 'completed') {
+      collectedCents += cents
+      byMethodCents[g.method] = (byMethodCents[g.method] ?? 0) + cents
+    } else if (g.status === 'refunded') {
+      refundedCents += cents
+    }
+  }
+  let refundedCentsFromRefunds = 0
+  for (const g of refundGroups) {
+    const cents = toCents(g._sum.amount?.toString() ?? '0')
+    refundedCentsFromRefunds += cents
+  }
+  const netCollectedCents = collectedCents - refundedCentsFromRefunds
+  return { collectedCents, refundedCents, paidOrders: paid.length, byMethodCents, refundedCentsFromRefunds, netCollectedCents }
 }
 

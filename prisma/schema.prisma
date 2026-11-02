@@ -70,6 +70,8 @@ model CafeBranch {
   serviceRequests             ServiceRequest[]
   waiterReconciliationReviews WaiterOrderReconciliationReview[]
   waiterReconciliationAudits  WaiterOrderReconciliationAudit[]
+  refunds                     Refund[]           @relation("branchRefunds")
+  cashHandovers               CashHandover[]
 
   @@index([isActive])
   @@map("branches")
@@ -150,6 +152,10 @@ model User {
   qrDecidedOrders         Order[]                  @relation("orderQrDecisionBy")
   statusChanges           OrderStatusHistory[]     @relation("statusChangedBy")
   payments                Payment[]                @relation("paymentPaidBy")
+  confirmedPayments Payment[] @relation("paymentConfirmedBy")
+  refundsRequested  Refund[]  @relation("refundRequestedBy")
+  refundsApprover    Refund[]  @relation("refundApprovedBy")
+  refundsExecutor    Refund[]  @relation("refundExecutedBy")
   createdDiscounts        Discount[]               @relation("discountCreatedBy")
   inventoryTransactions   InventoryTransaction[]   @relation("txnCreatedBy")
   preparationStartedItems OrderItem[]              @relation("itemPreparationStartedBy")
@@ -188,6 +194,9 @@ model User {
   responsibilityReceived              OrderResponsibilityHistory[]      @relation("orderResponsibilityAssignedTo")
   requestedWaiterHandovers            WaiterShiftHandover[]             @relation("waiterHandoverRequestedBy")
   receivedWaiterHandovers             WaiterShiftHandover[]             @relation("waiterHandoverRecipient")
+  cashierHandoverRequests CashHandover[] @relation("cashHandoverFromUser")
+  cashierHandoverReceived  CashHandover[] @relation("cashHandoverToUser")
+  cashHandoverResolved     CashHandover[] @relation("cashHandoverResolver")
   sentWaiterTableTransfers            WaiterTableTransfer[]             @relation("waiterTableTransferSender")
   receivedWaiterTableTransfers        WaiterTableTransfer[]             @relation("waiterTableTransferRecipient")
   tableTransfersMade                  OrderTableTransfer[]
@@ -1022,6 +1031,7 @@ model Order {
   tableTransfers                  OrderTableTransfer[]
   waiterReconciliationReviews     WaiterOrderReconciliationReview[]
   waiterReconciliationAuditEvents WaiterOrderReconciliationAudit[]
+  refunds                         Refund[]              @relation("orderRefunds")
 
   @@index([branchId, status])
   @@index([cafeTableId, status])
@@ -1341,6 +1351,9 @@ model Payment {
   gateway         String?  @db.VarChar(30)
   gatewayResponse Json?    @map("gateway_response")
   paidById        String?  @map("paid_by") @db.Uuid
+  confirmedById   String?  @map("confirmed_by_id") @db.Uuid
+  confirmedAt     DateTime? @map("confirmed_at")
+  confirmationNote String? @map("confirmation_note") @db.VarChar(500)
   shiftId         BigInt?  @map("shift_id")
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
@@ -1348,7 +1361,9 @@ model Payment {
   order  Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
   branch CafeBranch @relation(fields: [branchId], references: [id], onDelete: Restrict)
   paidBy User?      @relation("paymentPaidBy", fields: [paidById], references: [id], onDelete: SetNull)
+  confirmedBy User? @relation("paymentConfirmedBy", fields: [confirmedById], references: [id], onDelete: SetNull)
   shift  Shift?     @relation("paymentShift", fields: [shiftId], references: [id], onDelete: SetNull)
+  refunds Refund[]   @relation("paymentRefunds")
 
   @@index([orderId])
   @@index([branchId, createdAt])
@@ -1391,6 +1406,7 @@ model Shift {
   financialMovements     FinancialMovement[]
   attendanceCorrections  AttendanceCorrection[]
   waiterHandoverRequests WaiterShiftHandover[]  @relation("waiterHandoverSenderShift")
+  cashHandoversFrom      CashHandover[]         @relation("cashHandoverFrom")
 
   @@index([branchId, status])
   @@index([cashierId])
@@ -1428,6 +1444,7 @@ model FinancialMovement {
   reversal        FinancialMovement?  @relation("movementReversal")
   advance         FinancialMovement?  @relation("advanceRepayments", fields: [advanceId], references: [id], onDelete: Restrict)
   repayments      FinancialMovement[] @relation("advanceRepayments")
+  cashHandover    CashHandover?        @relation("movementHandover")
 
   @@index([branchId, type, occurredAt])
   @@index([sourceShiftId])
@@ -1827,6 +1844,83 @@ model AppSetting {
 
   @@unique([branchId, key])
   @@map("app_settings")
+}
+
+/// ============================ REFUNDS ============================
+
+/// Refund lifecycle: REQUESTED -> APPROVED -> PENDING_EXECUTION -> COMPLETED/FAILED/CANCELLED.
+/// Cash and electronic refunds are supported. A refund is never marked COMPLETED
+/// until an authorized operator confirms actual execution.
+model Refund {
+  id                 BigInt    @id @default(autoincrement())
+  branchId           BigInt    @map("branch_id")
+  orderId            BigInt    @map("order_id")
+  paymentId          BigInt    @map("payment_id")
+  amount             Decimal   @db.Decimal(10, 2)
+  method             String    @db.VarChar(20)
+  status             String    @default("REQUESTED") @db.VarChar(20) @map("status")
+  reason             String    @db.VarChar(500)
+  requestedById      String    @map("requested_by") @db.Uuid
+  requestedAt        DateTime  @default(now()) @map("requested_at")
+  approvedById       String?   @map("approved_by") @db.Uuid
+  approvedAt         DateTime? @map("approved_at")
+  executedById       String?   @map("executed_by") @db.Uuid
+  executedAt         DateTime? @map("executed_at")
+  externalReference  String?   @map("external_reference") @db.VarChar(100)
+  evidenceNote       String?   @map("evidence_note") @db.VarChar(1000)
+  evidenceUrl        String?   @map("evidence_url") @db.VarChar(500)
+  idempotencyKey     String    @map("idempotency_key") @db.VarChar(100)
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  branch    CafeBranch        @relation("branchRefunds", fields: [branchId], references: [id], onDelete: Restrict)
+  order     Order             @relation("orderRefunds", fields: [orderId], references: [id], onDelete: Restrict)
+  payment   Payment           @relation("paymentRefunds", fields: [paymentId], references: [id], onDelete: Restrict)
+  requestedBy User           @relation("refundRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict)
+  approvedBy  User?           @relation("refundApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  executedBy  User?           @relation("refundExecutedBy", fields: [executedById], references: [id], onDelete: SetNull)
+
+  @@unique([paymentId, idempotencyKey])
+  @@index([branchId, status, createdAt])
+  @@index([orderId])
+  @@index([paymentId])
+  @@index([status])
+  @@map("refunds")
+}
+
+/// ============================ CASH HANDOVERS ============================
+
+/// Cash handover between cashiers with recipient confirmation lifecycle:
+/// PENDING -> ACCEPTED/DISPUTED -> RESOLVED
+/// Pending cash must not be spendable by the recipient until accepted.
+model CashHandover {
+  id            BigInt            @id @default(autoincrement())
+  branchId      BigInt            @map("branch_id")
+  branch        CafeBranch        @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  fromShiftId   BigInt            @map("from_shift_id")
+  fromShift     Shift             @relation("cashHandoverFrom", fields: [fromShiftId], references: [id], onDelete: Restrict)
+  fromCashierId String            @map("from_cashier_id") @db.Uuid
+  fromCashier   User              @relation("cashHandoverFromUser", fields: [fromCashierId], references: [id], onDelete: Restrict)
+  toCashierId   String?           @map("to_cashier_id") @db.Uuid
+  toCashier     User?             @relation("cashHandoverToUser", fields: [toCashierId], references: [id], onDelete: Restrict)
+  amount        Decimal           @db.Decimal(10, 2)
+  countedAmount Decimal?          @map("counted_amount") @db.Decimal(10, 2)
+  difference    Decimal?          @db.Decimal(10, 2)
+  status        String            @default("PENDING") @db.VarChar(20)
+  notes         String?           @db.VarChar(1000)
+  disputeReason String?           @map("dispute_reason") @db.VarChar(1000)
+  resolvedById  String?           @map("resolved_by_id") @db.Uuid
+  resolvedBy    User?             @relation("cashHandoverResolver", fields: [resolvedById], references: [id], onDelete: Restrict)
+  resolvedAt    DateTime?         @map("resolved_at")
+  movementId    BigInt?           @unique @map("movement_id")
+  movement      FinancialMovement? @relation("movementHandover", fields: [movementId], references: [id], onDelete: Restrict)
+  createdAt     DateTime          @default(now()) @map("created_at")
+  acceptedAt    DateTime?         @map("accepted_at")
+
+  @@index([branchId, status])
+  @@index([toCashierId, status])
+  @@index([fromShiftId])
+  @@map("cash_handovers")
 }
 
 model AuditLog {

@@ -410,21 +410,40 @@ export async function closeShift(
         // closing figures are immutable after this point.
         handoverNotes: parsed.data.handoverNotes ?? null,
         handoverTo: routeToSafe ? 'MAIN_SAFE' : recipient?.name ?? null,
-        handoverCompletedAt: closedAt,
       },
     })
     if (updated.count === 0) throw new ShiftError('الوردية مغلقة بالفعل', 409)
 
     if (cashHandling) {
-      await tx.financialMovement.create({
-        data: {
-          branchId: lockedShift.branchId, type: routeToSafe ? 'main_safe_deposit' : 'cashier_handover', status: 'posted',
-          amount: closing.toFixed(2), sourceAccount: 'CASHIER_TILL', destinationAccount: routeToSafe ? 'MAIN_SAFE' : 'CASHIER_TILL',
-          sourceShiftId: shiftId, destinationUserId: routeToSafe ? null : recipient!.id, actorId: session.id,
-          reason: parsed.data.handoverNotes || 'Shift close handover', occurredAt: closedAt,
-          metadata: { route: routeToSafe ? 'main_safe_after_local_midnight' : 'cashier_before_local_midnight', timezone: branch.timezone },
-        },
-      })
+      if (routeToSafe) {
+        // Main Safe deposit — no recipient confirmation needed, money goes to
+        // the safe not a till. Posted immediately.
+        await tx.financialMovement.create({
+          data: {
+            branchId: lockedShift.branchId, type: 'main_safe_deposit', status: 'posted',
+            amount: closing.toFixed(2), sourceAccount: 'CASHIER_TILL', destinationAccount: 'MAIN_SAFE',
+            sourceShiftId: shiftId, destinationUserId: null, actorId: session.id,
+            reason: parsed.data.handoverNotes || 'Shift close main safe deposit', occurredAt: closedAt,
+            metadata: { route: 'main_safe_after_local_midnight', timezone: branch.timezone },
+          },
+        })
+      } else if (recipient) {
+        // Cashier-to-cashier handover — create PENDING CashHandover. The
+        // recipient must explicitly accept before the cash is spendable. No
+        // financial movement is posted until acceptance.
+        await tx.cashHandover.create({
+          data: {
+            branchId: lockedShift.branchId,
+            fromShiftId: shiftId,
+            fromCashierId: session.id,
+            toCashierId: recipient.id,
+            amount: closing.toFixed(2),
+            status: 'PENDING',
+            notes: parsed.data.handoverNotes || null,
+            createdAt: closedAt,
+          },
+        })
+      }
     }
 
     await tx.auditLog.create({
@@ -442,8 +461,6 @@ export async function closeShift(
           cashHandling,
           handoverNotes: parsed.data.handoverNotes ?? null,
           handoverTo: routeToSafe ? 'MAIN_SAFE' : recipient?.name ?? null,
-          handoverCompletedAt: closedAt.toISOString(),
-          handoverRecipientId: routeToSafe ? null : recipient?.id ?? null,
           route: routeToSafe ? 'main_safe_after_local_midnight' : 'cashier_before_local_midnight',
           outstandingOrders: outstandingOrders.map((o) => ({
             orderNumber: o.orderNumber,
@@ -460,6 +477,231 @@ export async function closeShift(
   })
 
   return toShiftView(closed, await fetchShiftPayments(prisma, shiftId), 0)
+}
+
+/** Pending cash handovers awaiting recipient action. Branch-scoped. */
+export async function getPendingHandovers(
+  session: StaffSession,
+  branchIdRaw?: string,
+  toCashierId?: string,
+): Promise<Array<{
+  id: string; branchId: string; fromShiftId: string; fromCashierId: string;
+  fromCashierName: string | null; toCashierId: string | null; amount: number;
+  status: string; notes: string | null; createdAt: string;
+}>> {
+  let branchId: bigint
+  if (session.branchId !== null) {
+    branchId = BigInt(session.branchId)
+  } else if (branchIdRaw && /^\d+$/.test(branchIdRaw)) {
+    branchId = BigInt(branchIdRaw)
+    if (!staffCanAccessBranch(session, branchId)) throw new ShiftError('غير مصرح', 403)
+  } else {
+    throw new ShiftError('اختر الفرع', 400)
+  }
+
+  const handovers = await prisma.cashHandover.findMany({
+    where: {
+      branchId,
+      status: 'PENDING',
+      ...(toCashierId ? { toCashierId } : {}),
+    },
+    orderBy: { createdAt: 'asc' },
+    select: {
+      id: true, fromShiftId: true, fromCashierId: true, toCashierId: true,
+      amount: true, status: true, notes: true, createdAt: true,
+      fromCashier: { select: { name: true } },
+    },
+  })
+
+  return handovers.map((h) => ({
+    id: h.id.toString(),
+    branchId: branchId.toString(),
+    fromShiftId: h.fromShiftId.toString(),
+    fromCashierId: h.fromCashierId,
+    fromCashierName: h.fromCashier?.name ?? null,
+    toCashierId: h.toCashierId ?? null,
+    amount: Number(h.amount),
+    status: h.status,
+    notes: h.notes ?? null,
+    createdAt: h.createdAt.toISOString(),
+  }))
+}
+
+/** Accept a pending cash handover. Recipient counts and confirms the amount.
+ * Posts a financialMovement so the cash becomes spendable in the next shift. */
+export async function acceptCashHandover(
+  session: StaffSession,
+  handoverIdRaw: string,
+  countedAmount: number,
+): Promise<{ id: string; status: string; acceptedAt: string; movementId: string | null }> {
+  if (!/^\d+$/.test(handoverIdRaw)) throw new ShiftError('تسليم غير صالح', 400)
+  const handoverId = BigInt(handoverIdRaw)
+
+  const [handover] = await prisma.$transaction(async (tx) => {
+    const h = await tx.cashHandover.findUnique({
+      where: { id: handoverId },
+      include: { fromShift: true },
+    })
+    if (!h) throw new ShiftError('تسليم النقد غير موجود', 404)
+    if (h.status !== 'PENDING') throw new ShiftError('هذا التسليم تم معالجته سابقًا', 409)
+    if (session.branchId === null || h.branchId !== BigInt(session.branchId)) throw new ShiftError('غير مصرح — الفرع غير متطابق', 403)
+    if (h.toCashierId !== session.id) throw new ShiftError('فقط المستلم يمكنه قبول التسليم', 403)
+
+    const countedCents = Math.round(countedAmount * 100)
+    const amountCents = Math.round(Number(h.amount) * 100)
+    const difference = (countedCents - amountCents) / 100
+
+    // Atomic conditional update: only succeeds if still PENDING.
+    // Prevents two concurrent accepts from both succeeding (lost update).
+    const updateResult = await tx.cashHandover.updateMany({
+      where: { id: handoverId, status: 'PENDING' },
+      data: {
+        status: 'ACCEPTED',
+        countedAmount: countedAmount.toFixed(2),
+        difference: difference.toFixed(2),
+        acceptedAt: new Date(),
+      },
+    })
+    if (updateResult.count === 0) throw new ShiftError('هذا التسليم تم معالجته سابقًا', 409)
+
+    // Post the financial movement so cash becomes spendable
+    const movement = await tx.financialMovement.create({
+      data: {
+        branchId: h.branchId, type: 'cashier_handover', status: 'posted',
+        amount: h.amount.toFixed(2), sourceAccount: 'CASHIER_TILL', destinationAccount: 'CASHIER_TILL',
+        sourceShiftId: h.fromShiftId, destinationUserId: h.toCashierId!, actorId: session.id,
+        reason: 'Cash handover accepted by recipient', occurredAt: new Date(),
+      },
+    })
+
+    // Link movement to handover
+    await tx.cashHandover.update({
+      where: { id: handoverId },
+      data: { movementId: movement.id },
+    })
+
+    return [{ ...h, status: 'ACCEPTED', countedAmount: countedAmount.toFixed(2), difference: difference.toFixed(2), acceptedAt: new Date() }, movement] as const
+  })
+
+  return {
+    id: handover.id.toString(),
+    status: handover.status,
+    acceptedAt: handover.acceptedAt?.toISOString() ?? '',
+    movementId: handover.movementId?.toString() ?? null,
+  }
+}
+
+/** Dispute a pending cash handover. Recipient disagrees with the amount. */
+export async function disputeCashHandover(
+  session: StaffSession,
+  handoverIdRaw: string,
+  disputeReason: string,
+): Promise<{ id: string; status: string }> {
+  if (!/^\d+$/.test(handoverIdRaw)) throw new ShiftError('تسليم غير صالح', 400)
+  const handoverId = BigInt(handoverIdRaw)
+
+  // Atomic conditional update: only succeeds if still PENDING.
+  const updateResult = await prisma.cashHandover.updateMany({
+    where: { id: handoverId, status: 'PENDING' },
+    data: {
+      status: 'DISPUTED',
+      disputeReason: disputeReason.trim().slice(0, 1000),
+    },
+  })
+  if (updateResult.count === 0) {
+    const existing = await prisma.cashHandover.findUnique({
+      where: { id: handoverId },
+      select: { id: true, status: true, toCashierId: true, branchId: true },
+    })
+    if (!existing) throw new ShiftError('تسليم النقد غير موجود', 404)
+    if (existing.status !== 'PENDING') throw new ShiftError('هذا التسليم تم معالجته سابقًا', 409)
+    throw new ShiftError('لا يمكنك فتح نزاع على هذا التسليم', 403)
+  }
+
+  const handover = await prisma.cashHandover.findUnique({
+    where: { id: handoverId },
+    select: { id: true, status: true, toCashierId: true, branchId: true },
+  })
+  if (!handover) throw new ShiftError('تسليم النقد غير موجود', 404)
+
+  if (session.branchId === null || handover.branchId !== BigInt(session.branchId)) throw new ShiftError('غير مصرح', 403)
+  if (handover.toCashierId !== session.id) throw new ShiftError('فقط المستلم يمكنه فتح نزاع على التسليم', 403)
+
+  await prisma.auditLog.create({
+    data: {
+      userId: session.id,
+      branchId: handover.branchId,
+      action: 'cash_handover.dispute',
+      entityType: 'cash_handover',
+      entityId: handover.id,
+      newValues: { status: 'DISPUTED', disputeReason },
+    },
+  })
+
+  return { id: handover.id.toString(), status: handover.status }
+}
+
+/** Resolve a disputed cash handover (manager+). Sets final counted amount. */
+export async function resolveCashHandover(
+  session: StaffSession,
+  handoverIdRaw: string,
+  resolvedAmount: number,
+  resolutionNote: string,
+): Promise<{ id: string; status: string; resolvedAt: string }> {
+  if (!/^\d+$/.test(handoverIdRaw)) throw new ShiftError('تسليم غير صالح', 400)
+  const handoverId = BigInt(handoverIdRaw)
+
+  const [handover] = await prisma.$transaction(async (tx) => {
+    const h = await tx.cashHandover.findUnique({
+      where: { id: handoverId },
+    })
+    if (!h) throw new ShiftError('تسليم النقد غير موجود', 404)
+    if (h.status !== 'DISPUTED') throw new ShiftError('هذا التسليم ليس في حالة نزاع', 409)
+    if (session.branchId === null || h.branchId !== BigInt(session.branchId)) throw new ShiftError('غير مصرح — الفرع غير متطابق', 403)
+
+    // Atomic conditional update: only succeeds if still DISPUTED.
+    const updateResult = await tx.cashHandover.updateMany({
+      where: { id: handoverId, status: 'DISPUTED' },
+      data: {
+        status: 'RESOLVED',
+        countedAmount: resolvedAmount.toFixed(2),
+        difference: (Math.round(resolvedAmount * 100) - Math.round(Number(h.amount) * 100)) / 100,
+        resolvedById: session.id,
+        resolvedAt: new Date(),
+        notes: (h.notes ?? '') + (h.notes ? ' | ' : '') + resolutionNote.trim().slice(0, 500),
+      },
+    })
+    if (updateResult.count === 0) throw new ShiftError('هذا التسليم تم معالجته سابقًا', 409)
+
+    // Post the financial movement with the resolved amount
+    await tx.financialMovement.create({
+      data: {
+        branchId: h.branchId, type: 'cashier_handover', status: 'posted',
+        amount: resolvedAmount.toFixed(2), sourceAccount: 'CASHIER_TILL', destinationAccount: 'CASHIER_TILL',
+        sourceShiftId: h.fromShiftId, destinationUserId: h.toCashierId!, actorId: session.id,
+        reason: 'Cash handover resolved after dispute', occurredAt: new Date(),
+      },
+    })
+
+    return [{ ...h, status: 'RESOLVED', countedAmount: resolvedAmount.toFixed(2), difference: (Math.round(resolvedAmount * 100) - Math.round(Number(h.amount) * 100)) / 100, resolvedById: session.id, resolvedAt: new Date() }] as const
+  })
+
+  await prisma.auditLog.create({
+    data: {
+      userId: session.id,
+      branchId: handover.branchId,
+      action: 'cash_handover.resolve',
+      entityType: 'cash_handover',
+      entityId: handover.id,
+      newValues: { status: 'RESOLVED', resolvedAmount, resolutionNote },
+    },
+  })
+
+  return {
+    id: handover.id.toString(),
+    status: handover.status,
+    resolvedAt: handover.resolvedAt?.toISOString() ?? '',
+  }
 }
 
 /**

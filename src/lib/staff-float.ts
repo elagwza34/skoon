@@ -147,10 +147,11 @@ export async function getFixedFloatBoard(session: StaffSession): Promise<FixedFl
   const movements = await prisma.financialMovement.findMany({ where: { branchId }, orderBy: { occurredAt: 'desc' }, take: 200,
     select: { id: true, type: true, amount: true, sourceAccount: true, destinationAccount: true, reason: true, occurredAt: true, actor: { select: { name: true } } },
   })
+  const totals = sharedFloatTotals(movements)
   const fixed = movements.filter((m) => m.type === 'fixed_float_addition' || m.type === 'fixed_float_withdrawal')
   const additions = fixed.filter((m) => m.type === 'fixed_float_addition').reduce((n, m) => n + Number(m.amount), 0)
   const withdrawals = fixed.filter((m) => m.type === 'fixed_float_withdrawal').reduce((n, m) => n + Number(m.amount), 0)
-  return { branchId: branchId.toString(), balance: (additions - withdrawals).toFixed(2), additions: additions.toFixed(2), withdrawals: withdrawals.toFixed(2), movements: movements.map((m) => ({ id: m.id.toString(), type: m.type, amount: Number(m.amount).toFixed(2), source: m.sourceAccount, destination: m.destinationAccount, reason: m.reason, occurredAt: m.occurredAt.toISOString(), actor: m.actor?.name ?? null })) }
+  return { branchId: branchId.toString(), balance: (totals.baseline + additions - withdrawals).toFixed(2), additions: additions.toFixed(2), withdrawals: withdrawals.toFixed(2), movements: movements.map((m) => ({ id: m.id.toString(), type: m.type, amount: Number(m.amount).toFixed(2), source: m.sourceAccount, destination: m.destinationAccount, reason: m.reason, occurredAt: m.occurredAt.toISOString(), actor: m.actor?.name ?? null })) }
 }
 
 async function firstBranchId(): Promise<bigint | null> {
@@ -182,6 +183,19 @@ export async function recordFixedFloatMovement(session: StaffSession, input: unk
     // Serialise fixed-float debits per branch, then calculate availability in
     // the same transaction. Cashier drawer withdrawals do not consume float.
     if (!operational) await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('shared-float:' || ${branchId.toString()}))`
+    // For operational withdrawals (cashier till), enforce available till cash.
+    if (operational && data.direction === 'withdrawal') {
+      const [payments, refunds, withdrawals] = await Promise.all([
+        tx.payment.findMany({ where: { shiftId: shift!.id }, select: { method: true, status: true, amount: true } }),
+        tx.payment.findMany({ where: { shiftId: shift!.id, status: 'refunded' }, select: { amount: true } }),
+        tx.financialMovement.aggregate({ where: { sourceShiftId: shift!.id, type: 'operational_withdrawal', status: 'posted' }, _sum: { amount: true } }),
+      ])
+      const cashIn = payments.filter(p => p.method === 'cash' && p.status === 'completed').reduce((n,p) => n + Number(p.amount), 0)
+      const cashOut = refunds.reduce((n,p) => n + Number(p.amount), 0)
+      const w = Number(withdrawals._sum.amount ?? 0)
+      const available = Number((cashIn - cashOut - w).toFixed(2))
+      if (data.amount > available) throw new FloatError('رصيد الصندوق غير كافٍ للسحب التشغيلي', 409)
+    }
     if (!operational && data.direction === 'withdrawal') {
       const rows = await tx.financialMovement.findMany({ where: { branchId }, select: { type: true, amount: true, sourceAccount: true, destinationAccount: true } })
       const summary = sharedFloatTotals(rows)
@@ -221,5 +235,149 @@ export async function reverseFixedFloatMovement(session: StaffSession, movementI
     const reversal = await tx.financialMovement.create({ data: { branchId: original.branchId, type: `${original.type}_reversal`, amount: original.amount, sourceAccount: original.destinationAccount, destinationAccount: original.sourceAccount, actorId: session.id, reason: reason.trim(), reversalOfId: original.id, metadata: { originalMovementId: original.id.toString() } } })
     await tx.auditLog.create({ data: { userId: session.id, branchId: original.branchId, action: 'financial_movement.reverse', entityType: 'financial_movement', entityId: reversal.id, newValues: { originalMovementId: original.id.toString(), reversalMovementId: reversal.id.toString(), reason: reason.trim() } } })
     return { id: reversal.id.toString(), reversedMovementId: original.id.toString() }
+  })
+}
+
+/** Main Safe balance — sum of deposits minus withdrawals. */
+export interface MainSafeSummary {
+  branchId: string
+  balance: string
+  deposits: string
+  withdrawals: string
+  movements: { id: string; type: string; amount: string; source: string; destination: string; reason: string; occurredAt: string; actor: string | null }[]
+}
+
+/** Read-only Main Safe balance and history (manager+). */
+export async function getMainSafeSummary(session: StaffSession): Promise<MainSafeSummary> {
+  if (!hasAtLeast(session.role, ROLE.MANAGER)) throw new FloatError('Forbidden', 403)
+  const branchId = session.branchId ? BigInt(session.branchId) : await firstBranchId()
+  if (!branchId || !staffCanAccessBranch(session, branchId)) throw new FloatError('Forbidden', 403)
+  const movements = await prisma.financialMovement.findMany({
+    where: {
+      branchId,
+      type: { in: ['main_safe_deposit', 'main_safe_withdrawal'] },
+    },
+    orderBy: { occurredAt: 'desc' },
+    take: 200,
+    select: { id: true, type: true, amount: true, sourceAccount: true, destinationAccount: true, reason: true, occurredAt: true, actor: { select: { name: true } } },
+  })
+  const deposits = movements.filter((m) => m.type === 'main_safe_deposit').reduce((n, m) => n + Number(m.amount), 0)
+  const withdrawals = movements.filter((m) => m.type === 'main_safe_withdrawal').reduce((n, m) => n + Number(m.amount), 0)
+  return {
+    branchId: branchId.toString(),
+    balance: (deposits - withdrawals).toFixed(2),
+    deposits: deposits.toFixed(2),
+    withdrawals: withdrawals.toFixed(2),
+    movements: movements.map((m) => ({ id: m.id.toString(), type: m.type, amount: Number(m.amount).toFixed(2), source: m.sourceAccount, destination: m.destinationAccount, reason: m.reason, occurredAt: m.occurredAt.toISOString(), actor: m.actor?.name ?? null })),
+  }
+}
+
+/** Withdraw from Main Safe — manager+ only. Prevents negative balance. */
+export async function withdrawFromMainSafe(session: StaffSession, amount: number, reason: string): Promise<{ id: string; occurredAt: string }> {
+  if (!hasAtLeast(session.role, ROLE.MANAGER)) throw new FloatError('Forbidden', 403)
+  if (!Number.isFinite(amount) || amount <= 0) throw new FloatError('Invalid amount', 400)
+  if (!reason.trim() || reason.trim().length < 3) throw new FloatError('Reason required', 400)
+  const branchId = session.branchId ? BigInt(session.branchId) : await firstBranchId()
+  if (!branchId || !staffCanAccessBranch(session, branchId)) throw new FloatError('Forbidden', 403)
+
+  const key = createHash('sha256').update(`${session.id}:main_safe_withdrawal:${Date.now()}:${Math.random()}`).digest('hex')
+  const operationType = 'main_safe_withdrawal'
+  const fingerprint = createHash('sha256').update(JSON.stringify({ amount, branchId: branchId.toString() })).digest('hex')
+
+  const previous = await prisma.financialOperation.findUnique({
+    where: { branchId_actorId_operationType_idempotencyKey: { branchId, actorId: session.id, operationType, idempotencyKey: key } },
+  })
+  if (previous) {
+    if (previous.fingerprint !== fingerprint) throw new FloatError('Idempotency key was reused with a different request', 409)
+    return previous.result as { id: string; occurredAt: string }
+  }
+
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('main-safe:' || ${branchId.toString()}))`
+
+    // Enforce non-negative Main Safe balance
+    const [deposits, withdrawals] = await Promise.all([
+      tx.financialMovement.aggregate({ where: { branchId, type: 'main_safe_deposit', status: 'posted' }, _sum: { amount: true } }),
+      tx.financialMovement.aggregate({ where: { branchId, type: 'main_safe_withdrawal', status: 'posted' }, _sum: { amount: true } }),
+    ])
+    const currentBalance = Number(deposits._sum.amount ?? 0) - Number(withdrawals._sum.amount ?? 0)
+    if (amount > currentBalance) throw new FloatError('رصيد الخزنة الرئيسية غير كافٍ', 409)
+
+    const movement = await tx.financialMovement.create({
+      data: {
+        branchId, type: 'main_safe_withdrawal', status: 'posted',
+        amount: amount.toFixed(2), sourceAccount: 'MAIN_SAFE', destinationAccount: 'OPERATIONAL_EXPENSE',
+        actorId: session.id, reason: reason.trim(),
+      },
+      select: { id: true, occurredAt: true },
+    })
+    await tx.auditLog.create({ data: {
+      userId: session.id, branchId, action: 'main_safe.withdrawal', entityType: 'financial_movement', entityId: movement.id,
+      newValues: { amount: amount.toFixed(2), reason: reason.trim() },
+    } })
+    const result = { id: movement.id.toString(), occurredAt: movement.occurredAt.toISOString() }
+    await tx.financialOperation.create({ data: { branchId, actorId: session.id, operationType, idempotencyKey: key, fingerprint, result } })
+    return result
+  })
+}
+
+/** Transfer from Main Safe to Fixed Float — manager+ only. */
+export async function transferMainSafeToFixedFloat(session: StaffSession, amount: number, reason: string): Promise<{ withdrawalId: string; additionId: string }> {
+  if (!hasAtLeast(session.role, ROLE.MANAGER)) throw new FloatError('Forbidden', 403)
+  if (!Number.isFinite(amount) || amount <= 0) throw new FloatError('Invalid amount', 400)
+  if (!reason.trim() || reason.trim().length < 3) throw new FloatError('Reason required', 400)
+  const branchId = session.branchId ? BigInt(session.branchId) : await firstBranchId()
+  if (!branchId || !staffCanAccessBranch(session, branchId)) throw new FloatError('Forbidden', 403)
+
+  const key = createHash('sha256').update(`${session.id}:main_safe_to_fixed_float:${Date.now()}:${Math.random()}`).digest('hex')
+  const operationType = 'main_safe_to_fixed_float'
+  const fingerprint = createHash('sha256').update(JSON.stringify({ amount, branchId: branchId.toString() })).digest('hex')
+
+  const previous = await prisma.financialOperation.findUnique({
+    where: { branchId_actorId_operationType_idempotencyKey: { branchId, actorId: session.id, operationType, idempotencyKey: key } },
+  })
+  if (previous) {
+    if (previous.fingerprint !== fingerprint) throw new FloatError('Idempotency key was reused with a different request', 409)
+    return previous.result as { withdrawalId: string; additionId: string }
+  }
+
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('main-safe:' || ${branchId.toString()}))`
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('shared-float:' || ${branchId.toString()}))`
+
+    // Check Main Safe balance
+    const [deposits, withdrawals] = await Promise.all([
+      tx.financialMovement.aggregate({ where: { branchId, type: 'main_safe_deposit', status: 'posted' }, _sum: { amount: true } }),
+      tx.financialMovement.aggregate({ where: { branchId, type: 'main_safe_withdrawal', status: 'posted' }, _sum: { amount: true } }),
+    ])
+    const currentBalance = Number(deposits._sum.amount ?? 0) - Number(withdrawals._sum.amount ?? 0)
+    if (amount > currentBalance) throw new FloatError('رصيد الخزنة الرئيسية غير كافٍ للتحويل', 409)
+
+    // Withdrawal from Main Safe
+    const withdrawal = await tx.financialMovement.create({
+      data: {
+        branchId, type: 'main_safe_withdrawal', status: 'posted',
+        amount: amount.toFixed(2), sourceAccount: 'MAIN_SAFE', destinationAccount: 'FIXED_FLOAT',
+        actorId: session.id, reason: reason.trim(),
+      },
+      select: { id: true, occurredAt: true },
+    })
+
+    // Addition to Fixed Float
+    const addition = await tx.financialMovement.create({
+      data: {
+        branchId, type: 'fixed_float_addition', status: 'posted',
+        amount: amount.toFixed(2), sourceAccount: 'MAIN_SAFE', destinationAccount: 'FIXED_FLOAT',
+        actorId: session.id, reason: reason.trim(),
+      },
+      select: { id: true, occurredAt: true },
+    })
+
+    await tx.auditLog.create({ data: {
+      userId: session.id, branchId, action: 'main_safe.to_fixed_float', entityType: 'financial_movement', entityId: withdrawal.id,
+      newValues: { amount: amount.toFixed(2), reason: reason.trim(), withdrawalId: withdrawal.id.toString(), additionId: addition.id.toString() },
+    } })
+
+    return { withdrawalId: withdrawal.id.toString(), additionId: addition.id.toString() }
   })
 }

@@ -4,7 +4,7 @@ import {
   avgPerPaidOrder,
   centsToAmount,
   financeBranchScope,
-  getCollectedStats,
+  getCollectedStatsWithRefunds,
   resolveSessionTimezone,
   toCents,
 } from '@/lib/finance-metrics'
@@ -119,7 +119,8 @@ export async function getReportsSummary(session: StaffSession, daysRaw?: string)
       _count: { _all: true },
     }),
     // Cash truth: completed payments created in [start, now), branch-scoped.
-    getCollectedStats(session, start, now),
+    // Refund-aware: subtracts COMPLETED refund amounts from collected.
+    getCollectedStatsWithRefunds(session, start, now),
   ])
 
   // Order value (intent): exact cents math over non-cancelled orders.
@@ -127,8 +128,8 @@ export async function getReportsSummary(session: StaffSession, daysRaw?: string)
   const orderValueCents = billed.reduce((s, o) => s + toCents(o.total.toString()), 0)
   const totalOrderValue = centsToAmount(orderValueCents)
 
-  const totalRevenue = centsToAmount(collected.collectedCents)
-  const refundedTotal = centsToAmount(collected.refundedCents)
+  const totalRevenue = centsToAmount(collected.netCollectedCents ?? collected.collectedCents)
+  const refundedTotal = centsToAmount((collected.refundedCentsFromRefunds ?? 0) + collected.refundedCents)
   const paidOrders = collected.paidOrders
 
   const daily: ReportsSummary['daily'] = []

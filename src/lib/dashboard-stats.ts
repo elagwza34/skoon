@@ -5,7 +5,7 @@ import {
   avgPerPaidOrder,
   centsToAmount,
   financeBranchScope,
-  getCollectedStats,
+  getCollectedStatsWithRefunds,
   resolveSessionTimezone,
   toCents,
 } from '@/lib/finance-metrics'
@@ -121,11 +121,11 @@ export async function getDashboardStats(session: StaffSession): Promise<Dashboar
   // Cash truth for today/yesterday: completed payments in the payment-date
   // window (refunded excluded by status; pending/failed never count).
   const [collectedToday, collectedYesterday] = await Promise.all([
-    getCollectedStats(session, startToday, new Date(startToday.getTime() + 24 * 60 * 60 * 1000)),
-    getCollectedStats(session, startYesterday, startToday),
+    getCollectedStatsWithRefunds(session, startToday, new Date(startToday.getTime() + 24 * 60 * 60 * 1000)),
+    getCollectedStatsWithRefunds(session, startYesterday, startToday),
   ])
-  const totalSalesToday = centsToAmount(collectedToday.collectedCents)
-  const totalSalesYesterday = centsToAmount(collectedYesterday.collectedCents)
+  const totalSalesToday = centsToAmount(collectedToday.netCollectedCents ?? collectedToday.collectedCents)
+  const totalSalesYesterday = centsToAmount(collectedYesterday.netCollectedCents ?? collectedYesterday.collectedCents)
   // Order value (intent) for today via exact cents math over non-cancelled rows.
   const orderValueToday = centsToAmount(
     todayRows.filter((r) => r.status !== 'cancelled').reduce((s, r) => s + toCents(String(r.total)), 0),

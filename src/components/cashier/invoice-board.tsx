@@ -34,6 +34,8 @@ export function InvoiceBoard({ invoices, products, categories, defaultTab = 'ope
   const router = useRouter(); const [query, setQuery] = useState(''); const [selectedId, setSelectedId] = useState<string | null>(null)
   const [tableFilter, setTableFilter] = useState('all')
   const [preview, setPreview] = useState<ReceiptPreviewState | null>(null); const [received, setReceived] = useState(''); const [method, setMethod] = useState('cash'); const [electronicPaymentConfirmed, setElectronicPaymentConfirmed] = useState(false); const [receivedNotice, setReceivedNotice] = useState<string | null>(null)
+  const [externalTransactionReference, setExternalTransactionReference] = useState('')
+  const [confirmationNote, setConfirmationNote] = useState('')
   const [reason, setReason] = useState(''); const [notice, setNotice] = useState<string | null>(null); const [receipt, setReceipt] = useState<PaymentResult | null>(null); const [pending, startTransition] = useTransition()
   const [discountType, setDiscountType] = useState<'none' | 'percentage' | 'amount'>('none')
   const [discountValue, setDiscountValue] = useState('')
@@ -68,11 +70,13 @@ export function InvoiceBoard({ invoices, products, categories, defaultTab = 'ope
 		setReceipt(null)
 		router.push('/cashier/settlements')
 	}
-	function openSettlement(invoice: InvoiceRow) {
+  function openSettlement(invoice: InvoiceRow) {
     setSelectedId(invoice.id)
     setReceived('')
     setMethod('cash')
     setElectronicPaymentConfirmed(false)
+    setExternalTransactionReference('')
+    setConfirmationNote('')
     setReason('')
     setDiscountType('none')
     setDiscountValue('')
@@ -92,7 +96,7 @@ export function InvoiceBoard({ invoices, products, categories, defaultTab = 'ope
       refresh(response.ok ? 'تم إزالة الصنف من الفاتورة بنجاح وتحديث المبلغ المستحق.' : body.error ?? 'فشل إزالة الفاتورة.')
     })
   }
-  function collect() { if (!selected) return; const isNonCash = method !== 'cash'; const amount = isNonCash ? Number(selected.remaining) : (received ? Number(received) : 0); if (!isNonCash && (!received || amount <= 0)) { setNotice('يرجى إدخال مبلغ الاستلام لتغطية المبلغ المتبقي للفاتورة'); return } if (isNonCash && !electronicPaymentConfirmed) { setNotice('يرجى تأكيد استلام الدفع الإلكتروني قبل المتابعة.'); return }; startTransition(async () => { const invoice = selected; const payload = buildPaymentRequestPayload(method, String(amount), electronicPaymentConfirmed); const response = await fetch(`/api/staff/orders/${invoice.id}/pay`, { method: 'POST', headers: { 'content-type': 'application/json', 'Idempotency-Key': key() }, body: JSON.stringify(payload) }); const body = await response.json().catch(() => ({})); if (!response.ok) return setNotice(body.error ?? 'فشل تحصيل الدفع.');
+  function collect() { if (!selected) return; const isNonCash = method !== 'cash'; const amount = isNonCash ? Number(selected.remaining) : (received ? Number(received) : 0); if (!isNonCash && (!received || amount <= 0)) { setNotice('يرجى إدخال مبلغ الاستلام لتغطية المبلغ المتبقي للفاتورة'); return } if (isNonCash && !electronicPaymentConfirmed) { setNotice('يرجى تأكيد استلام الدفع الإلكتروني قبل المتابعة.'); return } if (isNonCash && !externalTransactionReference) { setNotice('يرجى إدخال مرجع المعاملة الخارجية للدفع الإلكتروني.'); return }; startTransition(async () => { const invoice = selected; const payload = buildPaymentRequestPayload(method, String(amount), electronicPaymentConfirmed, externalTransactionReference, confirmationNote); const response = await fetch(`/api/staff/orders/${invoice.id}/pay`, { method: 'POST', headers: { 'content-type': 'application/json', 'Idempotency-Key': key() }, body: JSON.stringify(payload) }); const body = await response.json().catch(() => ({})); if (!response.ok) return setNotice(body.error ?? 'فشل تحصيل الدفع.');
 const persistedInvoice = receiptInvoiceForSettlement(invoice.id, body.invoice as InvoiceRow | undefined);
 if (!persistedInvoice) return setNotice('الفاتورة المسددة غير موجودة أو فشل جلب بيانات الفاتورة المسددة.');
 setReceipt({ paid: body.amount ?? persistedInvoice.paid, remaining: '0', change: body.changeAmount ?? '0', method: body.method ?? method, invoice: persistedInvoice });
@@ -120,7 +124,7 @@ if (isNonCash) { setPreview({ invoice: persistedInvoice, autoPrint: true, paymen
     )}
     {notice && <p className="mb-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">{notice}</p>}
     {readonlyList ? <InvoiceList rows={rows} tab={defaultTab} onPreview={(invoice) => setPreview({ invoice, autoPrint: true })} /> : <InvoiceList rows={rows} tab="open" selectedId={selected?.id} onSelect={openSettlement} />}
-    {selected && <InvoiceSettlementModal invoice={selected} products={products} categories={categories} editable={editable} pending={pending} received={received} method={method} electronicPaymentConfirmed={electronicPaymentConfirmed} reason={reason} setReceived={setReceived} setMethod={(next) => { setMethod(next); setElectronicPaymentConfirmed(false); if (next !== 'cash') setReceived('') }} setElectronicPaymentConfirmed={setElectronicPaymentConfirmed} setReason={setReason} edit={edit} removeItem={removeItem} collect={collect} cancel={() => cancel()} onPrint={() => { if (method === 'cash' && (!received || Number(received) <= 0)) { setNotice('يرجى إدخال مبلغ الاستلام لتغطية المبلغ المتبقي للفاتورة.'); return } setPreview({ invoice: selected, autoPrint: true }) }} onClose={closeSettlement} />}
+    {selected && <InvoiceSettlementModal invoice={selected} products={products} categories={categories} editable={editable} pending={pending} received={received} method={method} electronicPaymentConfirmed={electronicPaymentConfirmed} externalTransactionReference={externalTransactionReference} confirmationNote={confirmationNote} reason={reason} setReceived={setReceived} setMethod={(next) => { setMethod(next); setElectronicPaymentConfirmed(false); if (next !== 'cash') setReceived('') }} setElectronicPaymentConfirmed={setElectronicPaymentConfirmed} setExternalTransactionReference={setExternalTransactionReference} setConfirmationNote={setConfirmationNote} setReason={setReason} edit={edit} removeItem={removeItem} collect={collect} cancel={() => cancel()} onPrint={() => { if (method === 'cash' && (!received || Number(received) <= 0)) { setNotice('يرجى إدخال مبلغ الاستلام لتغطية المبلغ المتبقي للفاتورة.'); return } setPreview({ invoice: selected, autoPrint: true }) }} onClose={closeSettlement} />}
     {preview && <ThermalReceiptPreview invoice={preview.invoice} payment={preview.payment} autoPrint={preview.autoPrint} onClose={() => setPreview(null)} />}
     {receipt && <div className="fixed inset-0 z-[60] grid place-items-center bg-slate-900/40 p-4"><Card className="w-full max-w-sm p-5" dir="rtl"><h3 className="font-bold">الفاتورة المسددة</h3><p>طريقة الدفع: {receipt.method}</p><p>المبلغ المدفوع: {money(receipt.paid)}</p><p>الباقي المتبقي: {money(receipt.change)}</p><div className="mt-4 flex flex-wrap gap-2"><Button variant="secondary" onClick={() => { setPreview({ invoice: receipt.invoice, autoPrint: true, payment: receipt }); setReceipt(null) }}>طباعة الفاتورة المسددة</Button><Button onClick={() => setReceipt(null)}>إغلاق</Button></div></Card></div>}
   </Card>
@@ -131,14 +135,14 @@ function InvoiceList({ rows, tab, selectedId, onSelect, onPreview }: { rows: Inv
       return <div className={tab === 'open' ? 'space-y-2' : 'overflow-x-auto'}>{tab === 'open' ? rows.map((invoice) => <button key={invoice.id} onClick={() => onSelect?.(invoice)} className={`w-full rounded-xl border p-3 text-right ${selectedId === invoice.id ? 'border-primary bg-accent/40' : 'border-border bg-card'}`}><div className="flex justify-between gap-3"><strong>{invoice.number}</strong><span>{money(invoice.total)}</span></div><div className="mt-1 flex justify-between text-xs text-muted-foreground"><span>{invoice.creator ?? 'ΓÇö'} ┬╖ {dateTime(invoice.createdAt)}</span><span>{invoice.table ? `طاولة ${invoice.table}` : 'غير محددة'} · المتبقي {money(invoice.remaining)}</span></div></button>) : <table className="w-full min-w-[760px] text-right text-sm"><thead className="border-b text-muted-foreground"><tr><th className="p-3">رقم الفاتورة</th><th>تاريخ الإنشاء</th><th>طاولة</th><th>صانع</th><th>المبلغ</th><th>طريقة الدفع</th><th>الحالة</th></tr></thead><tbody>{rows.map((invoice) => <tr key={invoice.id} className="border-b border-border/60"><td className="p-3 font-medium">{invoice.number}</td><td>{dateTime(invoice.createdAt)}</td><td>{invoice.table}</td><td>{invoice.creator ?? '—'}</td><td>{money(invoice.total)}</td><td>{tab === 'paid' ? invoice.payments.map(p => p.method).join(' / ') || '—' : '—'}</td><td><Button size="sm" variant="outline" onClick={() => onPreview?.(invoice)}>طباعة</Button></td></tr>)}</tbody></table>}</div>
 }
 
-function InvoiceSettlementModal({ invoice, products, categories, editable, pending, received, method, electronicPaymentConfirmed, reason, setReceived, setMethod, setElectronicPaymentConfirmed, setReason, edit, removeItem, collect, cancel, onPrint, onClose }: { invoice: InvoiceRow; products: { id: string; name: string; price: string; categoryId?: string; isAvailable?: boolean; categoryName?: string; variants?: { id: string; label: string; price: string }[] }[]; categories?: { id: string; name: string }[]; editable: boolean; pending: boolean; received: string; method: string; electronicPaymentConfirmed: boolean; reason: string; setReceived: (v: string) => void; setMethod: (v: string) => void; setElectronicPaymentConfirmed: (v: boolean) => void; setReason: (v: string) => void; edit: (input: InvoiceEditInput) => void; removeItem: (item: InvoiceRow['items'][number]) => void; collect: () => void; cancel: () => void; onPrint: () => void; onClose: () => void }) {
+function InvoiceSettlementModal({ invoice, products, categories, editable, pending, received, method, electronicPaymentConfirmed, externalTransactionReference, confirmationNote, reason, setReceived, setMethod, setElectronicPaymentConfirmed, setExternalTransactionReference, setConfirmationNote, setReason, edit, removeItem, collect, cancel, onPrint, onClose }: { invoice: InvoiceRow; products: { id: string; name: string; price: string; categoryId?: string; isAvailable?: boolean; categoryName?: string; variants?: { id: string; label: string; price: string }[] }[]; categories?: { id: string; name: string }[]; editable: boolean; pending: boolean; received: string; method: string; electronicPaymentConfirmed: boolean; externalTransactionReference: string; confirmationNote: string; reason: string; setReceived: (v: string) => void; setMethod: (v: string) => void; setElectronicPaymentConfirmed: (v: boolean) => void; setExternalTransactionReference: (v: string) => void; setConfirmationNote: (v: string) => void; setReason: (v: string) => void; edit: (input: InvoiceEditInput) => void; removeItem: (item: InvoiceRow['items'][number]) => void; collect: () => void; cancel: () => void; onPrint: () => void; onClose: () => void }) {
   return <div role="dialog" aria-modal="true" aria-labelledby="invoice-settlement-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-2 sm:p-4" dir="rtl">
     <Card className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden shadow-2xl">
       <header className="sticky top-0 z-10 flex shrink-0 items-start justify-between gap-3 border-b bg-card px-4 py-3 sm:px-6">
         <div className="min-w-0"><h2 id="invoice-settlement-title" className="truncate text-lg font-bold">تفاصيل الفاتورة {invoice.number}</h2><p className="truncate text-xs text-muted-foreground">{dateTime(invoice.createdAt)} · {invoice.creator ?? '—'} · {invoice.status} · {invoice.table ? `طاولة ${invoice.table}` : 'غير محددة'}</p></div>
         <Button variant="ghost" disabled={pending} onClick={onClose}>إغلاق</Button>
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-5"><InvoiceEditor invoice={invoice} products={products} categories={categories} editable={editable} pending={pending} received={received} method={method} electronicPaymentConfirmed={electronicPaymentConfirmed} reason={reason} setReceived={setReceived} setMethod={setMethod} setElectronicPaymentConfirmed={setElectronicPaymentConfirmed} setReason={setReason} edit={edit} removeItem={removeItem} collect={collect} cancel={cancel} onPrint={onPrint} modal /></div>
+      <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-5"><InvoiceEditor invoice={invoice} products={products} categories={categories} editable={editable} pending={pending} received={received} method={method} electronicPaymentConfirmed={electronicPaymentConfirmed} externalTransactionReference={externalTransactionReference} confirmationNote={confirmationNote} reason={reason} setReceived={setReceived} setMethod={setMethod} setElectronicPaymentConfirmed={setElectronicPaymentConfirmed} setExternalTransactionReference={setExternalTransactionReference} setConfirmationNote={setConfirmationNote} setReason={setReason} edit={edit} removeItem={removeItem} collect={collect} cancel={cancel} onPrint={onPrint} modal /></div>
     </Card>
   </div>
 }
@@ -177,7 +181,7 @@ function InvoiceLineEditor({ item, editable, pending, edit, removeItem }: { item
   </div>
 }
 
-function InvoiceEditor({ invoice, products, categories, editable, pending, received, method, electronicPaymentConfirmed, reason, setReceived, setMethod, setElectronicPaymentConfirmed, setReason, edit, removeItem, collect, cancel, onPrint, modal = false }: { invoice: InvoiceRow; products: { id: string; name: string; price: string; categoryId?: string; isAvailable?: boolean; categoryName?: string; variants?: { id: string; label: string; price: string }[] }[]; categories?: { id: string; name: string }[]; editable: boolean; pending: boolean; received: string; method: string; electronicPaymentConfirmed: boolean; reason: string; setReceived: (v: string) => void; setMethod: (v: string) => void; setElectronicPaymentConfirmed: (v: boolean) => void; setReason: (v: string) => void; edit: (input: InvoiceEditInput) => void; removeItem: (item: InvoiceRow['items'][number]) => void; collect: () => void; cancel: () => void; onPrint: () => void; modal?: boolean }) {
+function InvoiceEditor({ invoice, products, categories, editable, pending, received, method, electronicPaymentConfirmed, externalTransactionReference, confirmationNote, reason, setReceived, setMethod, setElectronicPaymentConfirmed, setExternalTransactionReference, setConfirmationNote, setReason, edit, removeItem, collect, cancel, onPrint, modal = false }: { invoice: InvoiceRow; products: { id: string; name: string; price: string; categoryId?: string; isAvailable?: boolean; categoryName?: string; variants?: { id: string; label: string; price: string }[] }[]; categories?: { id: string; name: string }[]; editable: boolean; pending: boolean; received: string; method: string; electronicPaymentConfirmed: boolean; externalTransactionReference: string; confirmationNote: string; reason: string; setReceived: (v: string) => void; setMethod: (v: string) => void; setElectronicPaymentConfirmed: (v: boolean) => void; setExternalTransactionReference: (v: string) => void; setConfirmationNote: (v: string) => void; setReason: (v: string) => void; edit: (input: InvoiceEditInput) => void; removeItem: (item: InvoiceRow['items'][number]) => void; collect: () => void; cancel: () => void; onPrint: () => void; modal?: boolean }) {
   const cancellable = (invoice.status === 'new' || invoice.status === 'preparing') && Number(invoice.paid) === 0
   const [discountType, setDiscountType] = useState<'none' | 'percentage' | 'amount'>(invoice.discountType ?? 'none')
   const [discountValue, setDiscountValue] = useState(invoice.discountType ? invoice.discountValue ?? '' : '')
@@ -236,7 +240,81 @@ function InvoiceEditor({ invoice, products, categories, editable, pending, recei
     {editable && <Button type="button" className="w-full justify-between" onClick={() => { setAddProductSearch(''); setAddProductCategory('all'); setAddProductSelected(null); setAddProductQty(1); setAddProductModal(true) }}><Icon name="plus" size={16} /> إضافة صنف</Button>}
     <Totals invoice={invoice} />
     {editable && <div className="mt-3 space-y-2 rounded-lg border border-amber-200/70 p-3"><div className="flex flex-wrap gap-2"><select value={discountType} onChange={(event) => setDiscountType(event.target.value as 'none' | 'percentage' | 'amount')} className="rounded-lg border bg-background p-2 text-sm"><option value="none">بدون خصم للفاتورة</option><option value="percentage">نسبة مئوية (%)</option><option value="amount">مبلغ ثابت</option></select><Input value={discountValue} disabled={discountType === 'none'} onChange={(event) => setDiscountValue(event.target.value)} inputMode="decimal" placeholder="قيمة خصم الفاتورة" className="max-w-44" /></div><Input value={invoiceNotes} onChange={(event) => setInvoiceNotes(event.target.value)} placeholder="ملاحظات الفاتورة..." />{financialNotice && <p className="text-xs text-destructive">{financialNotice}</p>}<Button disabled={pending} onClick={applyFinancials}>تطبيق خصم الفاتورة</Button></div>}
-    {(editable || cancellable) && <div className={modal ? 'sticky bottom-0 z-10 mt-4 grid gap-2 border-t bg-card py-3 sm:grid-cols-2' : 'mt-4 grid gap-2 sm:grid-cols-2'}>{editable && <><select value={method} onChange={(event) => setMethod(event.target.value)} className="rounded-lg border bg-background p-2" aria-label="طريقة الدفع"><option value="cash">نقدي</option><option value="mobile_wallet">محفظة إلكترونية</option><option value="instapay">إنستا باي</option></select>{method === 'cash' ? <Input value={received} onChange={(event) => setReceived(event.target.value)} inputMode="decimal" placeholder={`المبلغ المستلم (المطلوب ${invoice.remaining})`} /> : <label className="flex min-h-10 items-center gap-2 rounded-lg border bg-muted/30 px-3 text-sm"><input type="checkbox" checked={electronicPaymentConfirmed} onChange={(event) => setElectronicPaymentConfirmed(event.target.checked)} disabled={pending} />أؤكد استلام الدفع الإلكتروني بالقيمة النهائية للفاتورة</label>}<Button disabled={pending || (method !== 'cash' && !electronicPaymentConfirmed)} onClick={collect}>تحصيل</Button><Button variant="secondary" onClick={onPrint}>طباعة / معاينة</Button></>}{cancellable && <div className="sm:col-span-2 rounded-lg border border-rose-200 p-3"><Input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="سبب الإلغاء (مطلوب)" /><Button className="mt-2" variant="destructive" disabled={pending} onClick={cancel}>إلغاء الفاتورة</Button></div>}</div>}
+    {(editable || cancellable) && (
+      <div className={modal ? 'sticky bottom-0 z-10 mt-4 grid gap-2 border-t bg-card py-3 sm:grid-cols-2' : 'mt-4 grid gap-2 sm:grid-cols-2'}>
+        {editable && (
+          <>
+            <select
+              value={method}
+              onChange={(event) => setMethod(event.target.value)}
+              className="rounded-lg border bg-background p-2"
+              aria-label="طريقة الدفع"
+            >
+              <option value="cash">نقدي</option>
+              <option value="mobile_wallet">محفظة إلكترونية</option>
+              <option value="instapay">إنستا باي</option>
+              <option value="card">بطاقة</option>
+              <option value="online">أونلاين</option>
+              <option value="electronic_wallet">محفظة إلكترونية</option>
+              <option value="card_pos">بطاقة نقطة بيع</option>
+            </select>
+            {method === 'cash' ? (
+              <Input
+                value={received}
+                onChange={(event) => setReceived(event.target.value)}
+                inputMode="decimal"
+                placeholder={`المبلغ المستلم (المطلوب ${invoice.remaining})`}
+              />
+            ) : (
+              <div className="flex min-h-[120px] flex-col gap-2">
+                <label className="flex items-center gap-2 rounded-lg border bg-muted/30 px-3 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={electronicPaymentConfirmed}
+                    onChange={(event) => setElectronicPaymentConfirmed(event.target.checked)}
+                    disabled={pending}
+                  />
+                  أؤكد استلام الدفع الإلكتروني بالقيمة النهائية للفاتورة
+                </label>
+                <Input
+                  value={externalTransactionReference}
+                  onChange={(event) => setExternalTransactionReference(event.target.value)}
+                  placeholder="مرجع المعاملة الخارجية (مطلوب للدفع الإلكتروني)"
+                  disabled={pending}
+                />
+                <Input
+                  value={confirmationNote}
+                  onChange={(event) => setConfirmationNote(event.target.value)}
+                  placeholder="ملاحظة تأكيد اختيارية"
+                  disabled={pending}
+                />
+              </div>
+            )}
+            <Button
+              disabled={pending || (method !== 'cash' && (!electronicPaymentConfirmed || !externalTransactionReference))}
+              onClick={collect}
+            >
+              تحصيل
+            </Button>
+            <Button variant="secondary" onClick={onPrint}>
+              طباعة / معاينة
+            </Button>
+          </>
+        )}
+        {cancellable && (
+          <div className="sm:col-span-2 rounded-lg border border-rose-200 p-3">
+            <Input
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              placeholder="سبب الإلغاء (مطلوب)"
+            />
+            <Button className="mt-2" variant="destructive" disabled={pending} onClick={cancel}>
+              إلغاء الفاتورة
+            </Button>
+          </div>
+        )}
+      </div>
+    )}
       {variantModal && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4">
           <Card className="w-full max-w-md">

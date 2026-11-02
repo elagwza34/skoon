@@ -104,6 +104,7 @@ export function PosCheckout({
   const submissionKey = useRef<string | null>(null)
   const paymentKey = useRef<string | null>(null)
   const skipDraftPersist = useRef(false)
+  const cartPersistSent = useRef(false)
   const cartSummarySent = useRef(false)
   const [draftReady, setDraftReady] = useState(false)
   const draftKey = posDraftKey(catalog.draftScope.userId, catalog.draftScope.branchId)

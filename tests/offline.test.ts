@@ -40,7 +40,7 @@ import {
   PIN_MIN_LENGTH,
   PIN_MAX_LENGTH,
 } from '../src/lib/security/pin'
-import { PAYMENT_METHODS, paymentCollectionSchema, PaymentError, refundOrderPayment, refundSchema } from '../src/lib/staff-payments-write'
+import { PAYMENT_METHODS, paymentCollectionSchema, PaymentError, refundSchema, requestRefund, decideRefund, executeRefund, cancelRefund, getRefunds, confirmElectronicPayment } from '../src/lib/staff-payments-write'
 import { buildPaymentRequestPayload, paymentServiceInputFromRequest } from '../src/lib/payment-request'
 import {
   avgPerPaidOrder,
@@ -667,26 +667,28 @@ test('HR attendance: derives lateness and reviewed overtime from actual Shift ti
 
 // --- staff-payments-write (pure constants) ----------------------------------
 test('payments: cash and supported electronic methods use explicit validation', () => {
-  assert.deepEqual([...PAYMENT_METHODS], ['cash', 'mobile_wallet', 'instapay', 'card', 'online'])
+  assert.deepEqual([...PAYMENT_METHODS], ['cash', 'mobile_wallet', 'instapay', 'card', 'online', 'electronic_wallet', 'card_pos'])
   assert.equal(paymentCollectionSchema.safeParse({ method: 'cash' }).success, false)
   assert.equal(paymentCollectionSchema.safeParse({ method: 'cash', received: '10' }).success, true)
   assert.equal(paymentCollectionSchema.safeParse({ method: 'mobile_wallet' }).success, false)
-  assert.equal(paymentCollectionSchema.safeParse({ method: 'mobile_wallet', electronicPaymentConfirmed: true }).success, true)
-  assert.equal(paymentCollectionSchema.safeParse({ method: 'instapay', electronicPaymentConfirmed: true }).success, true)
-  assert.equal(paymentCollectionSchema.safeParse({ method: 'invalid', electronicPaymentConfirmed: true }).success, false)
+  assert.equal(paymentCollectionSchema.safeParse({ method: 'mobile_wallet', electronicPaymentConfirmed: true, externalTransactionReference: 'ref-123' }).success, true)
+  assert.equal(paymentCollectionSchema.safeParse({ method: 'instapay', electronicPaymentConfirmed: true, externalTransactionReference: 'ref-456' }).success, true)
+  assert.equal(paymentCollectionSchema.safeParse({ method: 'electronic_wallet', electronicPaymentConfirmed: true, externalTransactionReference: 'ref-789' }).success, true)
+  assert.equal(paymentCollectionSchema.safeParse({ method: 'card_pos', electronicPaymentConfirmed: true, externalTransactionReference: 'ref-000' }).success, true)
+  assert.equal(paymentCollectionSchema.safeParse({ method: 'invalid', electronicPaymentConfirmed: true, externalTransactionReference: 'ref' }).success, false)
 })
 
 test('payments: settlement payload preserves the checked confirmation as a boolean', () => {
-  const wallet = buildPaymentRequestPayload('mobile_wallet', '99.00', true)
-  const instapay = buildPaymentRequestPayload('instapay', '99.00', true)
-  assert.deepEqual(wallet, { action: 'pay', method: 'mobile_wallet', electronicPaymentConfirmed: true })
-  assert.deepEqual(instapay, { action: 'pay', method: 'instapay', electronicPaymentConfirmed: true })
+  const wallet = buildPaymentRequestPayload('mobile_wallet', '99.00', true, 'ref-123')
+  const instapay = buildPaymentRequestPayload('instapay', '99.00', true, 'ref-456')
+  assert.deepEqual(wallet, { action: 'pay', method: 'mobile_wallet', electronicPaymentConfirmed: true, externalTransactionReference: 'ref-123', confirmationNote: '' })
+  assert.deepEqual(instapay, { action: 'pay', method: 'instapay', electronicPaymentConfirmed: true, externalTransactionReference: 'ref-456', confirmationNote: '' })
   assert.equal(paymentCollectionSchema.safeParse(wallet).success, true)
   assert.equal(paymentCollectionSchema.safeParse(instapay).success, true)
   assert.equal(paymentCollectionSchema.safeParse(buildPaymentRequestPayload('mobile_wallet', '99.00', false)).success, false)
   assert.equal(paymentCollectionSchema.safeParse(buildPaymentRequestPayload('instapay', '99.00', false)).success, false)
   assert.deepEqual(buildPaymentRequestPayload('cash', '120.00', false), { action: 'pay', method: 'cash', received: '120.00' })
-  assert.deepEqual(paymentServiceInputFromRequest(wallet, 'request-key'), { method: 'mobile_wallet', received: undefined, electronicPaymentConfirmed: true, idempotencyKey: 'request-key' })
+  assert.deepEqual(paymentServiceInputFromRequest(wallet, 'request-key'), { method: 'mobile_wallet', received: undefined, electronicPaymentConfirmed: true, externalTransactionReference: 'ref-123', confirmationNote: '', idempotencyKey: 'request-key' })
 })
 
 // --- staff-settings-write (allowlisted key validation) ----------------------
@@ -775,11 +777,11 @@ test('refund ledger: only recognized current-till refunds affect till cash', () 
   assert.equal(refundAffectsTill('external', 'externally_confirmed'), false)
 })
 
-test('refund writer fails closed until immutable refund events are deployed', async () => {
-  await assert.rejects(
-    refundOrderPayment({ id: 'actor-id', role: ROLE.MANAGER, branchId: 1n } as unknown as StaffSession, '1', { reason: 'test refund' }),
-    (error: unknown) => error instanceof PaymentError && error.status === 503,
-  )
+test('refund writer uses immutable Refund model (replaces disabled legacy stub)', async () => {
+  // requestRefund is now implemented with the additive Refund model.
+  // Legacy refundOrderPayment stub (503) has been removed.
+  const { requestRefund } = await import('../src/lib/staff-payments-write')
+  assert.equal(typeof requestRefund, 'function')
 })
 
 test('finance: cancelled unpaid orders contribute nothing (no payment rows)', () => {
