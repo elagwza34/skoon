@@ -70,6 +70,11 @@ export function WaiterTableWorkspace({ workspace, table, initialOrderId }: { wor
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [showProducts, setShowProducts] = useState(false)
+  const [search, setSearch] = useState('')
+  const [category, setCategory] = useState('all')
+  const pendingQtyByProduct = useMemo(() => pending.reduce((acc, line) => { acc[line.productId] = (acc[line.productId] ?? 0) + line.qty; return acc }, {} as Record<string, number>), [pending])
+  const filtered = workspace.products.filter((candidate) => candidate.isAvailable && (category === 'all' || candidate.categoryId === category) && candidate.name.toLowerCase().includes(search.trim().toLowerCase()))
   const requestKey = useRef(crypto.randomUUID())
   const draftKey = `skoon.waiter.table-draft:${workspace.currentUserId}:${workspace.branchId}:${table.id}`
   const selectedOrder = orders.find((order) => order.id === selectedOrderId) ?? null
@@ -112,6 +117,21 @@ export function WaiterTableWorkspace({ workspace, table, initialOrderId }: { wor
 
   function changeExisting(item: Order['items'][number], delta: number) {
     setDraftQuantities((current) => ({ ...current, [item.id]: Math.max(1, Math.min(20, (current[item.id] ?? item.qty) + delta)) }))
+  }
+
+  function choose(candidate: Product) {
+    const existingQty = pendingQtyByProduct[candidate.id] ?? 0
+    if (existingQty > 0) {
+      setPending((current) => current.map((line) => line.productId === candidate.id ? { ...line, qty: line.qty + 1 } : line))
+      return
+    }
+    // Simple product: add directly to pending with qty=1
+    if (!candidate.variants.length && !candidate.modifierGroups.length) {
+      setPending((current) => [...current, { key: crypto.randomUUID(), productId: candidate.id, variantId: undefined, modifierSelections: {}, qty: 1, note: '' }])
+      return
+    }
+    // Complex product: open modal for variant/modifier selection
+    setModalOpen(true)
   }
 
   async function save() {
@@ -296,7 +316,8 @@ export function WaiterTableWorkspace({ workspace, table, initialOrderId }: { wor
       {pending.length ? <Card className="border-primary/40"><CardHeader><CardTitle>إضافات لم تُرسل</CardTitle></CardHeader><CardContent className="space-y-2">{pending.map((line) => { const product = workspace.products.find((candidate) => candidate.id === line.productId); const variant = product?.variants.find((candidate) => candidate.id === line.variantId); return <div key={line.key} className="flex items-center justify-between gap-3 rounded border p-3"><div><p className="font-medium">{product?.name}</p><p className="text-xs text-muted-foreground">{variant?.label ?? ''}{line.note ? ` · ${line.note}` : ''}</p></div><div className="flex items-center gap-2"><span>× {line.qty}</span><Button size="icon" variant="ghost" className="text-destructive" onClick={() => setPending((current) => current.filter((candidate) => candidate.key !== line.key))}><Icon name="trash" size={15} /></Button></div></div>})}</CardContent></Card> : null}
     </div>
 
-    <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-background/95 p-3 backdrop-blur"><div className="mx-auto flex max-w-6xl gap-2"><Button variant="outline" className="flex-1" onClick={() => setModalOpen(true)}><Icon name="plus" size={16} /> إضافة صنف</Button><Button className="flex-[2]" disabled={!hasDraft || busy} onClick={() => void save()}>{busy ? 'جارٍ الحفظ…' : 'حفظ وإرسال التغييرات للمطبخ'}</Button></div></div>
+    <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-background/95 p-3 backdrop-blur"><div className="mx-auto flex max-w-6xl gap-2"><Button variant="outline" className="flex-1" onClick={() => setShowProducts(!showProducts)}>{showProducts ? 'إخفاء المنتجات' : <><Icon name="plus" size={16} /> إضافة صنف</>}</Button><Button className="flex-[2]" disabled={!hasDraft || busy} onClick={() => void save()}>{busy ? 'جارٍ الحفظ…' : 'حفظ وإرسال التغييرات للمطبخ'}</Button></div></div>
+    {showProducts && <section className="mx-auto max-w-6xl space-y-3 p-3 sm:p-4"><div className="flex flex-wrap items-center justify-between gap-2 mb-2"><Input icon="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="ابحث عن صنف…" aria-label="بحث المنتجات" /><select value={category} onChange={(event) => setCategory(event.target.value)} className="h-10 rounded border bg-background px-3"><option value="all">كل الأقسام</option>{workspace.categories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div><div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">{filtered.map((candidate) => { const alreadyQty = pendingQtyByProduct[candidate.id] ?? 0; const selected = alreadyQty > 0; return <ProductButton key={candidate.id} candidate={candidate} selected={selected} alreadyQty={alreadyQty} onChoose={() => choose(candidate)} /> })}</div></section>}
     {modalOpen ? <AddProductModal tableNumber={table.number} products={workspace.products} categories={workspace.categories} pending={pending} setPending={setPending} onClose={() => setModalOpen(false)} /> : null}
     {cartOpen ? <div role="dialog" aria-modal="true" aria-label="سلة الطلب" className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-2 sm:p-4" dir="rtl"><Card className="flex max-h-[calc(100dvh-1rem)] w-full max-w-2xl flex-col overflow-hidden"><CardHeader className="flex-row items-center justify-between border-b"><div><CardTitle>سلة الطلب — طاولة {table.number}</CardTitle><p className="text-xs text-muted-foreground">{selectedOrder ? selectedOrder.number : 'طلب جديد'}</p></div><Button variant="ghost" size="sm" onClick={() => setCartOpen(false)}>إغلاق</Button></CardHeader><CardContent className="min-h-0 space-y-3 overflow-y-auto p-4">{selectedOrder ? <section className="space-y-2"><h3 className="font-semibold">الأصناف المحفوظة</h3>{selectedOrder.items.map((item) => { const product = workspace.products.find((candidate) => candidate.id === item.productId); const target = quantityTargets[item.id] ?? item.qty; const replaceQty = variantQuantities[item.id] ?? item.qty; return <div key={item.id} className="space-y-3 rounded border p-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="font-medium">{item.name}</p><p className="text-xs text-muted-foreground">{item.variantLabel ?? ''}{item.details.length ? ` · ${item.details.join(' · ')}` : ''} · {itemStatus(item)}</p><p className="text-xs">الأصلية: {item.qty} · المحضرة: {item.preparedQty} · المقدمة: {item.servedQty}</p></div><span>{formatCurrency(item.unitPrice)} × {item.qty}</span></div>{item.servedQty === 0 ? <div className="grid gap-2 border-t pt-3 sm:grid-cols-2"><div className="space-y-2 rounded bg-muted/30 p-2"><label className="text-xs font-medium">الكمية المطلوبة</label><Input type="number" min={1} max={99} value={target} onChange={(event) => setQuantityTargets((current) => ({ ...current, [item.id]: Math.max(1, Math.min(99, Number(event.target.value) || 1)) }))} /><p className="text-xs text-muted-foreground">{target < item.preparedQty ? `سيُسجل هالك ${item.preparedQty - target} unidades` : ''}</p></div></div> : null}</div>})}</section> : null}</CardContent></Card></div> : null}
   </main>
@@ -347,7 +368,7 @@ function AddProductModal({ tableNumber, products, categories, pending, setPendin
                 <Input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} placeholder="ابحث عن صنف…" aria-label="بحث المنتجات" />
                 <select value={category} onChange={(event) => setCategory(event.target.value)} className="h-10 rounded border bg-background px-3">
                   <option value="all">كل الأقسام</option>
-                  {categories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+{categories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
                 </select>
               </div>
               <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
