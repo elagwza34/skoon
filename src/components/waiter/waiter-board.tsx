@@ -254,6 +254,13 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
 
   const router = useRouter()
 
+  // Auto-refresh table/order status every 30 seconds so both cashier and
+  // waiter screens stay in sync without manual reload.
+  useEffect(() => {
+    const timer = setInterval(() => startTransition(() => router.refresh()), 30_000)
+    return () => clearInterval(timer)
+  }, [router, startTransition])
+
   return (
     <main dir="rtl" className="min-h-dvh bg-background">
       {/* Header */}

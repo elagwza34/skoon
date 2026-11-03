@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useTransition, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -38,7 +38,7 @@ export function CashierWorkspace({ session, board, branchName, invoices, product
   const router = useRouter(); const [, startTransition] = useTransition()
   const [tab, setTab] = useState<Tab>('pos'); const [openModal, setOpenModal] = useState(false)
   const [openingCash, setOpeningCash] = useState(''); const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null); const [logoutError, setLogoutError] = useState<string | null>(null)
-  const refresh = () => startTransition(() => router.refresh())
+  const refresh = useCallback(() => startTransition(() => router.refresh()), [startTransition, router])
   const current = board.current
   async function openShift() {
     const amount = Number(openingCash)
@@ -68,6 +68,14 @@ export function CashierWorkspace({ session, board, branchName, invoices, product
       setBusy(false)
     }
   }
+
+  // Auto-refresh table/order status every 30 seconds so both cashier and
+  // waiter screens stay in sync without manual reload.
+  useEffect(() => {
+    const timer = setInterval(() => refresh(), 30_000)
+    return () => clearInterval(timer)
+  }, [refresh])
+
   return <div className="min-h-screen w-full bg-background" dir="rtl">
     <header className="sticky top-0 z-30 flex flex-wrap items-center justify-between gap-3 border-b border-border bg-card/95 px-4 py-3 shadow-sm backdrop-blur lg:px-6">
       <div><h1 className="text-xl font-bold">لوحة الكاشير</h1><p className="text-sm text-muted-foreground">{branchName ?? '—'} · {session.name}</p></div>
