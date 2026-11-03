@@ -20,6 +20,7 @@ import { TablesSidebar } from './tables-sidebar'
 import { CashierDashboard } from './cashier-dashboard'
 import { InvoiceBoard } from './invoice-board'
 import { SharedFloatPanel } from './shared-float-panel'
+import { logoutAction } from '@/app/login/actions'
 
 type Tab = 'pos' | 'tables' | 'open' | 'paid' | 'cancelled' | 'balances' | 'shifts'
 const tabs: { value: Tab; label: string }[] = [
@@ -36,7 +37,7 @@ export function CashierWorkspace({ session, board, branchName, invoices, product
 }) {
   const router = useRouter(); const [, startTransition] = useTransition()
   const [tab, setTab] = useState<Tab>('pos'); const [openModal, setOpenModal] = useState(false)
-  const [openingCash, setOpeningCash] = useState(''); const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null)
+  const [openingCash, setOpeningCash] = useState(''); const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null); const [logoutError, setLogoutError] = useState<string | null>(null)
   const refresh = () => startTransition(() => router.refresh())
   const current = board.current
   async function openShift() {
@@ -50,6 +51,23 @@ export function CashierWorkspace({ session, board, branchName, invoices, product
     } catch (e) { setError(e instanceof Error ? e.message : 'تعذر فتح الوردية') } finally { setBusy(false) }
   }
   const opened = current ? `${formatDateShort(new Date(current.openedAt))} — ${formatTime(new Date(current.openedAt))}` : 'لا توجد وردية مفتوحة'
+  async function handleLogout() {
+    setLogoutError(null)
+    setBusy(true)
+    try {
+      // Block logout if a shift is open (cashier must close shift first)
+      if (current) {
+        setLogoutError('لا يمكن تسجيل الخروج بينما وردية مفتوحة — أغلق الوردية أولاً من صفحة الورديات')
+        return
+      }
+      await logoutAction()
+      router.push('/login')
+    } catch (e) {
+      setLogoutError(e instanceof Error ? e.message : 'تعذر تسجيل الخروج')
+    } finally {
+      setBusy(false)
+    }
+  }
   return <div className="min-h-screen w-full bg-background" dir="rtl">
     <header className="sticky top-0 z-30 flex flex-wrap items-center justify-between gap-3 border-b border-border bg-card/95 px-4 py-3 shadow-sm backdrop-blur lg:px-6">
       <div><h1 className="text-xl font-bold">لوحة الكاشير</h1><p className="text-sm text-muted-foreground">{branchName ?? '—'} · {session.name}</p></div>
@@ -58,7 +76,7 @@ export function CashierWorkspace({ session, board, branchName, invoices, product
         <Button variant="ghost" onClick={() => window.history.back()}>رجوع</Button>
         <Button variant="outline" onClick={() => setTab('shifts')}>الورديات</Button>
         {!current && <Button onClick={() => setOpenModal(true)}>فتح وردية</Button>}
-        <form action="/login?next=/cashier"><Button type="submit" variant="ghost">تسجيل الخروج</Button></form>
+        <Button onClick={handleLogout} variant="ghost" disabled={busy}>{busy ? 'جارٍ الخروج…' : 'تسجيل الخروج'}</Button>
       </div>
     </header>
     <nav className="sticky top-[73px] z-20 w-full border-b border-border bg-background/95 px-4 py-2 backdrop-blur lg:px-6" aria-label="أقسام محطة الكاشير">
@@ -66,6 +84,7 @@ export function CashierWorkspace({ session, board, branchName, invoices, product
     </nav>
     <main className="w-full p-4 lg:p-6">
       {error && <p role="alert" className="mb-4 rounded border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{error}</p>}
+      {logoutError && <p role="alert" className="mb-4 rounded border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{logoutError}</p>}
       {tab === 'pos' && <div className="flex flex-col gap-5"><PosCheckout catalog={catalog} /><InvoiceBoard key="pos" invoices={invoices} products={products} defaultTab="open" workspace /></div>}
       {tab === 'tables' && <div className="flex flex-col gap-5"><TablesSidebar catalog={catalog} invoices={invoices} openOrders={openOrders} /></div>}
       {tab === 'open' && <InvoiceBoard key="open" invoices={invoices} products={products} defaultTab="open" />}

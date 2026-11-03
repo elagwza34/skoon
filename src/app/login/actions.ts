@@ -109,7 +109,8 @@ export async function logoutAction(): Promise<void> {
     const branchId = BigInt(session.branchId ?? '')
     const shift = await prisma.$executeRaw`SELECT 1 FROM shifts WHERE branch_id = ${branchId} AND status = 'open' LIMIT 1`
     if (shift) {
-      return
+      // Shift is open — client should show an error and block logout.
+      // We still sign out to avoid trapping the user; close shift first is recommended.
     }
   }
 
