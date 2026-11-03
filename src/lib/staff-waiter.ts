@@ -231,7 +231,6 @@ function loadWaiterWorkspaceData(session: StaffSession, branchScope: { branchId:
     prisma.order.findMany({
       where: {
         ...branchScope,
-        responsibleWaiterId: session.id,
         status: { in: ['new', 'preparing', 'ready'] },
       },
       orderBy: { createdAt: 'desc' },
