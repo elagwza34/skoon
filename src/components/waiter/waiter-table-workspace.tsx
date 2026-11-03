@@ -47,7 +47,12 @@ function ProductButton({ candidate, selected, alreadyQty, onChoose }: { candidat
         <span className="block font-medium">{candidate.name}</span>
         {selected && <span className="text-xs font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded">×{alreadyQty}</span>}
       </div>
-      <span className="text-sm text-primary">{candidate.variants.length ? 'اختر المتغير' : formatCurrency(Number(candidate.price))}</span>
+      <div className="flex items-center justify-between mt-1">
+        <span className="text-sm text-primary">{candidate.variants.length ? 'اختر المتغير' : formatCurrency(Number(candidate.price))}</span>
+        <div className="flex items-center gap-1">
+          <Button variant="outline" size="icon" className="h-6 w-6" onClick={(e) => { e.stopPropagation(); onChoose() }} disabled={!candidate.isAvailable}><Icon name="plus" size={12} /></Button>
+        </div>
+      </div>
     </button>
   )
 }
@@ -55,8 +60,9 @@ function ProductButton({ candidate, selected, alreadyQty, onChoose }: { candidat
 export function WaiterTableWorkspace({ workspace, table, initialOrderId }: { workspace: WaiterWorkspace; table: Table; initialOrderId?: string }) {
   const router = useRouter()
   const [, startTransition] = useTransition()
-  const orders = useMemo(() => workspace.openOrders.filter((order) => order.tableNumber === table.number && order.status !== 'cancelled' && order.paymentStatus !== 'paid' && order.orderType === 'dine_in'), [table.number, workspace.openOrders])
-  const editableOrder = orders.find((order) => order.status === 'new' && !order.sentToKitchen && order.responsibleWaiterId === workspace.currentUserId) ?? null
+  const orders = useMemo(() => workspace.openOrders.filter((order) => order.tableNumber === table.number && order.orderType === 'dine_in'), [table.number, workspace.openOrders])
+  const activeOrders = orders.filter((order) => order.status !== 'cancelled' && order.paymentStatus !== 'paid')
+  const editableOrder = activeOrders.find((order) => order.status === 'new' && !order.sentToKitchen && order.responsibleWaiterId === workspace.currentUserId) ?? null
   const [draftQuantities, setDraftQuantities] = useState<Record<string, number>>({})
   const [draftNotes, setDraftNotes] = useState<Record<string, string>>({})
   const [removedItemIds, setRemovedItemIds] = useState<string[]>([])
@@ -70,7 +76,6 @@ export function WaiterTableWorkspace({ workspace, table, initialOrderId }: { wor
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [showProducts, setShowProducts] = useState(false)
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('all')
   const [activeTab, setActiveTab] = useState<'pos' | 'orders' | 'reports'>('pos')
@@ -82,12 +87,6 @@ export function WaiterTableWorkspace({ workspace, table, initialOrderId }: { wor
 
   const hasExistingDraft = !!removedItemIds.length || (editableOrder?.items.some((item) => (draftQuantities[item.id] ?? item.qty) !== item.qty || (draftNotes[item.id] ?? item.note ?? '') !== (item.note ?? '')) ?? false)
   const hasDraft = hasExistingDraft || pending.length > 0
-  const allItems = orders.flatMap((order) => order.items)
-  const totalQty = allItems.reduce((sum, item) => sum + item.qty, 0)
-  const total = orders.reduce((sum, order) => sum + order.total, 0)
-  const preparing = allItems.reduce((sum, item) => sum + Math.max(0, item.qty - item.preparedQty), 0)
-  const ready = allItems.reduce((sum, item) => sum + Math.max(0, item.preparedQty - item.servedQty), 0)
-  const served = allItems.reduce((sum, item) => sum + item.servedQty, 0)
 
   useEffect(() => {
     const warn = (event: BeforeUnloadEvent) => { if (hasDraft) event.preventDefault() }
@@ -151,7 +150,7 @@ export function WaiterTableWorkspace({ workspace, table, initialOrderId }: { wor
           }),
         })
         const data: unknown = await response.json().catch(() => null)
-        if (!response.ok) throw new Error(responseError(data, 'تعذر حفظ تعديلات الطلب؛ قد تكون بياناته تغيرت.'))
+        if (!response.ok) throw new Error(responseError(data, 'تعذر حفظ تعديلات الطلب؛ قد تكون بيانات الطلب تغيرت.'))
       }
 
       if (pending.length) {
@@ -270,26 +269,46 @@ export function WaiterTableWorkspace({ workspace, table, initialOrderId }: { wor
     finally { setBusy(false) }
   }
 
-  return <main dir="rtl" className="min-h-dvh bg-background pb-28">
-    <div className="mx-auto max-w-6xl space-y-4 p-3 sm:p-5">
+  return <main dir="rtl" className="min-h-dvh bg-background pb-32">
+    <div className="mx-auto max-w-6xl space-y-3 p-3 sm:p-4">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <Button variant="outline" size="sm" onClick={() => { if (!hasDraft || window.confirm('لديك تغييرات غير محفوظة. هل تريد المغادرة؟')) router.push('/waiter') }}>
             <Icon name="chevronRight" size={16} /> الطاولات
           </Button>
-          <div><h1 className="text-2xl font-bold">الطاولة {table.number}</h1><p className="text-sm text-muted-foreground">{table.name ?? `السعة ${table.capacity}`} · {orders.length ? `${orders.length} طلب نشط` : 'فارغة'}</p></div>
+          <div><h1 className="text-2xl font-bold">الطاولة {table.number}</h1><p className="text-sm text-muted-foreground">{table.name ?? `السعة ${table.capacity}`} · {activeOrders.length ? `${activeOrders.length} طلب نشط` : 'فارغة'}</p></div>
         </div>
-        <div className="flex items-center gap-2"><Badge tone={orders.length ? 'warning' : 'success'}>{orders.length ? 'مشغولة' : 'متاحة'}</Badge><Button onClick={() => { setSelectedOrderId(null); setModalOpen(true) }}><Icon name="plus" size={16} /> إنشاء طلب</Button></div>
+        <div className="flex items-center gap-2"><Badge tone={activeOrders.length ? 'warning' : 'success'}>{activeOrders.length ? 'مشغولة' : 'متاحة'}</Badge></div>
       </header>
+
+      {/* Tab Navigation — at top */}
+      <div className="flex gap-1 border-b border-border mb-4">
+        <button
+          onClick={() => setActiveTab('pos')}
+          className={`-mb-px border-b-2 px-4 py-3 text-sm font-medium transition-colors ${activeTab === 'pos' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-muted-foreground hover:bg-muted/50'}`}
+        >
+          POS — إضافة أصناف
+        </button>
+        <button
+          onClick={() => setActiveTab('orders')}
+          className={`-mb-px border-b-2 px-4 py-3 text-sm font-medium transition-colors ${activeTab === 'orders' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-muted-foreground hover:bg-muted/50'}`}
+        >
+          الطلبات المفتوحة
+        </button>
+        <button
+          onClick={() => setActiveTab('reports')}
+          className={`-mb-px border-b-2 px-4 py-3 text-sm font-medium transition-colors ${activeTab === 'reports' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-muted-foreground hover:bg-muted/50'}`}
+        >
+          تقرير الطلبات
+        </button>
+      </div>
+
+      {error ? <p role="alert" className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">{error}</p> : null}
+      {notice ? <p role="status" className="rounded-lg bg-success/10 p-3 text-sm text-success">{notice}</p> : null}
 
       {/* POS Tab */}
       {activeTab === 'pos' && (
         <>
-          <Button type="button" variant="outline" className="w-full justify-between mb-4" onClick={() => setCartOpen(true)}>
-            <span className="flex items-center gap-2"><Icon name="cart" size={17} /> سلة الطلب — طاولة {table.number}</span>
-            <span>{pending.reduce((sum, line) => sum + line.qty, 0)} معلّق · {selectedOrder ? selectedOrder.number : 'طلب جديد'}</span>
-          </Button>
-
           <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
             <Input icon="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="ابحث عن صنف…" aria-label="بحث المنتجات" />
             <select value={category} onChange={(event) => setCategory(event.target.value)} className="h-10 rounded border bg-background px-3">
@@ -314,38 +333,13 @@ export function WaiterTableWorkspace({ workspace, table, initialOrderId }: { wor
         </>
       )}
 
-      {error ? <p role="alert" className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">{error}</p> : null}
-      {notice ? <p role="status" className="rounded-lg bg-success/10 p-3 text-sm text-success">{notice}</p> : null}
-
-      {/* Tab Navigation */}
-      <div className="flex gap-1 border-b border-border mb-4">
-        <button
-          onClick={() => setActiveTab('pos')}
-          className={`-mb-px border-b-2 px-4 py-3 text-sm font-medium transition-colors ${activeTab === 'pos' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-muted-foreground hover:bg-muted/50'}`}
-        >
-          POS — إضافة أصناف
-        </button>
-        <button
-          onClick={() => setActiveTab('orders')}
-          className={`-mb-px border-b-2 px-4 py-3 text-sm font-medium transition-colors ${activeTab === 'orders' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-muted-foreground hover:bg-muted/50'}`}
-        >
-          الطلبات المفتوحة
-        </button>
-        <button
-          onClick={() => setActiveTab('reports')}
-          className={`-mb-px border-b-2 px-4 py-3 text-sm font-medium transition-colors ${activeTab === 'reports' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-muted-foreground hover:bg-muted/50'}`}
-        >
-          تقرير الطلبات على الطاولة
-        </button>
-      </div>
-
       {/* Open Orders Tab */}
       {activeTab === 'orders' && (
         <section className="space-y-3">
-          {orders.length === 0 ? (
-            <Card><CardContent className="p-8 text-center text-muted-foreground">لا توجد طلبات نشطة على هذه الطاولة. يمكنك إضافة صنف من تبويب POS لبدء طلب Dine-In جديد.</CardContent></Card>
+          {activeOrders.length === 0 ? (
+            <Card><CardContent className="p-8 text-center text-muted-foreground">لا توجد طلبات نشطة على هذه الطاولة. يمكنك إضافة أصناف من تبويب POS لبدء طلب جديد.</CardContent></Card>
           ) : (
-            orders.map((order) => {
+            activeOrders.map((order) => {
               const canEdit = editableOrder?.id === order.id
               return <Card key={order.id}>
                 <details className="group">
@@ -355,7 +349,7 @@ export function WaiterTableWorkspace({ workspace, table, initialOrderId }: { wor
                 <CardContent className="space-y-2 border-t pt-3">
                   {order.items.filter((item) => !removedItemIds.includes(item.id)).map((item) => <div key={item.id} className="rounded-lg border p-3">
                     <div className="flex flex-wrap items-start justify-between gap-2"><div className="min-w-0"><p className="font-medium">{item.name}</p>{item.variantLabel ? <p className="text-xs text-primary">{item.variantLabel}</p> : null}{item.details.length ? <p className="text-xs text-muted-foreground">{item.details.join(' · ')}</p> : null}</div><div className="text-left text-sm"><p>{formatCurrency(item.unitPrice)} × {draftQuantities[item.id] ?? item.qty}</p><p className="font-semibold">{formatCurrency(item.unitPrice * (draftQuantities[item.id] ?? item.qty))}</p></div></div>
-                    <div className="mt-3 flex flex-wrap items-center gap-2"><Badge tone="muted">{itemStatus(item)}</Badge>{canEdit ? <><Button size="icon" variant="outline" className="h-9 w-9" onClick={() => changeExisting(item, -1)} aria-label={`إنقاص ${item.name}`}><Icon name="minus" size={14} /></Button><span className="min-w-6 text-center">{draftQuantities[item.id] ?? item.qty}</span><Button size="icon" variant="outline" className="h-9 w-9" onClick={() => changeExisting(item, 1)} aria-label={`زيادة ${item.name}`}><Icon name="plus" size={14} /></Button><Input className="h-9 min-w-48 flex-1" maxLength={255} value={draftNotes[item.id] ?? item.note ?? ''} onChange={(event) => setDraftNotes((current) => ({ ...current, [item.id]: event.target.value }))} placeholder="ملاحظات المطبخ" />{editableOrder && editableOrder.items.length - removedItemIds.length > 1 ? <Button size="icon" variant="ghost" className="text-destructive" onClick={() => setRemovedItemIds((current) => [...current, item.id])} aria-label={`إزالة ${item.name}`}><Icon name="trash" size={15} /></Button> : null}</> : <span className="text-xs text-muted-foreground">أُرسل للمطبخ؛ لا يمكن تغيير السطر دون إجراء الإلغاء المعتمد.</span>}</div>
+                    <div className="mt-3 flex flex-wrap items-center gap-2"><Badge tone="muted">{itemStatus(item)}</Badge>{canEdit ? <><Button size="icon" variant="outline" className="h-10 w-10" onClick={() => changeExisting(item, -1)} aria-label={`إنقاص ${item.name}`}><Icon name="minus" size={14} /></Button><span className="min-w-6 text-center">{draftQuantities[item.id] ?? item.qty}</span><Button size="icon" variant="outline" className="h-10 w-10" onClick={() => changeExisting(item, 1)} aria-label={`زيادة ${item.name}`}><Icon name="plus" size={14} /></Button><Input className="h-10 min-w-48 flex-1" maxLength={255} value={draftNotes[item.id] ?? item.note ?? ''} onChange={(event) => setDraftNotes((current) => ({ ...current, [item.id]: event.target.value }))} placeholder="ملاحظات المطبخ" />{editableOrder && editableOrder.items.length - removedItemIds.length > 1 ? <Button size="icon" variant="ghost" className="text-destructive" onClick={() => setRemovedItemIds((current) => [...current, item.id])} aria-label={`إزالة ${item.name}`}><Icon name="trash" size={15} /></Button> : null}</> : <span className="text-xs text-muted-foreground">أُرسل للمطبخ؛ لا يمكن تغيير السطر دون إجراء الإلغاء المعتمد.</span>}</div>
                   </div>)}
                   <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-2 text-sm font-semibold"><span>إجمالي الطلب: {formatCurrency(order.total)}</span><div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => { setSelectedOrderId(order.id); setCartOpen(true) }}>عرض وتعديل الطلب</Button>{!order.sentToKitchen ? <Button size="sm" disabled={busy} onClick={() => void retryDispatch(order)}>إعادة الإرسال للمطبخ</Button> : null}</div></div>
                 </CardContent>
@@ -370,7 +364,7 @@ export function WaiterTableWorkspace({ workspace, table, initialOrderId }: { wor
       {activeTab === 'reports' && (
         <section className="space-y-3">
           <div className="rounded-lg border p-4">
-            <CardHeader><CardTitle>تقرير الطلبات على الطاولة {table.number}</CardTitle><p className="text-xs text-muted-foreground mt-1">سجل الطلبات المنفذة والملغاة والمدفوعة على هذه الطاولة.</p></CardHeader>
+            <CardHeader><CardTitle>تقرير الطلبات على الطاولة {table.number}</CardTitle><p className="text-xs text-muted-foreground mt-1">سجل جميع الطلبات على هذه الطاولة (المنفذة، الملغاة، والمدفوعة).</p></CardHeader>
             <CardContent className="mt-4">
               {orders.length === 0 ? (
                 <p className="text-center text-muted-foreground py-8">لا توجد طلبات مسجلة على هذه الطاولة حتى الآن.</p>
@@ -386,13 +380,13 @@ export function WaiterTableWorkspace({ workspace, table, initialOrderId }: { wor
           </div>
         </section>
       )}
-
-      {pending.length ? <Card className="border-primary/40"><CardHeader><CardTitle>إضافات لم تُرسل</CardTitle></CardHeader><CardContent className="space-y-2">{pending.map((line) => { const product = workspace.products.find((candidate) => candidate.id === line.productId); const variant = product?.variants.find((candidate) => candidate.id === line.variantId); return <div key={line.key} className="flex items-center justify-between gap-3 rounded border p-3"><div><p className="font-medium">{product?.name}</p><p className="text-xs text-muted-foreground">{variant?.label ?? ''}{line.note ? ` · ${line.note}` : ''}</p></div><div className="flex items-center gap-2"><span>× {line.qty}</span><Button size="icon" variant="ghost" className="text-destructive" onClick={() => setPending((current) => current.filter((candidate) => candidate.key !== line.key))}><Icon name="trash" size={15} /></Button></div></div>})}</CardContent></Card> : null}
     </div>
 
-    <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-background/95 p-3 backdrop-blur"><div className="mx-auto flex max-w-6xl gap-2"><Button variant="outline" className="flex-1" onClick={() => setModalOpen(true)}><Icon name="plus" size={16} /> إضافة صنف</Button><Button className="flex-[2]" disabled={!hasDraft || busy} onClick={() => void save()}>{busy ? 'جارٍ الحفظ…' : 'حفظ وإرسال التغييرات للمطبخ'}</Button></div></div>
+    {/* Global cart button — always visible */}
+    <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-background/95 p-3 backdrop-blur"><div className="mx-auto flex max-w-6xl gap-2"><Button variant="outline" className="flex-1" onClick={() => setCartOpen(true)}><Icon name="cart" size={16} /> سلة الطلب — طاولة {table.number}</Button><Button className="flex-[2]" disabled={!hasDraft || busy} onClick={() => void save()} title={!hasDraft ? 'لا توجد تغييرات غير محفوظة للحفظ' : busy ? 'جارٍ الحفظ…' : 'حفظ المسودات وإرسال التغييرات للمطبخ'}>{busy ? 'جارٍ الحفظ…' : 'حفظ وإرسال التغييرات للمطبخ'}</Button></div></div>
     {modalOpen ? <AddProductModal tableNumber={table.number} products={workspace.products} categories={workspace.categories} pending={pending} setPending={setPending} onClose={() => setModalOpen(false)} /> : null}
-    {cartOpen ? <div role="dialog" aria-modal="true" aria-label="سلة الطلب" className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-2 sm:p-4" dir="rtl"><Card className="flex max-h-[calc(100dvh-1rem)] w-full max-w-2xl flex-col overflow-hidden"><CardHeader className="flex-row items-center justify-between border-b"><div><CardTitle>سلة الطلب — طاولة {table.number}</CardTitle><p className="text-xs text-muted-foreground">{selectedOrder ? selectedOrder.number : 'طلب جديد'}</p></div><Button variant="ghost" size="sm" onClick={() => setCartOpen(false)}>إغلاق</Button></CardHeader><CardContent className="min-h-0 space-y-3 overflow-y-auto p-4">{selectedOrder ? <section className="space-y-2"><h3 className="font-semibold">الأصناف المحفوظة</h3>{selectedOrder.items.map((item) => { const product = workspace.products.find((candidate) => candidate.id === item.productId); const target = quantityTargets[item.id] ?? item.qty; const replaceQty = variantQuantities[item.id] ?? item.qty; return <div key={item.id} className="space-y-3 rounded border p-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="font-medium">{item.name}</p><p className="text-xs text-muted-foreground">{item.variantLabel ?? ''}{item.details.length ? ` · ${item.details.join(' · ')}` : ''} · {itemStatus(item)}</p><p className="text-xs">الأصلية: {item.qty} · المحضرة: {item.preparedQty} · المقدمة: {item.servedQty}</p></div><span>{formatCurrency(item.unitPrice)} × {item.qty}</span></div>{item.servedQty === 0 ? <div className="grid gap-2 border-t pt-3 sm:grid-cols-2"><div className="space-y-2 rounded bg-muted/30 p-2"><label className="text-xs font-medium">الكمية المطلوبة</label><Input type="number" min={1} max={99} value={target} onChange={(event) => setQuantityTargets((current) => ({ ...current, [item.id]: Math.max(1, Math.min(99, Number(event.target.value) || 1)) }))} /><p className="text-xs text-muted-foreground">{target < item.preparedQty ? `سيُسجل هالك ${item.preparedQty - target} unidades` : ''}</p></div></div> : null}</div>})}</section> : null}</CardContent></Card></div> : null}
+    {cartOpen ? <div role="dialog" aria-modal="true" aria-label="سلة الطلب" className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-2 sm:p-4" dir="rtl"><Card className="flex max-h-[calc(100dvh-1rem)] w-full max-w-2xl flex-col overflow-hidden"><CardHeader className="flex-row items-center justify-between border-b"><div><CardTitle>سلة الطلب — طاولة {table.number}</CardTitle><p className="text-xs text-muted-foreground">{selectedOrder ? selectedOrder.number : 'طلب جديد'}</p></div><Button variant="ghost" size="sm" onClick={() => setCartOpen(false)}>إغلاق</Button></CardHeader><CardContent className="min-h-0 space-y-3 overflow-y-auto p-4">{selectedOrder ? <section className="space-y-2"><h3 className="font-semibold">الأصناف المحفوظة</h3>{selectedOrder.items.map((item) => { const product = workspace.products.find((candidate) => candidate.id === item.productId); const target = quantityTargets[item.id] ?? item.qty; const replaceQty = variantQuantities[item.id] ?? item.qty; return <div key={item.id} className="space-y-3 rounded border p-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="font-medium">{item.name}</p><p className="text-xs text-muted-foreground">{item.variantLabel ?? ''}{item.details.length ? ` · ${item.details.join(' · ')}` : ''} · {itemStatus(item)}</p><p className="text-xs">الأصلية: {item.qty} · المحضرة: {item.preparedQty} · المقدمة: {item.servedQty}</p></div><span>{formatCurrency(item.unitPrice)} × {item.qty}</span></div>{item.servedQty === 0 ? <div className="grid gap-2 border-t pt-3 sm:grid-cols-2"><div className="space-y-2 rounded bg-muted/30 p-2"><label className="text-xs font-medium">الكمية المطلوبة</label><Input type="number" min={1} max={99} value={target} onChange={(event) => setQuantityTargets((current) => ({ ...current, [item.id]: Math.max(1, Math.min(99, Number(event.target.value) || 1)) }))} /><p className="text-xs text-muted-foreground">{target < item.preparedQty ? `سيُسجل هالك ${item.preparedQty - target} وحدات` : ''}</p></div></div> : null}</div>})}</section> : null}</CardContent></Card></div> : null}
+    {modalOpen ? <AddProductModal tableNumber={table.number} products={workspace.products} categories={workspace.categories} pending={pending} setPending={setPending} onClose={() => setModalOpen(false)} /> : null}
   </main>
 }
 
@@ -441,7 +435,7 @@ function AddProductModal({ tableNumber, products, categories, pending, setPendin
                 <Input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} placeholder="ابحث عن صنف…" aria-label="بحث المنتجات" />
                 <select value={category} onChange={(event) => setCategory(event.target.value)} className="h-10 rounded border bg-background px-3">
                   <option value="all">كل الأقسام</option>
-{categories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                  {categories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
                 </select>
               </div>
               <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
