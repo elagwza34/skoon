@@ -20,7 +20,14 @@ export function TablesSidebar({ catalog, invoices = [], openOrders = [] }: Table
     () =>
       (catalog?.tables ?? [])
         .map((table) => {
-          const hasActiveOrder = openOrders.some((order) => order.tableNumber === String(table.number) && ['new', 'preparing', 'ready'].includes(order.status))
+          const hasActiveOrder = openOrders.some(
+            (order) =>
+              order.tableNumber === String(table.number) &&
+              (order.status === 'new' ||
+                order.status === 'preparing' ||
+                order.status === 'ready') &&
+              order.paymentStatus !== 'paid',
+          )
           const hasActiveOrders = hasActiveOrder
           return { ...table, hasActiveOrders }
         })

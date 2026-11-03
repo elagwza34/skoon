@@ -336,8 +336,12 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
                 {visibleTables.map((table) => {
                     const isMyActive = myActiveTableNumbers.has(table.number)
-                    const tableOrders = workspace.openOrders.filter((o) => o.tableNumber === table.number)
-                    const isOccupied = table.openOrders > 0 || tableOrders.length > 0
+                  const tableOrders = workspace.openOrders.filter((o) => o.tableNumber === table.number)
+                  const isOccupied = tableOrders.some(
+                    (o) =>
+                      (o.status === 'new' || o.status === 'preparing' || o.status === 'ready') &&
+                      o.paymentStatus !== 'paid',
+                  )
                     return (
                       <button
                         key={table.id}
