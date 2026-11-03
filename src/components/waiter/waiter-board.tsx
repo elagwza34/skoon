@@ -523,6 +523,6 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
           </div>
         </div>
       )}
-    </main>
+    </div>
   )
 }
