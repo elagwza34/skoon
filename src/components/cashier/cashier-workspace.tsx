@@ -77,19 +77,21 @@ export function CashierWorkspace({ session, board, branchName, invoices, product
   }, [refresh])
 
   return <div className="min-h-screen w-full bg-background" dir="rtl">
-    <header className="sticky top-0 z-30 flex flex-wrap items-center justify-between gap-3 border-b border-border bg-card/95 px-4 py-3 shadow-sm backdrop-blur lg:px-6">
-      <div><h1 className="text-xl font-bold">لوحة الكاشير</h1><p className="text-sm text-muted-foreground">{branchName ?? '—'} · {session.name}</p></div>
-      <div className="text-xs text-muted-foreground"><b className="text-foreground">{current ? 'وردية مفتوحة' : 'لا توجد وردية'}</b><br />فتحها: {current?.openBy ?? '—'} · {opened}</div>
-      <div className="flex flex-wrap gap-2">
-        <Button variant="ghost" onClick={() => window.history.back()}>رجوع</Button>
-        <Button variant="outline" onClick={() => setTab('shifts')}>الورديات</Button>
-        {!current && <Button onClick={() => setOpenModal(true)}>فتح وردية</Button>}
-        <Button onClick={handleLogout} variant="ghost" disabled={busy}>{busy ? 'جارٍ الخروج…' : 'تسجيل الخروج'}</Button>
-      </div>
-    </header>
-    <nav className="sticky top-[73px] z-20 w-full border-b border-border bg-background/95 px-4 py-2 backdrop-blur lg:px-6" aria-label="أقسام محطة الكاشير">
-      <Segmented options={tabs} value={tab} onChange={setTab} ariaLabel="أقسام الكاشير" className="w-full justify-start overflow-x-auto" />
-    </nav>
+    <div className="sticky top-0 z-30 bg-background/95 backdrop-blur">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-card/95 px-4 py-3 shadow-sm lg:px-6">
+        <div><h1 className="text-xl font-bold">لوحة الكاشير</h1><p className="text-sm text-muted-foreground">{branchName ?? '—'} · {session.name}</p></div>
+        <div className="text-xs text-muted-foreground"><b className="text-foreground">{current ? 'وردية مفتوحة' : 'لا توجد وردية'}</b><br />فتحها: {current?.openBy ?? '—'} · {opened}</div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="ghost" onClick={() => window.history.back()}>رجوع</Button>
+          <Button variant="outline" onClick={() => setTab('shifts')}>الورديات</Button>
+          {!current && <Button onClick={() => setOpenModal(true)}>فتح وردية</Button>}
+          <Button onClick={handleLogout} variant="ghost" disabled={busy}>{busy ? 'جارٍ الخروج…' : 'تسجيل الخروج'}</Button>
+        </div>
+      </header>
+      <nav className="border-b border-border bg-background/95 px-4 py-2 lg:px-6" aria-label="أقسام محطة الكاشير">
+        <Segmented options={tabs} value={tab} onChange={setTab} ariaLabel="أقسام الكاشير" className="w-full justify-start overflow-x-auto" />
+      </nav>
+    </div>
     <main className="w-full p-4 lg:p-6">
       {error && <p role="alert" className="mb-4 rounded border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{error}</p>}
       {logoutError && <p role="alert" className="mb-4 rounded border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{logoutError}</p>}
