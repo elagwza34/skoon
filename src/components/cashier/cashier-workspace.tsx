@@ -72,7 +72,7 @@ export function CashierWorkspace({ session, board, branchName, invoices, product
   // Auto-refresh table/order status every second so both cashier and
   // waiter screens stay in sync without manual reload.
   useEffect(() => {
-    const timer = setInterval(() => refresh(), 1_000)
+    const timer = setInterval(() => refresh(), 5_000)
     return () => clearInterval(timer)
   }, [refresh])
 

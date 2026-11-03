@@ -257,7 +257,7 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
   // Auto-refresh table/order status every second so both cashier and
   // waiter screens stay in sync without manual reload.
   useEffect(() => {
-    const timer = setInterval(() => startTransition(() => router.refresh()), 1_000)
+    const timer = setInterval(() => startTransition(() => router.refresh()), 5_000)
     return () => clearInterval(timer)
   }, [router, startTransition])
 
