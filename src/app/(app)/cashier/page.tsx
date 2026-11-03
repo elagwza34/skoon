@@ -2,6 +2,7 @@ import { requirePageAccess } from '@/lib/require-page-access'
 import { isOwner } from '@/lib/authz'
 import { redirect } from 'next/navigation'
 import { getShiftsBoard } from '@/lib/staff-shifts'
+import { ShiftError } from '@/lib/staff-shifts'
 import { prisma } from '@/lib/prisma'
 import { getCashierInvoices } from '@/lib/staff-invoices'
 import { getPosCatalog } from '@/lib/staff-pos'
@@ -29,7 +30,26 @@ export default async function CashierPage() {
     }
   }
 
-  const [board, invoices, catalog, sharedFloat, waiterWorkspace] = await Promise.all([getShiftsBoard(session), getCashierInvoices(session), getPosCatalog(session), getSharedFloatSummary(session), getWaiterWorkspace(session)])
+  let board: Awaited<ReturnType<typeof getShiftsBoard>>
+  let invoices: Awaited<ReturnType<typeof getCashierInvoices>>
+  let catalog: Awaited<ReturnType<typeof getPosCatalog>>
+  let sharedFloat: Awaited<ReturnType<typeof getSharedFloatSummary>>
+  let waiterWorkspace: Awaited<ReturnType<typeof getWaiterWorkspace>>
+
+  try {
+    ;[board, invoices, catalog, sharedFloat, waiterWorkspace] = await Promise.all([
+      getShiftsBoard(session),
+      getCashierInvoices(session),
+      getPosCatalog(session),
+      getSharedFloatSummary(session),
+      getWaiterWorkspace(session),
+    ])
+  } catch (error) {
+    if (error instanceof ShiftError && error.message.includes('لا توجد وردية مفتوحة')) {
+      redirect('/shifts')
+    }
+    throw error
+  }
 
   return <CashierWorkspace
     session={session}
