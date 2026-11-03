@@ -26,6 +26,7 @@ export async function POST(req: Request, { params }: Params) {
     const result = await appendOrderItems(session, id, body)
     return NextResponse.json(result, { status: 200 })
   } catch (e) {
+    console.error('[Order items append] unexpected error:', e)
     if (e instanceof OrderError) return NextResponse.json({ error: e.message }, { status: e.status })
     return NextResponse.json({ error: 'Failed to append items' }, { status: 500 })
   }

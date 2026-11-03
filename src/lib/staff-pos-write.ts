@@ -54,9 +54,21 @@ export async function createPosOrder(session: StaffSession, input: unknown, idem
 
   let tableId: bigint
   if (session.role === ROLE.WAITER) {
-    // Non-authoritative read for idempotency fingerprinting; the authoritative
-    // locked validation happens inside the transaction below.
-    tableId = await readReservationTableId(session, reservationId!)
+    if (reservationId) {
+      // Non-authoritative read for idempotency fingerprinting; the authoritative
+      // locked validation happens inside the transaction below.
+      tableId = await readReservationTableId(session, reservationId)
+    } else if (parsed.data.tableId) {
+      // Waiter creating an order directly on a table (from table workspace)
+      const table = await prisma.cafeTable.findFirst({
+        where: { id: BigInt(parsed.data.tableId), branchId, isActive: true, deletedAt: null },
+        select: { id: true },
+      })
+      if (!table) throw new PosError('الطاولة غير موجودة في هذا الفرع', 404)
+      tableId = table.id
+    } else {
+      throw new PosError('اختر الطاولة أو الحجز', 400)
+    }
   } else if (parsed.data.tableId) {
     const table = await prisma.cafeTable.findFirst({
       where: { id: BigInt(parsed.data.tableId), branchId, isActive: true, deletedAt: null },
@@ -162,9 +174,9 @@ export async function createPosOrder(session: StaffSession, input: unknown, idem
         return prior.result as unknown as PosOrderResult
       }
     }
-    if (session.role === ROLE.WAITER) {
+    if (session.role === ROLE.WAITER && reservationId) {
       const claimedTableId = await validateAndClaimWaiterReservationTx(
-        tx, session.id, branchId, reservationId!,
+        tx, session.id, branchId, reservationId,
       )
       if (claimedTableId !== tableId) throw new PosError('الحجز لم يعد سارياً للطاولة المحددة', 409)
     } else if (parsed.data.orderType === 'dine_in') {
@@ -220,8 +232,8 @@ export async function createPosOrder(session: StaffSession, input: unknown, idem
         data: { orderId: order.id, branchId, assignedToId: session.id, assignedById: session.id, source: 'manual_create', reason: 'Manual waiter order creation' },
       })
     }
-    if (session.role === ROLE.WAITER) {
-      await finalizeReservationTx(tx, reservationId!, order.id)
+    if (session.role === ROLE.WAITER && reservationId) {
+      await finalizeReservationTx(tx, reservationId, order.id)
     }
 
     // Ring the branch's waiters — a new POS order needs their attention (or, if

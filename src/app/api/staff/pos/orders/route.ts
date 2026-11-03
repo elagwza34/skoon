@@ -19,6 +19,7 @@ export async function POST(req: Request) {
     const result = await createPosOrder(session, body, req.headers.get('idempotency-key'))
     return NextResponse.json(result, { status: 201 })
   } catch (e) {
+    console.error('[POS order create] unexpected error:', e)
     if (e instanceof PosError) return NextResponse.json({ error: e.message }, { status: e.status })
     return NextResponse.json({ error: 'Order failed' }, { status: 500 })
   }
