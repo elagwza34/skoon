@@ -23,10 +23,9 @@ export function TablesSidebar({ catalog, invoices = [], openOrders = [] }: Table
           const hasActiveOrder = openOrders.some(
             (order) =>
               order.tableNumber === String(table.number) &&
-              (order.status === 'new' ||
-                order.status === 'preparing' ||
-                order.status === 'ready') &&
-              order.paymentStatus !== 'paid',
+              order.status !== 'cancelled' &&
+              order.paymentStatus !== 'paid' &&
+              order.orderType === 'dine_in',
           )
           const hasActiveOrders = hasActiveOrder
           return { ...table, hasActiveOrders }

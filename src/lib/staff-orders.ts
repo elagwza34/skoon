@@ -1,11 +1,13 @@
+import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { ROLE, hasAtLeast, hasPermission, requiresOperationalShift, type RoleSlug } from '@/lib/authz'
 import { staffCanAccessBranch, type StaffSession } from '@/lib/session'
 import { notifyRole, type NotificationType } from '@/lib/notifications'
+import { lockAndReadShift } from '@/lib/financial-shift-lock'
 import { getOpenShift, ShiftError } from '@/lib/staff-shifts'
-import { consumeOrderReservations, markOrderPreparation, releaseOrderReservations, reserveOrderInventory, serveOrderItemInventory, StockError } from '@/lib/staff-inventory-engine'
-import { orderedVariantLabels, resolveOrderItemVariantLabels } from '@/lib/order-item-variant'
+import { consumeOrderReservations, markOrderPreparation, releaseOrderReservations, reserveOrderInventory, reserveOrderItemInventory, serveOrderItemInventory, StockError } from '@/lib/staff-inventory-engine'
+import { createOrderItemVariantSnapshot, orderedVariantLabels, resolveOrderItemVariantLabels } from '@/lib/order-item-variant'
 import { modifierSnapshotLabels } from '@/lib/order-item-options'
 import { centsText, invoiceDiscountKind, invoiceDiscountValue, recalculateOpenOrderInvoice } from '@/lib/invoice-recalculation'
 
@@ -23,11 +25,11 @@ import { centsText, invoiceDiscountKind, invoiceDiscountValue, recalculateOpenOr
  * order. Prices are never touched here.
  */
 
-export const ORDER_FLOW = ['new', 'preparing', 'ready', 'served'] as const
+export const ORDER_FLOW = ['pending', 'new', 'preparing', 'ready', 'served'] as const
 export type OrderStatus = (typeof ORDER_FLOW)[number] | 'cancelled'
 
 export function isOrderStatus(v: string): v is OrderStatus {
-  return v === 'new' || v === 'preparing' || v === 'ready' || v === 'served' || v === 'cancelled'
+  return v === 'pending' || v === 'new' || v === 'preparing' || v === 'ready' || v === 'served' || v === 'cancelled'
 }
 
 /** Pure counterpart of the kitchen queue predicate, kept testable without a DB. */
@@ -41,6 +43,7 @@ export function takeawayDispatchBlocker(orderType: string, paymentStatus: string
 
 /** Minimum role required to move `from → to`. Absent = transition is illegal. */
 const TRANSITIONS: Record<OrderStatus, Partial<Record<OrderStatus, RoleSlug>>> = {
+  pending: { new: ROLE.WAITER, cancelled: ROLE.WAITER },
   new: { preparing: ROLE.KITCHEN, cancelled: ROLE.CASHIER },
   preparing: { ready: ROLE.KITCHEN, cancelled: ROLE.CASHIER },
   ready: { served: ROLE.WAITER },
@@ -508,6 +511,222 @@ export async function transitionOrderStatus(
   })
 
   return { id: order.id.toString(), orderNumber: order.orderNumber, status: to }
+}
+
+/**
+ * Append new items to an existing open order without creating a second order.
+ * Used when a cashier or waiter adds products to a table that already has an
+ * active order. Inventory is reserved per new item; the order is reverted to
+ * `preparing` if it was `ready` so the kitchen sees the new work.
+ */
+export const appendOrderItemsSchema = z.object({
+  items: z.array(z.object({
+    productId: z.string().regex(/^\d+$/, 'Invalid product id'),
+    variantId: z.string().regex(/^\d+$/, 'Invalid variant id').optional(),
+    modifierSelections: z.array(z.object({
+      groupId: z.string().regex(/^\d+$/),
+      valueIds: z.array(z.string().regex(/^\d+$/)).max(20),
+    })).max(20).default([]),
+    qty: z.number().int().min(1).max(20),
+    note: z.string().max(255).optional(),
+  })).min(1, 'السلة فارغة').max(30),
+  idempotencyKey: z.string().trim().min(8).max(100).optional(),
+})
+
+export async function appendOrderItems(
+  session: StaffSession,
+  orderIdRaw: string,
+  input: unknown,
+): Promise<{ orderId: string; orderNumber: string; itemsCount: number; total: string }> {
+  if (session.role !== ROLE.WAITER && session.role !== ROLE.CASHIER) throw new OrderError('غير مصرح بإضافة أصناف إلى الطلب', 403)
+  if (!/^\d+$/.test(orderIdRaw)) throw new OrderError('الطلب غير موجود', 404)
+
+  const parsed = appendOrderItemsSchema.safeParse(input)
+  if (!parsed.success) throw new OrderError(parsed.error.issues[0]?.message ?? 'بيانات غير صالحة', 400)
+  const { items } = parsed.data
+
+  const order = await prisma.order.findUnique({
+    where: { id: BigInt(orderIdRaw) },
+    select: { id: true, branchId: true, status: true, paymentStatus: true, orderNumber: true, responsibleWaiterId: true },
+  })
+  if (!order) throw new OrderError('الطلب غير موجود', 404)
+  if (!staffCanAccessBranch(session, order.branchId)) throw new OrderError('غير مصرح', 403)
+  if (session.role === ROLE.WAITER && order.responsibleWaiterId !== session.id) throw new OrderError('لا يمكنك إضافة أصناف لطلب نادل آخر', 403)
+  if (!['new', 'preparing', 'ready'].includes(order.status)) throw new OrderError('لا يمكن إضافة أصناف لطلب مغلق', 409)
+  if (order.paymentStatus === 'paid') throw new OrderError('لا يمكن إضافة أصناف لطلب تم تحصيله', 409)
+
+  const openShift = requiresOperationalShift(session.role) ? await getOpenShift(session.id, order.branchId) : null
+  if (requiresOperationalShift(session.role) && !openShift) throw new OrderError('لا توجد وردية مفتوحة لهذا الموظف — افتح وردية أولًا من صفحة الورديات (/shifts)', 409)
+
+  const productIds = [...new Set(items.map((i) => BigInt(i.productId)))]
+  const variantIds = [...new Set(items.map((i) => i.variantId).filter(Boolean) as string[])].map(BigInt)
+  const products = await prisma.product.findMany({
+    where: { id: { in: productIds }, branchId: order.branchId, isActive: true, deletedAt: null, isAvailable: true },
+    select: {
+      id: true, name: true, price: true,
+      variants: { where: { isActive: true, isAvailable: true, archivedAt: null }, select: { id: true, combinationKey: true, price: true } },
+      optionAssignments: {
+        orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+        select: {
+          sortOrder: true,
+          productOption: {
+            select: {
+              id: true, name: true, description: true, type: true, isRequired: true, minSelections: true, maxSelections: true, isActive: true,
+              values: { where: { isActive: true, deletedAt: null }, orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }], select: { id: true, value: true, priceAdjustment: true, isActive: true } },
+            },
+          },
+        },
+      },
+    },
+  })
+  const variants = variantIds.length
+    ? await prisma.productVariant.findMany({
+        where: { id: { in: variantIds }, productId: { in: productIds }, isActive: true, isAvailable: true, archivedAt: null },
+        select: { id: true, productId: true, price: true, combinationKey: true, values: { select: { value: { select: { label: true, attribute: { select: { sortOrder: true } } } } } } },
+      })
+    : []
+  const priceById = new Map(products.map((p) => [p.id.toString(), p]))
+  const variantById = new Map(variants.map((v) => [v.id.toString(), v]))
+
+  for (const item of items) {
+    if (!priceById.has(item.productId)) throw new OrderError('تغيّرت القائمة — حدّث الصفحة', 400)
+    const variant = item.variantId ? variantById.get(item.variantId) : null
+    if (!item.variantId && priceById.get(item.productId)!.variants.length) throw new OrderError('اختر متغير المنتج', 400)
+    if (item.variantId && (!variant || variant.productId.toString() !== item.productId)) throw new OrderError('المتغير غير متوفر', 400)
+  }
+
+  const key = parsed.data.idempotencyKey?.trim() || null
+  const fingerprint = key ? createHash('sha256').update(JSON.stringify({ orderId: orderIdRaw, items: items.map((i) => ({ productId: i.productId, variantId: i.variantId ?? null, qty: i.qty, note: i.note ?? null })) })).digest('hex') : null
+  if (key) {
+    const prior = await prisma.financialOperation.findUnique({ where: { branchId_actorId_operationType_idempotencyKey: { branchId: order.branchId, actorId: session.id, operationType: 'order_item_append', idempotencyKey: key } } })
+    if (prior) {
+      if (prior.fingerprint !== fingerprint) throw new OrderError('مفتاح العملية استُخدم لطلب مختلف', 409)
+      return prior.result as unknown as { orderId: string; orderNumber: string; itemsCount: number; total: string }
+    }
+  }
+
+  return prisma.$transaction(async (tx) => {
+    if (openShift) {
+      const lockedShift = await lockAndReadShift(tx, openShift.id)
+      if (!lockedShift || lockedShift.status !== 'open' || lockedShift.cashierId !== session.id || lockedShift.branchId !== order.branchId) throw new OrderError('الوردية لم تعد مفتوحة', 409)
+    }
+
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('order-item-append:' || ${orderIdRaw}))`
+    const locked = await tx.$queryRaw<{ status: string; payment_status: string; responsible_waiter_id: string | null }[]>`
+      SELECT status, payment_status, responsible_waiter_id FROM orders WHERE id = ${order.id} FOR UPDATE
+    `
+    if (!locked[0] || !['new', 'preparing', 'ready'].includes(locked[0].status)) throw new OrderError('الطلب لم يعد مفتوحاً للتعديل', 409)
+    if (locked[0].payment_status === 'paid') throw new OrderError('لا يمكن إضافة أصناف لطلب تم تحصيله', 409)
+    if (session.role === ROLE.WAITER && locked[0].responsible_waiter_id !== session.id) throw new OrderError('تغيّرت مسؤولية الطلب؛ حدّث الصفحة', 409)
+
+    if (key) {
+      const repeated = await tx.financialOperation.findUnique({ where: { branchId_actorId_operationType_idempotencyKey: { branchId: order.branchId, actorId: session.id, operationType: 'order_item_append', idempotencyKey: key } } })
+      if (repeated) {
+        if (repeated.fingerprint !== fingerprint!) throw new OrderError('مفتاح العملية استُخدم لطلب مختلف', 409)
+        return repeated.result as unknown as { orderId: string; orderNumber: string; itemsCount: number; total: string }
+      }
+    }
+
+    const now = new Date()
+    const createdItemIds: string[] = []
+    let totalAddedCents = 0n
+
+    for (const item of items) {
+      const p = priceById.get(item.productId)!
+      const variant = item.variantId ? variantById.get(item.variantId)! : null
+
+      // Compute modifier adjustments
+      const modifierAdjustments: { groupId: bigint; groupName: string; optionId: bigint; optionLabel: string; priceAdjustment: bigint }[] = []
+      for (const sel of item.modifierSelections) {
+        const group = p.optionAssignments.find((a) => a.productOption.id.toString() === sel.groupId)?.productOption
+        if (!group || !group.isActive) throw new OrderError('مجموعة إضافات غير متاحة لهذا المنتج', 400)
+        for (const valueId of sel.valueIds) {
+          const option = group.values.find((v) => v.id.toString() === valueId)
+          if (!option || !option.isActive) throw new OrderError('اختيار غير متاح في مجموعة الإضافات', 400)
+          modifierAdjustments.push({ groupId: group.id, groupName: group.name, optionId: option.id, optionLabel: option.value, priceAdjustment: moneyCents(Number(option.priceAdjustment)) })
+        }
+      }
+
+      const variantAdjustmentCents = variant ? moneyCents(Number(variant.price)) : moneyCents(Number(p.price))
+      const modifierTotalCents = modifierAdjustments.reduce((sum, m) => sum + m.priceAdjustment, 0n)
+      const unitCents = variantAdjustmentCents + modifierTotalCents
+      const lineCents = unitCents * BigInt(item.qty)
+      totalAddedCents += lineCents
+
+      const created = await tx.orderItem.create({
+        data: {
+          orderId: order.id,
+          productId: p.id,
+          productVariantId: variant?.id ?? null,
+          productName: p.name,
+          unitPrice: centsText(unitCents),
+          quantity: item.qty,
+          lineTotal: centsText(lineCents),
+          productVariantSnapshot: variant ? createOrderItemVariantSnapshot(variant.combinationKey, variant.values.map((entry) => entry.value)) : undefined,
+          optionsSnapshot: { version: 1, groups: modifierAdjustments.map((m) => ({ groupId: m.groupId.toString(), groupName: m.groupName, optionId: m.optionId.toString(), optionLabel: m.optionLabel, priceAdjustment: m.priceAdjustment.toString() })) },
+          options: { create: modifierAdjustments.map((m) => ({ productOptionId: m.groupId, optionValueId: m.optionId, optionName: m.groupName, valueLabel: m.optionLabel, priceAdjustment: m.priceAdjustment.toString() })) },
+          notes: item.note?.trim() || null,
+        },
+      })
+      await reserveOrderItemInventory(tx, order.id, created.id)
+      createdItemIds.push(created.id.toString())
+    }
+
+    // Revert to preparing if order was ready — new items need kitchen work
+    const wasReady = locked[0].status === 'ready'
+    if (wasReady) {
+      await tx.order.update({ where: { id: order.id }, data: { status: 'preparing', readyAt: null } })
+      await tx.orderStatusHistory.create({ data: { orderId: order.id, fromStatus: 'ready', toStatus: 'preparing', changedById: session.id, note: 'تم إضافة أصناف جديدة إلى طلب جاهز — عادت الحالة إلى قيد التحضير' } })
+    }
+
+    // Recalculate order totals
+    const orderRow = await tx.order.findUnique({ where: { id: order.id }, select: { discountType: true, discountValue: true, taxRate: true } })
+    const kind = invoiceDiscountKind(orderRow?.discountType ?? null)
+    const result = await recalculateOpenOrderInvoice(tx, order.id, kind, invoiceDiscountValue(kind, orderRow?.discountValue ?? 0), orderRow?.taxRate ?? 0)
+    const { calculated, tax, total } = result
+    await tx.order.update({
+      where: { id: order.id },
+      data: {
+        itemsSubtotal: centsText(calculated.subtotalCents),
+        itemDiscountAmount: centsText(calculated.itemDiscountCents),
+        discountEligibleBase: centsText(calculated.eligibleBaseCents),
+        discountAmount: centsText(calculated.itemDiscountCents + calculated.invoiceDiscountCents),
+        taxAmount: centsText(tax),
+        total: centsText(total),
+      },
+    })
+
+    await tx.auditLog.create({
+      data: {
+        userId: session.id,
+        branchId: order.branchId,
+        action: 'order.items_append',
+        entityType: 'order',
+        entityId: order.id,
+        newValues: { addedItemIds: createdItemIds, itemsAdded: items.length, totalAdded: totalAddedCents.toString(), newTotal: centsText(total) },
+      },
+    })
+
+    await notifyRole(tx, ROLE.KITCHEN, order.branchId, {
+      type: 'order.created',
+      title: `إضافة أصناف إلى الطلب ${order.orderNumber}`,
+      body: 'تمت الإضافة إلى طلب مفتوح',
+      orderId: order.id,
+    })
+
+    const finalResult = {
+      orderId: order.id.toString(),
+      orderNumber: order.orderNumber,
+      itemsCount: items.reduce((n, i) => n + i.qty, 0),
+      total: centsText(total),
+    }
+    if (key) await tx.financialOperation.create({ data: { branchId: order.branchId, actorId: session.id, operationType: 'order_item_append', idempotencyKey: key, fingerprint: fingerprint!, result: finalResult } })
+    return finalResult
+  })
+}
+
+function moneyCents(value: number): bigint {
+  return BigInt(Math.round(value * 100))
 }
 
 /**

@@ -1,9 +1,10 @@
+import { createHash, randomBytes } from 'node:crypto'
 import { z } from 'zod'
-import { randomBytes } from 'node:crypto'
 import { prisma } from '@/lib/prisma'
 import { getTableByToken } from '@/lib/public-menu'
 import { notifyRole } from '@/lib/notifications'
 import { ROLE } from '@/lib/authz'
+import { isWaiterTableOrderActive } from '@/lib/staff-waiter'
 
 const orderItemSchema = z.object({
   productId: z.string().regex(/^\d+$/, 'Invalid product id'),
@@ -21,6 +22,7 @@ const createOrderSchema = z.object({
     .optional()
     .or(z.literal('').transform(() => undefined)),
   items: z.array(orderItemSchema).min(1).max(30),
+  idempotencyKey: z.string().trim().min(8).max(100).optional(),
 })
 
 export type CreateOrderInput = z.infer<typeof createOrderSchema>
@@ -34,24 +36,60 @@ export interface CreatedOrder {
 
 /**
  * Create a customer QR order — server-side pricing only.
+ * QR orders are created with status 'pending' so they do not occupy a table
+ * until a waiter approves them. Table occupancy is checked before creation:
+ * if the table already has an open dine-in order, the submission is rejected.
  * All reads (table, products) and writes (order + items + history) run in
  * one transaction. Client prices/notes beyond 255 chars are never trusted.
  */
-export async function createPublicOrder(input: CreateOrderInput): Promise<CreatedOrder> {
+export async function createPublicOrder(input: CreateOrderInput & { idempotencyKey?: string | null }): Promise<CreatedOrder> {
   const parsed = createOrderSchema.safeParse(input)
   if (!parsed.success) {
     throw new Error(parsed.error.issues[0]?.message ?? 'Invalid order')
   }
-  const { token, customerName, customerPhone, items } = parsed.data
+  const { token, customerName, customerPhone, items, idempotencyKey } = parsed.data
+
+  const key = idempotencyKey?.trim() || null
+  if (key && (key.length < 8 || key.length > 100)) throw new Error('Invalid idempotency key')
 
   const table = await getTableByToken(token)
   if (!table) throw new Error('Table not found')
+
+  const branchId = BigInt(table.branchId)
+  const tableId = BigInt(table.id)
+
+  // Idempotency: check for a prior completed submission before doing any work.
+  if (key) {
+    const prior = await prisma.financialOperation.findUnique({
+      where: { branchId_actorId_operationType_idempotencyKey: { branchId, actorId: 'public-qr', operationType: 'qr_order_create', idempotencyKey: key } },
+      select: { fingerprint: true, result: true },
+    })
+    if (prior) {
+      const currentFingerprint = createHash('sha256').update(JSON.stringify({ tableId: tableId.toString(), items: items.map((i) => ({ productId: i.productId, qty: i.qty, note: i.note ?? null })) })).digest('hex')
+      if (prior.fingerprint !== currentFingerprint) throw new Error('Idempotency key was reused with a different request')
+      return prior.result as unknown as CreatedOrder
+    }
+  }
+
+  // Table occupancy check: a QR request for an occupied table is rejected so
+  // that only one open dine-in order can exist per table.
+  const occupied = await prisma.order.findFirst({
+    where: {
+      branchId,
+      cafeTableId: tableId,
+      status: { not: 'cancelled' },
+      paymentStatus: { not: 'paid' },
+      orderType: 'dine_in',
+    },
+    select: { id: true },
+  })
+  if (occupied) throw new Error('الطاولة مشغولة حالياً — لا يمكن إنشاء طلب QR جديد')
 
   const productIds = [...new Set(items.map((i) => BigInt(i.productId)))]
   const products = await prisma.product.findMany({
     where: {
       id: { in: productIds },
-      branchId: BigInt(table.branchId),
+      branchId,
       isActive: true,
       deletedAt: null,
       isAvailable: true,
@@ -82,15 +120,42 @@ export async function createPublicOrder(input: CreateOrderInput): Promise<Create
   const orderRef = randomBytes(12).toString('hex') // 24 hex chars, unique, hides the id
   const itemsSubtotal = total.toFixed(2)
 
+  const fingerprint = key ? createHash('sha256').update(JSON.stringify({ tableId: tableId.toString(), items: items.map((i) => ({ productId: i.productId, qty: i.qty, note: i.note ?? null })) })).digest('hex') : null
+
   const created = await prisma.$transaction(async (tx) => {
+    // Recheck idempotency inside the transaction to prevent concurrent duplicates.
+    if (key) {
+      const prior = await tx.financialOperation.findUnique({
+        where: { branchId_actorId_operationType_idempotencyKey: { branchId, actorId: 'public-qr', operationType: 'qr_order_create', idempotencyKey: key } },
+        select: { fingerprint: true, result: true },
+      })
+      if (prior) {
+        if (prior.fingerprint !== fingerprint!) throw new Error('Idempotency key was reused with a different request')
+        return prior.result as unknown as CreatedOrder
+      }
+    }
+
+    // Recheck occupancy inside the transaction.
+    const occupiedInside = await tx.order.findFirst({
+      where: {
+        branchId,
+        cafeTableId: tableId,
+        status: { not: 'cancelled' },
+        paymentStatus: { not: 'paid' },
+        orderType: 'dine_in',
+      },
+      select: { id: true },
+    })
+    if (occupiedInside) throw new Error('الطاولة مشغولة حالياً — لا يمكن إنشاء طلب QR جديد')
+
     const order = await tx.order.create({
       data: {
-        branchId: BigInt(table.branchId),
-        cafeTableId: BigInt(table.id),
+        branchId,
+        cafeTableId: tableId,
         orderNumber,
         orderRef,
         orderType: 'dine_in',
-        status: 'new',
+        status: 'pending',
         source: 'qr',
         customerName: customerName.trim(),
         customerPhone: customerPhone?.trim() || null,
@@ -109,16 +174,28 @@ export async function createPublicOrder(input: CreateOrderInput): Promise<Create
             notes: l.notes,
           })),
         },
-        statusHistory: { create: { toStatus: 'new' } },
+        statusHistory: { create: { toStatus: 'pending' } },
       },
       select: { id: true, orderNumber: true, total: true },
     })
-    // Ring the waiters of this branch — a customer just placed a QR order.
-    await notifyRole(tx, ROLE.WAITER, BigInt(table.branchId), {
+    // Ring the waiters of this branch — a customer just placed a QR order awaiting approval.
+    await notifyRole(tx, ROLE.WAITER, branchId, {
       type: 'order.created',
-      title: `طلب جديد ${order.orderNumber} من طاولة ${table.number}`,
+      title: `طلب QR جديد في انتظار الاعتماد: ${order.orderNumber} من طاولة ${table.number}`,
       orderId: order.id,
     })
+    if (key) {
+      await tx.financialOperation.create({
+        data: {
+          branchId,
+          actorId: 'public-qr',
+          operationType: 'qr_order_create',
+          idempotencyKey: key,
+          fingerprint: fingerprint!,
+          result: { id: order.id.toString(), orderNumber: order.orderNumber, total: order.total.toString(), itemsCount: lines.reduce((n, l) => n + l.quantity, 0) },
+        },
+      })
+    }
     return order
   })
 

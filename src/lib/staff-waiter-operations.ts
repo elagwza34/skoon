@@ -4,8 +4,9 @@ import { ROLE, hasAtLeast, requiresOperationalShift } from '@/lib/authz'
 import { staffCanAccessBranch, type StaffSession } from '@/lib/session'
 import { getOpenShift } from '@/lib/staff-shifts'
 import { notifyRole, notifyUser } from '@/lib/notifications'
-import { reserveOrderInventory, StockError } from '@/lib/staff-inventory-engine'
+import { reserveOrderInventory, reserveOrderItemInventory, StockError } from '@/lib/staff-inventory-engine'
 import { OrderError } from '@/lib/staff-orders'
+import { centsText, invoiceDiscountKind, invoiceDiscountValue, recalculateOpenOrderInvoice } from '@/lib/invoice-recalculation'
 
 const idSchema = z.string().regex(/^\d+$/)
 const reasonSchema = z.string().trim().min(3).max(255)
@@ -61,7 +62,7 @@ export async function claimQrOrder(session: StaffSession, orderIdRaw: string) {
       SELECT branch_id, source, status, sent_to_kitchen_at, responsible_waiter_id FROM orders WHERE id = ${orderId} FOR UPDATE`
     const row = rows[0]
     if (!row || !staffCanAccessBranch(session, row.branch_id)) throw new OrderError('Order not found', 404)
-    if (row.source !== 'qr' || row.status !== 'new' || row.sent_to_kitchen_at) throw new OrderError('Only pending QR orders can be claimed', 409)
+    if (row.source !== 'qr' || row.status !== 'pending' || row.sent_to_kitchen_at) throw new OrderError('Only pending QR orders can be claimed', 409)
     if (row.responsible_waiter_id && row.responsible_waiter_id !== session.id) throw new OrderError('QR order is already claimed', 409)
     if (row.responsible_waiter_id === session.id) return { id: orderIdRaw, claimed: true, idempotent: true }
     await tx.order.update({ where: { id: orderId }, data: { responsibleWaiterId: session.id, qrClaimedAt: new Date() } })
@@ -71,28 +72,161 @@ export async function claimQrOrder(session: StaffSession, orderIdRaw: string) {
   })
 }
 
-/** Approval reserves stock and dispatches a claimed QR order atomically. */
-export async function approveQrOrder(session: StaffSession, orderIdRaw: string) {
+/** Approval reserves stock and dispatches a claimed QR order atomically.
+ * If the table already has an open dine-in order, QR items are appended to
+ * that order and the pending QR order is cancelled. Otherwise the pending
+ * QR order transitions to 'new' and is dispatched to the kitchen.
+ */
+export async function approveQrOrder(session: StaffSession, orderIdRaw: string, input?: unknown) {
   requireWaiter(session)
   if (!idSchema.safeParse(orderIdRaw).success) throw new OrderError('Order not found', 404)
   const orderId = BigInt(orderIdRaw)
   const preflight = await prisma.order.findUnique({ where: { id: orderId }, select: { branchId: true } })
   if (!preflight) throw new OrderError('Order not found', 404)
   await requireOperationalShift(session, preflight.branchId)
+
+  const parsedInput = input && typeof input === 'object' ? input as Record<string, unknown> : {}
+  const idempotencyKey = typeof parsedInput.idempotencyKey === 'string' ? parsedInput.idempotencyKey.trim() || null : null
+
   return prisma.$transaction(async (tx) => {
-    const rows = await tx.$queryRaw<{ branch_id: bigint; order_number: string; source: string; status: string; sent_to_kitchen_at: Date | null; responsible_waiter_id: string | null; qr_rejected_at: Date | null }[]>`
-      SELECT branch_id, order_number, source, status, sent_to_kitchen_at, responsible_waiter_id, qr_rejected_at FROM orders WHERE id = ${orderId} FOR UPDATE`
+    const rows = await tx.$queryRaw<{ branch_id: bigint; order_number: string; source: string; status: string; sent_to_kitchen_at: Date | null; responsible_waiter_id: string | null; qr_rejected_at: Date | null; cafe_table_id: bigint }[]>`
+      SELECT branch_id, order_number, source, status, sent_to_kitchen_at, responsible_waiter_id, qr_rejected_at, cafe_table_id FROM orders WHERE id = ${orderId} FOR UPDATE`
     const row = rows[0]
     if (!row || !staffCanAccessBranch(session, row.branch_id)) throw new OrderError('Order not found', 404)
-    if (row.source !== 'qr' || row.responsible_waiter_id !== session.id) throw new OrderError('Only the responsible waiter may approve this QR order', 403)
-    if (row.qr_rejected_at || row.status !== 'new') throw new OrderError('QR order is no longer approvable', 409)
+    if (row.source !== 'qr') throw new OrderError('Only QR orders can be approved', 403)
+    if (row.responsible_waiter_id && row.responsible_waiter_id !== session.id) throw new OrderError('Only the responsible waiter may approve this QR order', 403)
+    if (row.qr_rejected_at || row.status !== 'pending') throw new OrderError('QR order is no longer approvable', 409)
     if (row.sent_to_kitchen_at) return { id: orderIdRaw, approved: true, idempotent: true }
-    try { await reserveOrderInventory(tx, orderId) } catch (error) { if (error instanceof StockError) throw new OrderError(error.message, error.status); throw error }
+
+    // Idempotency check inside the transaction.
+    if (idempotencyKey) {
+      const prior = await tx.financialOperation.findUnique({ where: { branchId_actorId_operationType_idempotencyKey: { branchId: row.branch_id, actorId: session.id, operationType: 'qr_order_approve', idempotencyKey } } })
+      if (prior) return prior.result as unknown as { id: string; approved: boolean; idempotent: boolean; merged?: boolean }
+    }
+
     const now = new Date()
-    await tx.order.update({ where: { id: orderId }, data: { sentToKitchenAt: now, qrApprovedAt: now, qrDecisionById: session.id } })
-    await notifyRole(tx, ROLE.KITCHEN, row.branch_id, { type: 'order.sent_to_kitchen', title: `طلب QR معتمد للمطبخ: ${row.order_number}`, orderId })
-    await tx.auditLog.create({ data: { userId: session.id, branchId: row.branch_id, action: 'waiter.qr_approve', entityType: 'order', entityId: orderId } })
-    return { id: orderIdRaw, approved: true, idempotent: false }
+    let merged = false
+
+    // Check if the table already has an open dine-in order (excluding this pending QR order).
+    const existingOrder = await tx.order.findFirst({
+      where: {
+        branchId: row.branch_id,
+        cafeTableId: row.cafe_table_id,
+        status: { not: 'cancelled' },
+        paymentStatus: { not: 'paid' },
+        orderType: 'dine_in',
+        id: { not: orderId },
+      },
+      select: { id: true, orderNumber: true, status: true, paymentStatus: true },
+    })
+
+    if (existingOrder) {
+      // Append QR items to the existing open order.
+      const qrItems = await tx.orderItem.findMany({
+        where: { orderId, isVoided: false },
+        select: { productId: true, productVariantId: true, productName: true, unitPrice: true, quantity: true, notes: true, productVariantSnapshot: true, optionsSnapshot: true },
+      })
+
+      if (qrItems.length > 0) {
+        const createdItemIds: bigint[] = []
+        let totalAddedCents = 0n
+
+        for (const item of qrItems) {
+          const product = await prisma.product.findUnique({
+            where: { id: item.productId },
+            select: { id: true, name: true, price: true, variants: { where: { isActive: true, isAvailable: true, archivedAt: null }, select: { id: true, price: true, combinationKey: true, values: { select: { value: { select: { label: true, attribute: { select: { sortOrder: true } } } } } } } } },
+          })
+          if (!product) throw new OrderError('منتج غير متوفر', 400)
+          const variant = item.productVariantId ? product.variants.find((v) => v.id === item.productVariantId) : null
+          if (item.productVariantId && !variant) throw new OrderError('المتغير غير متوفر', 400)
+          if (!item.productVariantId && product.variants.length) throw new OrderError('اختر متغير المنتج', 400)
+
+          const unitPriceCents = variant ? BigInt(Math.round(Number(variant.price) * 100)) : BigInt(Math.round(Number(product.price) * 100))
+          const lineCents = unitPriceCents * BigInt(item.quantity)
+          totalAddedCents += lineCents
+
+          const created = await tx.orderItem.create({
+            data: {
+              orderId: existingOrder.id,
+              productId: item.productId,
+              productVariantId: variant?.id ?? null,
+              productName: product.name,
+              unitPrice: centsText(unitPriceCents),
+              quantity: item.quantity,
+              lineTotal: centsText(lineCents),
+              ...(variant ? { productVariantSnapshot: { combinationKey: variant.combinationKey, values: variant.values.map((v) => v.value.label) } } : {}),
+              optionsSnapshot: item.optionsSnapshot ?? { version: 1, groups: [] },
+              options: item.optionsSnapshot && typeof item.optionsSnapshot === 'object' && !Array.isArray(item.optionsSnapshot) && 'groups' in item.optionsSnapshot && Array.isArray((item.optionsSnapshot as { groups: unknown[] }).groups)
+                ? { create: (item.optionsSnapshot as { groups: Array<{ groupId: string; optionId: string; groupName: string; optionLabel: string; priceAdjustment: string }> }).groups.map((g) => ({ productOptionId: BigInt(g.groupId), optionValueId: BigInt(g.optionId), optionName: g.groupName, valueLabel: g.optionLabel, priceAdjustment: g.priceAdjustment })) }
+                : undefined,
+              notes: item.notes ?? null,
+            },
+            select: { id: true },
+          })
+          createdItemIds.push(created.id)
+          await reserveOrderItemInventory(tx, existingOrder.id, created.id)
+        }
+
+        // Revert to preparing if existing order was ready — new items need kitchen work
+        if (existingOrder.status === 'ready') {
+          await tx.order.update({ where: { id: existingOrder.id }, data: { status: 'preparing', readyAt: null } })
+          await tx.orderStatusHistory.create({ data: { orderId: existingOrder.id, fromStatus: 'ready', toStatus: 'preparing', changedById: session.id, note: 'تم إضافة أصناف من طلب QR إلى طلب جاهز — عادت الحالة إلى قيد التحضير' } })
+        }
+
+        // Recalculate existing order totals
+        const orderRow = await tx.order.findUnique({ where: { id: existingOrder.id }, select: { discountType: true, discountValue: true, taxRate: true } })
+        const kind = invoiceDiscountKind(orderRow?.discountType ?? null)
+        const result = await recalculateOpenOrderInvoice(tx, existingOrder.id, kind, invoiceDiscountValue(kind, orderRow?.discountValue ?? 0), orderRow?.taxRate ?? 0)
+        const { calculated, tax, total } = result
+        await tx.order.update({
+          where: { id: existingOrder.id },
+          data: {
+            itemsSubtotal: centsText(calculated.subtotalCents),
+            itemDiscountAmount: centsText(calculated.itemDiscountCents),
+            discountEligibleBase: centsText(calculated.eligibleBaseCents),
+            discountAmount: centsText(calculated.itemDiscountCents + calculated.invoiceDiscountCents),
+            taxAmount: centsText(tax),
+            total: centsText(total),
+          },
+        })
+
+        await tx.auditLog.create({
+          data: {
+            userId: session.id,
+            branchId: row.branch_id,
+            action: 'waiter.qr_approve_append',
+            entityType: 'order',
+            entityId: existingOrder.id,
+            newValues: { mergedFromQrOrder: orderId.toString(), qrOrderNumber: row.order_number, itemsAppended: qrItems.length },
+          },
+        })
+        await notifyRole(tx, ROLE.KITCHEN, row.branch_id, {
+          type: 'order.created',
+          title: `إضافة أصناف QR إلى الطلب ${existingOrder.orderNumber}`,
+          body: 'تمت إضافة أصناف طلب QR معتمد إلى طلب مفتوح موجود',
+          orderId: existingOrder.id,
+        })
+        merged = true
+      }
+
+      // Cancel the pending QR order (its items are now in the existing order).
+      await tx.order.update({ where: { id: orderId }, data: { status: 'cancelled', cancelledAt: now, cancelReason: 'أصناف QR مدمجة في طلب طاولة مفتوح', qrApprovedAt: now, qrDecisionById: session.id } })
+      await tx.orderStatusHistory.create({ data: { orderId, fromStatus: 'pending', toStatus: 'cancelled', changedById: session.id, note: 'تم دمج أصناف QR في طلب الطاولة المفتوح وإلغاء طلب QR المعلق' } })
+    } else {
+      // No existing open order — transition pending → new and dispatch to kitchen.
+      try { await reserveOrderInventory(tx, orderId) } catch (error) { if (error instanceof StockError) throw new OrderError(error.message, error.status); throw error }
+      await tx.order.update({ where: { id: orderId }, data: { status: 'new', sentToKitchenAt: now, qrApprovedAt: now, qrDecisionById: session.id } })
+      await tx.orderStatusHistory.create({ data: { orderId, fromStatus: 'pending', toStatus: 'new', changedById: session.id, note: 'تم اعتماد طلب QR وإرساله للمطبخ' } })
+      await notifyRole(tx, ROLE.KITCHEN, row.branch_id, { type: 'order.sent_to_kitchen', title: `طلب QR معتمد للمطبخ: ${row.order_number}`, orderId })
+    }
+
+    await tx.auditLog.create({ data: { userId: session.id, branchId: row.branch_id, action: 'waiter.qr_approve', entityType: 'order', entityId: orderId, newValues: { merged } } })
+
+    const result = { id: orderIdRaw, approved: true, idempotent: false, merged }
+    if (idempotencyKey) {
+      await tx.financialOperation.create({ data: { branchId: row.branch_id, actorId: session.id, operationType: 'qr_order_approve', idempotencyKey, fingerprint: '', result } })
+    }
+    return result
   })
 }
 
@@ -108,7 +242,7 @@ export async function rejectQrOrder(session: StaffSession, orderIdRaw: string, i
     const row = rows[0]
     if (!row || !staffCanAccessBranch(session, row.branch_id)) throw new OrderError('Order not found', 404)
     if (row.source !== 'qr' || row.responsible_waiter_id !== session.id) throw new OrderError('Only the responsible waiter may reject this QR order', 403)
-    if (row.status !== 'new' || row.sent_to_kitchen_at) throw new OrderError('Dispatched QR orders cannot be rejected', 409)
+    if (row.status !== 'pending' || row.sent_to_kitchen_at) throw new OrderError('Dispatched QR orders cannot be rejected', 409)
     const now = new Date()
     await tx.order.update({ where: { id: orderId }, data: { status: 'cancelled', cancelledAt: now, cancelReason: parsed.data.reason, qrRejectedAt: now, qrDecisionById: session.id } })
     await tx.orderStatusHistory.create({ data: { orderId, fromStatus: 'new', toStatus: 'cancelled', changedById: session.id, note: parsed.data.reason } })
@@ -540,7 +674,7 @@ export async function listUnclaimedQrOrders(session: StaffSession) {
       source: 'qr',
       responsibleWaiterId: null,
       branchId,
-      status: 'NEW',
+      status: 'pending',
       isArchived: false,
     },
     orderBy: { createdAt: 'desc' },

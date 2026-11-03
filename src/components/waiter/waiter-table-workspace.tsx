@@ -41,7 +41,7 @@ function responseError(data: unknown, fallback: string) {
 export function WaiterTableWorkspace({ workspace, table, initialOrderId }: { workspace: WaiterWorkspace; table: Table; initialOrderId?: string }) {
   const router = useRouter()
   const [, startTransition] = useTransition()
-  const orders = useMemo(() => workspace.openOrders.filter((order) => order.tableNumber === table.number && ['new', 'preparing', 'ready'].includes(order.status)), [table.number, workspace.openOrders])
+  const orders = useMemo(() => workspace.openOrders.filter((order) => order.tableNumber === table.number && order.status !== 'cancelled' && order.paymentStatus !== 'paid' && order.orderType === 'dine_in'), [table.number, workspace.openOrders])
   const editableOrder = orders.find((order) => order.status === 'new' && !order.sentToKitchen && order.responsibleWaiterId === workspace.currentUserId) ?? null
   const [draftQuantities, setDraftQuantities] = useState<Record<string, number>>({})
   const [draftNotes, setDraftNotes] = useState<Record<string, string>>({})
@@ -120,21 +120,44 @@ export function WaiterTableWorkspace({ workspace, table, initialOrderId }: { wor
       }
 
       if (pending.length) {
-        const createResponse = await fetch('/api/staff/pos/orders', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json', 'idempotency-key': requestKey.current },
-          body: JSON.stringify({
-            orderType: 'dine_in', tableId: table.id,
-            items: pending.map((line) => ({ productId: line.productId, variantId: line.variantId, modifierSelections: Object.entries(line.modifierSelections).map(([groupId, valueIds]) => ({ groupId, valueIds })), qty: line.qty, note: line.note.trim() || undefined })),
-          }),
-        })
-        const created: unknown = await createResponse.json().catch(() => null)
-        if (!createResponse.ok) throw new Error(responseError(created, 'تعذر إنشاء الإضافات الجديدة.'))
-        const orderId = created && typeof created === 'object' && 'id' in created && typeof created.id === 'string' ? created.id : null
-        if (!orderId) throw new Error('تم إنشاء الطلب لكن تعذر التحقق من رقمه؛ حدّث الصفحة قبل إعادة المحاولة.')
-        const sendResponse = await fetch(`/api/staff/orders/${orderId}/send`, { method: 'POST' })
-        const sent: unknown = await sendResponse.json().catch(() => null)
-        if (!sendResponse.ok) throw new Error(`تم حفظ الإضافات في الطلب ${orderId} لكنها لم تُرسل للمطبخ: ${responseError(sent, 'أعد المحاولة من الطلب غير المرسل.')}`)
+        // Prefer appending to an existing open order on this table so we never
+        // create a second active order. Fall back to creating a new order only
+        // when the table has no open order.
+        const targetOrder = editableOrder ?? orders[0]
+        if (targetOrder) {
+          const appendResponse = await fetch(`/api/staff/orders/${targetOrder.id}/items/append`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'idempotency-key': requestKey.current },
+            body: JSON.stringify({
+              items: pending.map((line) => ({
+                productId: line.productId,
+                variantId: line.variantId,
+                modifierSelections: Object.entries(line.modifierSelections).map(([groupId, valueIds]) => ({ groupId, valueIds })),
+                qty: line.qty,
+                note: line.note.trim() || undefined,
+              })),
+              idempotencyKey: requestKey.current,
+            }),
+          })
+          const appended: unknown = await appendResponse.json().catch(() => null)
+          if (!appendResponse.ok) throw new Error(responseError(appended, 'تعذر إضافة الأصناف إلى الطلب الموجود.'))
+        } else {
+          const createResponse = await fetch('/api/staff/pos/orders', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'idempotency-key': requestKey.current },
+            body: JSON.stringify({
+              orderType: 'dine_in', tableId: table.id,
+              items: pending.map((line) => ({ productId: line.productId, variantId: line.variantId, modifierSelections: Object.entries(line.modifierSelections).map(([groupId, valueIds]) => ({ groupId, valueIds })), qty: line.qty, note: line.note.trim() || undefined })),
+            }),
+          })
+          const created: unknown = await createResponse.json().catch(() => null)
+          if (!createResponse.ok) throw new Error(responseError(created, 'تعذر إنشاء الإضافات الجديدة.'))
+          const orderId = created && typeof created === 'object' && 'id' in created && typeof created.id === 'string' ? created.id : null
+          if (!orderId) throw new Error('تم إنشاء الطلب لكن تعذر التحقق من رقمه؛ حدّث الصفحة قبل إعادة المحاولة.')
+          const sendResponse = await fetch(`/api/staff/orders/${orderId}/send`, { method: 'POST' })
+          const sent: unknown = await sendResponse.json().catch(() => null)
+          if (!sendResponse.ok) throw new Error(`تم حفظ الإضافات في الطلب ${orderId} لكنها لم تُرسل للمطبخ: ${responseError(sent, 'أعد المحاولة من الطلب غير المرسل.')}`)
+        }
       }
 
       setDraftQuantities({})

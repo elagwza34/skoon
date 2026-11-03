@@ -77,8 +77,8 @@ import { modifierMutationSchema } from '../src/lib/staff-product-modifiers'
 import { canVoidOrderItemForOrder, orderItemVoidBlocker } from '../src/lib/staff-order-item-void'
 import { orderItemAdjustmentSchema, planOrderItemAdjustment } from '../src/lib/staff-order-item-adjustment'
 import { proportionalReservationConsumption } from '../src/lib/staff-inventory-engine'
-import { isKitchenTicketVisible, itemPreparationState, OrderError, takeawayDispatchBlocker, transitionOrderStatus } from '../src/lib/staff-orders'
-import { canTransitionOrder } from '../src/lib/staff-orders'
+import { isKitchenTicketVisible, itemPreparationState, OrderError, takeawayDispatchBlocker, transitionOrderStatus, appendOrderItemsSchema } from '../src/lib/staff-orders'
+import { canTransitionOrder, isOrderStatus } from '../src/lib/staff-orders'
 import { editWaiterOrder, waiterOrderEditSchema } from '../src/lib/staff-orders'
 import { canViewOwnerWaiterMonitor, isWaiterTableOrderActive } from '../src/lib/staff-waiter'
 import { isMissingWaiterHandoverTableError } from '../src/lib/staff-waiter'
@@ -165,11 +165,11 @@ test('kitchen lifecycle: line readiness is independent so an order can be partia
   assert.equal(itemPreparationState({ qty: 2, preparedQty: 2, preparationStartedAt: '2026-10-23T10:00:00.000Z' }), 'ready')
 })
 
-test('waiter lifecycle: cancelled and served orders do not occupy a table', () => {
+test('waiter lifecycle: cancelled orders do not occupy a table; served-but-unpaid orders remain occupied', () => {
   assert.equal(isWaiterTableOrderActive('new'), true)
   assert.equal(isWaiterTableOrderActive('preparing'), true)
   assert.equal(isWaiterTableOrderActive('ready'), true)
-  assert.equal(isWaiterTableOrderActive('served'), false)
+  assert.equal(isWaiterTableOrderActive('served'), true)
   assert.equal(isWaiterTableOrderActive('cancelled'), false)
 })
 
@@ -2363,5 +2363,116 @@ test('employee edit: staff login email resolves username or email', () => {
   assert.equal(staffLoginEmail('AHMED.SALEH'), 'ahmed.saleh@accounts.skoon.invalid')
   assert.equal(staffLoginEmail('ahmed@cafe.com'), 'ahmed@cafe.com')
   assert.equal(staffLoginEmail(''), null)
+})
+
+// ============================================================================
+// Table management regression tests — unified open-order workflow
+// ============================================================================
+
+test('table occupancy: paid orders do not occupy tables', () => {
+  assert.equal(isWaiterTableOrderActive('new', 'paid'), false)
+  assert.equal(isWaiterTableOrderActive('preparing', 'paid'), false)
+  assert.equal(isWaiterTableOrderActive('ready', 'paid'), false)
+  assert.equal(isWaiterTableOrderActive('new', 'unpaid'), true)
+  assert.equal(isWaiterTableOrderActive('preparing', 'unpaid'), true)
+  assert.equal(isWaiterTableOrderActive('ready', 'unpaid'), true)
+})
+
+test('table occupancy: cancelled orders do not occupy tables; served-but-unpaid orders remain occupied', () => {
+  assert.equal(isWaiterTableOrderActive('cancelled', 'unpaid'), false)
+  assert.equal(isWaiterTableOrderActive('cancelled', 'paid'), false)
+  assert.equal(isWaiterTableOrderActive('served', 'unpaid'), true)
+  assert.equal(isWaiterTableOrderActive('served', 'paid'), false)
+})
+
+test('table occupancy: undefined paymentStatus still counts active orders', () => {
+  assert.equal(isWaiterTableOrderActive('new', undefined), true)
+  assert.equal(isWaiterTableOrderActive('preparing', null), true)
+  assert.equal(isWaiterTableOrderActive('ready', null), true)
+})
+
+test('table occupancy: served-but-unpaid order remains occupied', () => {
+  assert.equal(isWaiterTableOrderActive('served', 'unpaid'), true)
+  assert.equal(isWaiterTableOrderActive('served', 'unpaid', 'dine_in'), true)
+})
+
+test('table occupancy: served-and-paid order releases table', () => {
+  assert.equal(isWaiterTableOrderActive('served', 'paid'), false)
+  assert.equal(isWaiterTableOrderActive('served', 'paid', 'dine_in'), false)
+})
+
+test('table occupancy: cancelled order releases table regardless of payment', () => {
+  assert.equal(isWaiterTableOrderActive('cancelled', 'unpaid'), false)
+  assert.equal(isWaiterTableOrderActive('cancelled', 'paid'), false)
+})
+
+test('table occupancy: takeaway order does not occupy table', () => {
+  assert.equal(isWaiterTableOrderActive('new', 'unpaid', 'takeaway'), false)
+  assert.equal(isWaiterTableOrderActive('preparing', 'unpaid', 'takeaway'), false)
+  assert.equal(isWaiterTableOrderActive('ready', 'unpaid', 'takeaway'), false)
+})
+
+test('table occupancy: orderType is not considered when null/undefined', () => {
+  assert.equal(isWaiterTableOrderActive('new', 'unpaid', undefined), true)
+  assert.equal(isWaiterTableOrderActive('new', 'unpaid', null), true)
+})
+
+test('table occupancy: pending QR order does not occupy table', () => {
+  assert.equal(isWaiterTableOrderActive('pending', 'unpaid'), false)
+  assert.equal(isWaiterTableOrderActive('pending', 'unpaid', 'dine_in'), false)
+})
+
+test('table management: isOrderStatus recognizes pending status', () => {
+  assert.equal(isOrderStatus('pending'), true)
+  assert.equal(isOrderStatus('new'), true)
+  assert.equal(isOrderStatus('served'), true)
+  assert.equal(isOrderStatus('cancelled'), true)
+  assert.equal(isOrderStatus('unknown'), false)
+})
+
+test('table management: canTransitionOrder supports pending transitions', () => {
+  assert.equal(canTransitionOrder('pending', 'new'), true)
+  assert.equal(canTransitionOrder('pending', 'cancelled'), true)
+  assert.equal(canTransitionOrder('new', 'pending'), false)
+  assert.equal(canTransitionOrder('served', 'pending'), false)
+})
+
+test('table management: append order items schema validates input', () => {
+  const valid = { items: [{ productId: '1', qty: 2, note: 'no sugar' }], idempotencyKey: 'append-key-1' }
+  assert.equal(appendOrderItemsSchema.safeParse(valid).success, true)
+
+  // Empty items rejected
+  assert.equal(appendOrderItemsSchema.safeParse({ items: [] }).success, false)
+  // Too many items rejected (> 30)
+  assert.equal(appendOrderItemsSchema.safeParse({ items: Array.from({ length: 31 }, () => ({ productId: '1', qty: 1 })) }).success, false)
+  // Invalid product id rejected
+  assert.equal(appendOrderItemsSchema.safeParse({ items: [{ productId: 'abc', qty: 1 }] }).success, false)
+  // Qty out of range rejected
+  assert.equal(appendOrderItemsSchema.safeParse({ items: [{ productId: '1', qty: 0 }] }).success, false)
+  assert.equal(appendOrderItemsSchema.safeParse({ items: [{ productId: '1', qty: 21 }] }).success, false)
+  // Idempotency key length validated (min 8, max 100)
+  assert.equal(appendOrderItemsSchema.safeParse({ items: [{ productId: '1', qty: 1 }], idempotencyKey: 'short' }).success, false)
+  // Valid variant id accepted
+  assert.equal(appendOrderItemsSchema.safeParse({ items: [{ productId: '1', variantId: '2', qty: 1 }] }).success, true)
+})
+
+test('table management: paid orders cannot be cancelled via status transition', () => {
+  // Transition map allows new→cancelled and preparing→cancelled by cashier,
+  // but transitionOrderStatus blocks cancelled when paymentStatus === 'paid'.
+  assert.equal(canTransitionOrder('new', 'cancelled'), true)
+  assert.equal(canTransitionOrder('preparing', 'cancelled'), true)
+  assert.equal(canTransitionOrder('served', 'cancelled'), false)
+  assert.equal(canTransitionOrder('cancelled', 'cancelled'), false)
+})
+
+test('table management: served and cancelled are terminal — table released', () => {
+  // Once served or cancelled, no further status transitions are legal,
+  // so the table becomes AVAILABLE.
+  assert.equal(canTransitionOrder('served', 'new'), false)
+  assert.equal(canTransitionOrder('served', 'preparing'), false)
+  assert.equal(canTransitionOrder('served', 'ready'), false)
+  assert.equal(canTransitionOrder('cancelled', 'new'), false)
+  assert.equal(canTransitionOrder('cancelled', 'preparing'), false)
+  assert.equal(canTransitionOrder('cancelled', 'ready'), false)
 })
 

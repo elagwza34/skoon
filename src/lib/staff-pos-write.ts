@@ -172,8 +172,9 @@ export async function createPosOrder(session: StaffSession, input: unknown, idem
         where: {
           branchId,
           cafeTableId: tableId,
-          status: { in: ['new', 'preparing', 'ready'] },
+          status: { not: 'cancelled' },
           paymentStatus: { not: 'paid' },
+          orderType: 'dine_in',
         },
         select: { id: true },
       })

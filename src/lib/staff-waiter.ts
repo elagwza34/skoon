@@ -100,10 +100,24 @@ export function canViewOwnerWaiterMonitor(role: string): boolean {
   return role === ROLE.OWNER
 }
 
-/** Only active, non-terminal orders occupy a table in the waiter workspace. */
-export function isWaiterTableOrderActive(status: string, paymentStatus?: string | null): boolean {
+/**
+ * Canonical table-occupancy predicate.
+ *
+ * A table is OCCUPIED when it has an open, financially unsettled dine-in order.
+ * "Open" means not cancelled and not pending (pending = awaiting waiter approval,
+ * not yet an active order). "Financially unsettled" means paymentStatus != 'paid'.
+ * Served-but-unpaid orders continue occupying the table — serving food does not
+ * release a table.
+ *
+ * Fully expressible using Order table columns alone (status, paymentStatus,
+ * orderType). No joins required.
+ */
+export function isWaiterTableOrderActive(status: string, paymentStatus?: string | null, orderType?: string | null): boolean {
   if (paymentStatus === 'paid') return false
-  return status === 'new' || status === 'preparing' || status === 'ready'
+  if (status === 'cancelled') return false
+  if (status === 'pending') return false
+  if (orderType === 'takeaway') return false
+  return true
 }
 
 /** A deployment/schema fault, not an authorization or shift failure. */
@@ -233,7 +247,10 @@ function loadWaiterWorkspaceData(session: StaffSession, branchScope: { branchId:
     prisma.order.findMany({
       where: {
         ...branchScope,
-        status: { in: ['new', 'preparing', 'ready'] },
+        responsibleWaiterId: session.id,
+        status: { not: 'cancelled' },
+        paymentStatus: { not: 'paid' },
+        orderType: 'dine_in',
       },
       orderBy: { createdAt: 'desc' },
       take: 100,

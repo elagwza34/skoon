@@ -26,6 +26,7 @@ export async function POST(req: Request) {
       'Invalid',
       'Table not found',
       'Menu changed',
+      'الطاولة مشغولة',
     ]
     const status = clientErrors.some((m) => message.includes(m)) ? 400 : 500
     return NextResponse.json({ error: message }, { status })

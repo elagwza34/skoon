@@ -353,8 +353,9 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
                   const tableOrders = workspace.openOrders.filter((o) => o.tableNumber === table.number)
                   const isOccupied = tableOrders.some(
                     (o) =>
-                      (o.status === 'new' || o.status === 'preparing' || o.status === 'ready') &&
-                      o.paymentStatus !== 'paid',
+                      o.status !== 'cancelled' &&
+                      o.paymentStatus !== 'paid' &&
+                      o.orderType === 'dine_in',
                   )
                     return (
                       <button

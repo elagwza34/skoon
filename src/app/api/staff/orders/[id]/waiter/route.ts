@@ -24,7 +24,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   try {
     let result: unknown
     if (body.action === 'claim_qr') result = await claimQrOrder(session, id)
-    else if (body.action === 'approve_qr') result = await approveQrOrder(session, id)
+    else     if (body.action === 'approve_qr') result = await approveQrOrder(session, id, body)
     else if (body.action === 'reject_qr') result = await rejectQrOrder(session, id, body)
     else if (body.action === 'reassign') result = await reassignOrderResponsibility(session, id, body)
     else if (body.action === 'transfer_table') result = await transferOrderTable(session, id, body)
