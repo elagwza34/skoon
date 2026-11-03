@@ -262,50 +262,52 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
   }, [router, startTransition])
 
   return (
-    <main dir="rtl" className="min-h-dvh bg-background">
-      {/* Header */}
-      <header className="border-b border-border bg-background/95 px-4 py-3 sm:px-6 backdrop-blur sticky top-0 z-30">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div>
-            <h1 className="text-lg font-bold">مساحة النادل</h1>
-            <p className="text-sm text-muted-foreground">
-              {workspace.branchName} · {workspace.employeeName}
-            </p>
-          </div>
+    <div dir="rtl" className="min-h-dvh bg-background">
+      <div className="sticky top-0 z-30 bg-background/95 backdrop-blur">
+        {/* Header */}
+        <header className="border-b border-border bg-background/95 px-4 py-3 sm:px-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <h1 className="text-lg font-bold">مساحة النادل</h1>
+              <p className="text-sm text-muted-foreground">
+                {workspace.branchName} · {workspace.employeeName}
+              </p>
+            </div>
 
-          <div className="flex min-w-0 flex-wrap gap-2">
-            {tab === 'pos' && (
-              <Button
-                type="button"
-                variant="outline"
-                className="border-orange-500 text-orange-600 hover:bg-orange-50 hover:text-orange-700"
-                onClick={() => setCartOpen(true)}
-              >
-                <Icon name="cart" size={17} /> سلة الطلب
-              </Button>
-            )}
-            {error ? <p role="alert" className="min-w-0 break-words rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}
-            {success ? <p className="min-w-0 break-words rounded-md border border-success/40 bg-success/10 px-3 py-2 text-sm text-success">{success}</p> : null}
+            <div className="flex min-w-0 flex-wrap gap-2">
+              {tab === 'pos' && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="border-orange-500 text-orange-600 hover:bg-orange-50 hover:text-orange-700"
+                  onClick={() => setCartOpen(true)}
+                >
+                  <Icon name="cart" size={17} /> سلة الطلب
+                </Button>
+              )}
+              {error ? <p role="alert" className="min-w-0 break-words rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}
+              {success ? <p className="min-w-0 break-words rounded-md border border-success/40 bg-success/10 px-3 py-2 text-sm text-success">{success}</p> : null}
+            </div>
           </div>
-        </div>
-      </header>
+        </header>
 
-      {/* Navigation Tabs */}
-      <nav className="sticky top-[73px] z-20 w-full border-b border-border bg-background/95 px-4 py-2 backdrop-blur lg:px-6" aria-label="القوائم">
-        <Segmented
-          options={[
-            { value: 'pos', label: TAB_LABELS.pos },
-            { value: 'tables', label: TAB_LABELS.tables },
-            { value: 'orders', label: TAB_LABELS.orders },
-            { value: 'qr', label: TAB_LABELS.qr },
-            { value: 'shift', label: TAB_LABELS.shift },
-          ]}
-          value={tab}
-          onChange={(value) => setTab(value as WorkspaceTab)}
-          ariaLabel="الأقسام"
-          className="w-full flex-nowrap justify-start overflow-x-auto"
-        />
-      </nav>
+        {/* Navigation Tabs */}
+        <nav className="border-b border-border bg-background/95 px-4 py-2 sm:px-6 lg:px-6" aria-label="القوائم">
+          <Segmented
+            options={[
+              { value: 'pos', label: TAB_LABELS.pos },
+              { value: 'tables', label: TAB_LABELS.tables },
+              { value: 'orders', label: TAB_LABELS.orders },
+              { value: 'qr', label: TAB_LABELS.qr },
+              { value: 'shift', label: TAB_LABELS.shift },
+            ]}
+            value={tab}
+            onChange={(value) => setTab(value as WorkspaceTab)}
+            ariaLabel="الأقسام"
+            className="w-full flex-nowrap justify-start overflow-x-auto"
+          />
+        </nav>
+      </div>
 
       <main className="min-w-0 w-full p-3 sm:p-4 lg:p-6">
         <div className="flex min-w-0 w-full flex-col gap-5">
