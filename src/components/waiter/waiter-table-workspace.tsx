@@ -38,6 +38,20 @@ function responseError(data: unknown, fallback: string) {
   return data && typeof data === 'object' && 'error' in data && typeof data.error === 'string' ? data.error : fallback
 }
 
+function ProductButton({ candidate, selected, alreadyQty, onChoose }: { candidate: Product; selected: boolean; alreadyQty: number; onChoose: () => void }) {
+  const base = 'rounded-lg p-3 text-right transition-all'
+  const cls = selected ? `${base} border-2 border-primary bg-primary/5 ring-1 ring-primary` : `${base} border border-muted hover:border-primary hover:bg-primary/5`
+  return (
+    <button type="button" onClick={onChoose} className={cls}>
+      <div className="flex items-center justify-between mb-1">
+        <span className="block font-medium">{candidate.name}</span>
+        {selected && <span className="text-xs font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded">×{alreadyQty}</span>}
+      </div>
+      <span className="text-sm text-primary">{candidate.variants.length ? 'اختر المتغير' : formatCurrency(Number(candidate.price))}</span>
+    </button>
+  )
+}
+
 export function WaiterTableWorkspace({ workspace, table, initialOrderId }: { workspace: WaiterWorkspace; table: Table; initialOrderId?: string }) {
   const router = useRouter()
   const [, startTransition] = useTransition()
@@ -120,9 +134,6 @@ export function WaiterTableWorkspace({ workspace, table, initialOrderId }: { wor
       }
 
       if (pending.length) {
-        // Prefer appending to an existing open order on this table so we never
-        // create a second active order. Fall back to creating a new order only
-        // when the table has no open order.
         const targetOrder = editableOrder ?? orders[0]
         if (targetOrder) {
           const appendResponse = await fetch(`/api/staff/orders/${targetOrder.id}/items/append`, {
@@ -287,7 +298,7 @@ export function WaiterTableWorkspace({ workspace, table, initialOrderId }: { wor
 
     <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-background/95 p-3 backdrop-blur"><div className="mx-auto flex max-w-6xl gap-2"><Button variant="outline" className="flex-1" onClick={() => setModalOpen(true)}><Icon name="plus" size={16} /> إضافة صنف</Button><Button className="flex-[2]" disabled={!hasDraft || busy} onClick={() => void save()}>{busy ? 'جارٍ الحفظ…' : 'حفظ وإرسال التغييرات للمطبخ'}</Button></div></div>
     {modalOpen ? <AddProductModal tableNumber={table.number} products={workspace.products} categories={workspace.categories} pending={pending} setPending={setPending} onClose={() => setModalOpen(false)} /> : null}
-    {cartOpen ? <div role="dialog" aria-modal="true" aria-label="سلة الطلب" className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-2 sm:p-4" dir="rtl"><Card className="flex max-h-[calc(100dvh-1rem)] w-full max-w-2xl flex-col overflow-hidden"><CardHeader className="flex-row items-center justify-between border-b"><div><CardTitle>سلة الطلب — طاولة {table.number}</CardTitle><p className="text-xs text-muted-foreground">{selectedOrder ? selectedOrder.number : 'طلب جديد'}</p></div><Button variant="ghost" size="sm" onClick={() => setCartOpen(false)}>إغلاق</Button></CardHeader><CardContent className="min-h-0 space-y-3 overflow-y-auto p-4">{selectedOrder ? <section className="space-y-2"><h3 className="font-semibold">الأصناف المحفوظة</h3>{selectedOrder.items.map((item) => { const product = workspace.products.find((candidate) => candidate.id === item.productId); const target = quantityTargets[item.id] ?? item.qty; const replaceQty = variantQuantities[item.id] ?? item.qty; return <div key={item.id} className="space-y-3 rounded border p-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="font-medium">{item.name}</p><p className="text-xs text-muted-foreground">{item.variantLabel ?? ''}{item.details.length ? ` · ${item.details.join(' · ')}` : ''} · {itemStatus(item)}</p><p className="text-xs">الأصلية: {item.qty} · المحضرة: {item.preparedQty} · المقدمة: {item.servedQty}</p></div><span>{formatCurrency(item.unitPrice)} × {item.qty}</span></div>{item.servedQty === 0 ? <div className="grid gap-2 border-t pt-3 sm:grid-cols-2"><div className="space-y-2 rounded bg-muted/30 p-2"><label className="text-xs font-medium">الكمية المطلوبة</label><Input type="number" min={1} max={99} value={target} onChange={(event) => setQuantityTargets((current) => ({ ...current, [item.id]: Math.max(1, Math.min(99, Number(event.target.value) || 1)) }))} /><p className="text-xs text-muted-foreground">{target < item.preparedQty ? `سيُسجل هالك ${item.preparedQty - target}` : target > item.qty ? `عمل جديد ${target - item.qty}` : `تحرير ${item.qty - target} من الحجز`}</p><Button size="sm" className="w-full" disabled={busy || target === item.qty} onClick={() => void adjustSavedItem(selectedOrder, item, 'quantity')}>حفظ الكمية</Button></div>{product && product.variants.length > 1 ? <div className="space-y-2 rounded bg-muted/30 p-2"><label className="text-xs font-medium">استبدال المتغير</label><select className="h-10 w-full rounded border bg-background px-2" value={variantTargets[item.id] ?? ''} onChange={(event) => setVariantTargets((current) => ({ ...current, [item.id]: event.target.value }))}><option value="">اختر البديل</option>{product.variants.filter((variant) => variant.id !== item.variantId).map((variant) => <option key={variant.id} value={variant.id}>{variant.label}</option>)}</select><Input type="number" min={1} max={item.qty} value={replaceQty} onChange={(event) => setVariantQuantities((current) => ({ ...current, [item.id]: Math.max(1, Math.min(item.qty, Number(event.target.value) || 1)) }))} aria-label="كمية الاستبدال" /><p className="text-xs text-muted-foreground">{Math.max(0, replaceQty - (item.qty - item.preparedQty)) ? `قد ينتج هالك ${Math.max(0, replaceQty - (item.qty - item.preparedQty))}` : 'سيُستبدل من غير المحضر أولًا'}</p><Button size="sm" className="w-full" disabled={busy || !variantTargets[item.id]} onClick={() => void adjustSavedItem(selectedOrder, item, 'variant')}>تأكيد الاستبدال</Button></div> : null}</div> : <p className="text-xs text-destructive">تم تقديم جزء من السطر؛ يلزم مسار تصحيح مالي وتشغيلي مصرح.</p>}{item.servedQty === 0 && selectedOrder.items.length > 1 ? <Button size="sm" variant="destructive" disabled={busy} onClick={() => void cancelSavedItem(selectedOrder, item)}>إلغاء الصنف بالكامل</Button> : null}</div>})}</section> : null}<section className="space-y-2"><h3 className="font-semibold">التغييرات غير المحفوظة</h3>{pending.length ? pending.map((line) => { const product = workspace.products.find((candidate) => candidate.id === line.productId); return <div key={line.key} className="flex items-center justify-between gap-2 rounded border p-3"><span>{product?.name} × {line.qty}</span><Button size="icon" variant="ghost" className="text-destructive" onClick={() => setPending((current) => current.filter((candidate) => candidate.key !== line.key))}><Icon name="trash" size={15} /></Button></div> }) : <p className="text-sm text-muted-foreground">لا توجد تغييرات معلّقة.</p>}</section><div className="flex flex-wrap justify-end gap-2 border-t pt-3"><Button variant="outline" onClick={() => { setCartOpen(false); setModalOpen(true) }}>متابعة التعديل</Button><Button disabled={!hasDraft || busy} onClick={() => void save()}>حفظ وإرسال للمطبخ</Button></div></CardContent></Card></div> : null}
+    {cartOpen ? <div role="dialog" aria-modal="true" aria-label="سلة الطلب" className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-2 sm:p-4" dir="rtl"><Card className="flex max-h-[calc(100dvh-1rem)] w-full max-w-2xl flex-col overflow-hidden"><CardHeader className="flex-row items-center justify-between border-b"><div><CardTitle>سلة الطلب — طاولة {table.number}</CardTitle><p className="text-xs text-muted-foreground">{selectedOrder ? selectedOrder.number : 'طلب جديد'}</p></div><Button variant="ghost" size="sm" onClick={() => setCartOpen(false)}>إغلاق</Button></CardHeader><CardContent className="min-h-0 space-y-3 overflow-y-auto p-4">{selectedOrder ? <section className="space-y-2"><h3 className="font-semibold">الأصناف المحفوظة</h3>{selectedOrder.items.map((item) => { const product = workspace.products.find((candidate) => candidate.id === item.productId); const target = quantityTargets[item.id] ?? item.qty; const replaceQty = variantQuantities[item.id] ?? item.qty; return <div key={item.id} className="space-y-3 rounded border p-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="font-medium">{item.name}</p><p className="text-xs text-muted-foreground">{item.variantLabel ?? ''}{item.details.length ? ` · ${item.details.join(' · ')}` : ''} · {itemStatus(item)}</p><p className="text-xs">الأصلية: {item.qty} · المحضرة: {item.preparedQty} · المقدمة: {item.servedQty}</p></div><span>{formatCurrency(item.unitPrice)} × {item.qty}</span></div>{item.servedQty === 0 ? <div className="grid gap-2 border-t pt-3 sm:grid-cols-2"><div className="space-y-2 rounded bg-muted/30 p-2"><label className="text-xs font-medium">الكمية المطلوبة</label><Input type="number" min={1} max={99} value={target} onChange={(event) => setQuantityTargets((current) => ({ ...current, [item.id]: Math.max(1, Math.min(99, Number(event.target.value) || 1)) }))} /><p className="text-xs text-muted-foreground">{target < item.preparedQty ? `سيُسجل هالك ${item.preparedQty - target} unidades` : ''}</p></div></div> : null}</div>})}</section> : null}</CardContent></Card></div> : null}
   </main>
 }
 
@@ -300,6 +311,9 @@ function AddProductModal({ tableNumber, products, categories, pending, setPendin
   const [selections, setSelections] = useState<Record<string, string[]>>({})
   const [qty, setQty] = useState(1)
   const [note, setNote] = useState('')
+
+  const pendingQtyByProduct = useMemo(() => pending.reduce((acc, line) => { acc[line.productId] = (acc[line.productId] ?? 0) + line.qty; return acc }, {} as Record<string, number>), [pending])
+
   const filtered = products.filter((candidate) => candidate.isAvailable && (category === 'all' || candidate.categoryId === category) && candidate.name.toLowerCase().includes(search.trim().toLowerCase()))
   const variant = product?.variants.find((candidate) => candidate.id === variantId)
   const modifierPrice = product?.modifierGroups.flatMap((group) => group.options.filter((option) => (selections[group.id] ?? []).includes(option.id))).reduce((sum, option) => sum + Number(option.priceAdjustment), 0) ?? 0
@@ -308,16 +322,99 @@ function AddProductModal({ tableNumber, products, categories, pending, setPendin
   useEffect(() => { closeButton.current?.focus() }, [])
   useEffect(() => { const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }; window.addEventListener('keydown', escape); return () => window.removeEventListener('keydown', escape) }, [onClose])
 
-  function choose(candidate: Product) { setProduct(candidate); setVariantId(''); setSelections({}); setQty(1); setNote('') }
+  function choose(candidate: Product) {
+    const existingQty = pendingQtyByProduct[candidate.id] ?? 0
+    if (existingQty > 0) {
+      setPending((current) => current.map((line) => line.productId === candidate.id ? { ...line, qty: line.qty + 1 } : line))
+      return
+    }
+    setProduct(candidate)
+    setVariantId('')
+    setSelections({})
+    setQty(1)
+    setNote('')
+  }
   function toggle(groupId: string, optionId: string, max: number) { setSelections((current) => { const values = current[groupId] ?? []; const next = values.includes(optionId) ? values.filter((id) => id !== optionId) : max === 1 ? [optionId] : values.length < max ? [...values, optionId] : values; return { ...current, [groupId]: next } }) }
 
-  return <div role="dialog" aria-modal="true" aria-labelledby="add-product-title" className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-0 sm:p-4" dir="rtl">
-    <Card className="flex h-dvh w-full flex-col overflow-hidden rounded-none sm:h-auto sm:max-h-[calc(100dvh-2rem)] sm:max-w-4xl sm:rounded-lg">
-      <CardHeader className="flex-row items-center justify-between border-b"><CardTitle id="add-product-title">إنشاء طلب — طاولة {tableNumber}</CardTitle><Button ref={closeButton} size="sm" variant="ghost" onClick={onClose}>إغلاق</Button></CardHeader>
-      <CardContent className="min-h-0 flex-1 overflow-y-auto p-4">
-        {!product ? <><div className="grid gap-2 sm:grid-cols-[1fr_220px]"><Input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} placeholder="ابحث عن صنف…" aria-label="بحث المنتجات" /><select value={category} onChange={(event) => setCategory(event.target.value)} className="h-10 rounded border bg-background px-3"><option value="all">كل الأقسام</option>{categories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div><div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">{filtered.map((candidate) => <button type="button" key={candidate.id} onClick={() => choose(candidate)} className="rounded-lg border p-3 text-right hover:border-primary hover:bg-primary/5"><span className="block font-medium">{candidate.name}</span><span className="text-sm text-primary">{candidate.variants.length ? 'اختر المتغير' : formatCurrency(Number(candidate.price))}</span></button>)}</div></> : <div className="space-y-4"><Button variant="ghost" size="sm" onClick={() => setProduct(null)}>رجوع للمنتجات</Button><div><h3 className="text-lg font-bold">{product.name}</h3><p className="text-sm text-muted-foreground">السعر المعروض تقديري، والخادم يعيد احتسابه عند الحفظ.</p></div>{product.variants.length ? <label className="block text-sm"><span className="mb-1 block font-medium">المتغير *</span><select value={variantId} onChange={(event) => setVariantId(event.target.value)} className="h-10 w-full rounded border bg-background px-3"><option value="">اختر المتغير</option>{product.variants.map((item) => <option key={item.id} value={item.id}>{item.label} — {formatCurrency(Number(item.price))}</option>)}</select></label> : null}{product.modifierGroups.map((group) => <fieldset key={group.id} className="rounded-lg border p-3"><legend className="px-1 text-sm font-semibold">{group.name} {group.isRequired ? '*' : ''} ({group.minSelections}–{group.maxSelections})</legend><div className="grid gap-2 sm:grid-cols-2">{group.options.map((option) => <label key={option.id} className={cn('flex items-center justify-between gap-2 rounded border p-2', !option.isActive && 'opacity-50')}><span><input type={group.maxSelections === 1 ? 'radio' : 'checkbox'} name={`group-${group.id}`} checked={(selections[group.id] ?? []).includes(option.id)} disabled={!option.isActive} onChange={() => toggle(group.id, option.id, group.maxSelections)} /> <span>{option.label}</span></span><span className="text-xs">{Number(option.priceAdjustment) ? `+${formatCurrency(Number(option.priceAdjustment))}` : ''}</span></label>)}</div></fieldset>)}<div className="flex items-center gap-2"><Button size="icon" variant="outline" onClick={() => setQty((value) => Math.max(1, value - 1))}><Icon name="minus" size={14} /></Button><span className="w-8 text-center">{qty}</span><Button size="icon" variant="outline" onClick={() => setQty((value) => Math.min(20, value + 1))}><Icon name="plus" size={14} /></Button></div><Input value={note} maxLength={255} onChange={(event) => setNote(event.target.value)} placeholder="ملاحظات المطبخ (اختياري)" /><p className="font-bold">الإجمالي التقديري: {formatCurrency(((variant ? Number(variant.price) : Number(product.price)) + modifierPrice) * qty)}</p></div>}
-      </CardContent>
-      <div className="shrink-0 border-t bg-background p-3"><div className="mb-2 flex items-center justify-between text-sm"><span>مسودة الطلب: {pending.reduce((sum, line) => sum + line.qty, 0)} أصناف</span><Button variant="outline" size="sm" onClick={onClose}>مراجعة السلة</Button></div>{product ? <Button className="w-full" disabled={!ready} onClick={() => { setPending((current) => [...current, { key: crypto.randomUUID(), productId: product.id, variantId: variantId || undefined, modifierSelections: selections, qty, note }]); setProduct(null) }}>إضافة للطلب ومتابعة الاختيار</Button> : null}</div>
-    </Card>
-  </div>
+  return (
+    <div role="dialog" aria-modal="true" aria-labelledby="add-product-title" className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-0 sm:p-4" dir="rtl">
+      <Card className="flex h-dvh w-full flex-col overflow-hidden rounded-none sm:h-auto sm:max-h-[calc(100dvh-2rem)] sm:max-w-4xl sm:rounded-lg">
+        <CardHeader className="flex-row items-center justify-between border-b"><CardTitle id="add-product-title">إنشاء طلب — طاولة {tableNumber}</CardTitle><Button ref={closeButton} size="sm" variant="ghost" onClick={onClose}>إغلاق</Button></CardHeader>
+        <CardContent className="min-h-0 flex-1 overflow-y-auto p-4">
+          {!product ? (
+            <>
+              <div className="grid gap-2 sm:grid-cols-[1fr_220px]">
+                <Input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} placeholder="ابحث عن صنف…" aria-label="بحث المنتجات" />
+                <select value={category} onChange={(event) => setCategory(event.target.value)} className="h-10 rounded border bg-background px-3">
+                  <option value="all">كل الأقسام</option>
+                  {categories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                </select>
+              </div>
+              <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+                {filtered.map((candidate) => {
+                  const alreadyQty = pendingQtyByProduct[candidate.id] ?? 0
+                  const selected = alreadyQty > 0
+                  return (
+                    <ProductButton key={candidate.id} candidate={candidate} selected={selected} alreadyQty={alreadyQty} onChoose={() => choose(candidate)} />
+                  )
+                })}
+              </div>
+            </>
+          ) : (
+            <div className="space-y-4">
+              <Button variant="ghost" size="sm" onClick={() => setProduct(null)}>رجوع للمنتجات</Button>
+              <div>
+                <h3 className="text-lg font-bold">{product.name}</h3>
+                <p className="text-sm text-muted-foreground">السعر المعروض تقديري، والخادم يعيد احتسابه عند الحفظ.</p>
+              </div>
+              {product.variants.length ? (
+                <label className="block text-sm">
+                  <span className="mb-1 block font-medium">المتغير *</span>
+                  <select value={variantId} onChange={(event) => setVariantId(event.target.value)} className="h-10 w-full rounded border bg-background px-3">
+                    <option value="">اختر المتغير</option>
+                    {product.variants.map((item) => <option key={item.id} value={item.id}>{item.label} — {formatCurrency(Number(item.price))}</option>)}
+                  </select>
+                </label>
+              ) : null}
+              {product.modifierGroups.map((group) => (
+                <fieldset key={group.id} className="rounded-lg border p-3">
+                  <legend className="px-1 text-sm font-semibold">{group.name} {group.isRequired ? '*' : ''} ({group.minSelections}–{group.maxSelections})</legend>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {group.options.map((option) => (
+                      <label key={option.id} className="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" checked={(selections[group.id] ?? []).includes(option.id)} onChange={() => toggle(group.id, option.id, group.maxSelections)} className="rounded border-primary" />
+                        <span className="text-sm">{option.label}</span>
+                        <span className="ml-auto text-xs text-muted-foreground">{Number(option.priceAdjustment) > 0 ? '+' + formatCurrency(Number(option.priceAdjustment)) : ''}</span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+              ))}
+              <div className="mt-3 flex items-center justify-between gap-2">
+                <label className="text-sm font-medium">ملاحظات المطبخ</label>
+                <Input className="flex-1" maxLength={255} value={note} onChange={(event) => setNote(event.target.value)} placeholder="ملاحظات للمطبخ" />
+              </div>
+              <div className="mt-2 text-right">
+                <label className="text-xs font-medium">الكمية</label>
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="sm" onClick={() => setQty((q) => Math.max(1, q - 1))}>-</Button>
+                  <span className="w-8 text-center font-semibold">{qty}</span>
+                  <Button variant="outline" size="sm" onClick={() => setQty((q) => Math.min(20, q + 1))}>+</Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </CardContent>
+        <div className="shrink-0 border-t bg-background p-3">
+          <div className="mb-2 flex items-center justify-between text-sm">
+            <span>مسودة الطلب: {pending.reduce((sum, line) => sum + line.qty, 0)} أصناف</span>
+            <Button variant="outline" size="sm" onClick={onClose}>مراجعة السلة</Button>
+          </div>
+          {product ? (
+            <Button className="w-full" disabled={!ready} onClick={() => { setPending((current) => [...current, { key: crypto.randomUUID(), productId: product.id, variantId: variantId || undefined, modifierSelections: selections, qty, note }]); setProduct(null) }}>إضافة للطلب ومتابعة الاختيار</Button>
+          ) : null}
+        </div>
+      </Card>
+    </div>
+  )
 }
