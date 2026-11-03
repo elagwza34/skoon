@@ -234,10 +234,15 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
   }
 
   const handleCancelOrder = async (orderId: string) => {
-    if (!window.confirm('هل أنت متأكد من إلغاء هذا الطلب؟')) return
+    const reason = window.prompt('سبب الإلغاء (مطلوب)')?.trim()
+    if (!reason) { setError('سبب الإلغاء مطلوب.'); return }
     setError(null)
     try {
-      await fetch(`/api/staff/orders/${orderId}/cancel`, { method: 'POST' })
+      await fetch(`/api/staff/orders/${orderId}/status`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ to: 'cancelled', reason }),
+      })
       startTransition(() => router.refresh())
       setSuccess('تم إلغاء الطلب')
       setTimeout(() => setSuccess(null), 3000)
