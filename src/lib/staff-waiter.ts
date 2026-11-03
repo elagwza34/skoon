@@ -250,7 +250,6 @@ function loadWaiterWorkspaceData(session: StaffSession, branchScope: { branchId:
         responsibleWaiterId: session.id,
         status: { not: 'cancelled' },
         paymentStatus: { not: 'paid' },
-        orderType: 'dine_in',
       },
       orderBy: { createdAt: 'desc' },
       take: 100,

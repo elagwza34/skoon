@@ -174,7 +174,6 @@ export async function createPosOrder(session: StaffSession, input: unknown, idem
           cafeTableId: tableId,
           status: { not: 'cancelled' },
           paymentStatus: { not: 'paid' },
-          orderType: 'dine_in',
         },
         select: { id: true },
       })

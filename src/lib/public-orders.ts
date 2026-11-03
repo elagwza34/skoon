@@ -79,7 +79,6 @@ export async function createPublicOrder(input: CreateOrderInput & { idempotencyK
       cafeTableId: tableId,
       status: { not: 'cancelled' },
       paymentStatus: { not: 'paid' },
-      orderType: 'dine_in',
     },
     select: { id: true },
   })
@@ -142,7 +141,6 @@ export async function createPublicOrder(input: CreateOrderInput & { idempotencyK
         cafeTableId: tableId,
         status: { not: 'cancelled' },
         paymentStatus: { not: 'paid' },
-        orderType: 'dine_in',
       },
       select: { id: true },
     })
