@@ -18,6 +18,7 @@ export default function AppError({
   error: Error & { digest?: string }
   reset: () => void
 }) {
+  const networkError = /network error|failed to fetch|fetch failed|load failed|loading chunk|chunkloaderror/i.test(error.message)
   useEffect(() => {
     console.error('[skoon] staff area error:', error)
   }, [error])
@@ -30,7 +31,7 @@ export default function AppError({
         </div>
         <h1 className="mb-2 text-lg font-bold">حدث خطأ غير متوقع</h1>
         <p className="mb-4 text-sm leading-relaxed text-muted-foreground">
-          تعذّر تحميل لوحة التحكم. التفاصيل أدناه مفيدة لتشخيص السبب على السيرفر.
+          {networkError ? 'انقطع الاتصال أثناء تحميل الصفحة. تأكد من اتصال الإنترنت ثم أعد المحاولة.' : 'تعذّر تحميل لوحة التحكم. التفاصيل أدناه مفيدة لتشخيص السبب على السيرفر.'}
         </p>
 
         <div
@@ -45,7 +46,10 @@ export default function AppError({
 
         <button
           type="button"
-          onClick={reset}
+          onClick={() => {
+            if (networkError) window.location.reload()
+            else reset()
+          }}
           className="rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition hover:opacity-90"
         >
           إعادة المحاولة

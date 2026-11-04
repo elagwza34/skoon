@@ -35,7 +35,7 @@ export function CashierWorkspace({ session, board, branchName, invoices, product
   products: { id: string; name: string; price: string; variants?: { id: string; label: string; price: string }[] }[]; catalog: PosCatalog; sharedFloat: SharedFloatSummary
   openOrders?: WaiterWorkspace['openOrders']
 }) {
-  const router = useRouter(); const [, startTransition] = useTransition()
+  const router = useRouter(); const [refreshPending, startTransition] = useTransition()
   const [tab, setTab] = useState<Tab>('pos'); const [openModal, setOpenModal] = useState(false)
   const [openingCash, setOpeningCash] = useState(''); const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null); const [logoutError, setLogoutError] = useState<string | null>(null)
   const refresh = useCallback(() => startTransition(() => router.refresh()), [startTransition, router])
@@ -69,12 +69,13 @@ export function CashierWorkspace({ session, board, branchName, invoices, product
     }
   }
 
-  // Auto-refresh table/order status every second so both cashier and
-  // waiter screens stay in sync without manual reload.
+  // Avoid overlapping refreshes and requests while the station is offline.
   useEffect(() => {
-    const timer = setInterval(() => refresh(), 5_000)
+    const timer = setInterval(() => {
+      if (navigator.onLine && document.visibilityState === 'visible' && !refreshPending && !busy) refresh()
+    }, 5_000)
     return () => clearInterval(timer)
-  }, [refresh])
+  }, [refresh, refreshPending, busy])
 
   return <div className="min-h-screen w-full bg-background" dir="rtl">
     <div className="sticky top-0 z-30 bg-background/95 backdrop-blur">
