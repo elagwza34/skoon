@@ -42,7 +42,7 @@ function ProductButton({ candidate, selected, alreadyQty, onChoose }: { candidat
   const base = 'rounded-lg p-3 text-right transition-all'
   const cls = selected ? `${base} border-2 border-primary bg-primary/5 ring-1 ring-primary` : `${base} border border-muted hover:border-primary hover:bg-primary/5`
   return (
-    <button type="button" onClick={onChoose} className={cls}>
+    <button type="button" onClick={onChoose} disabled={!candidate.isAvailable} className={cls}>
       <div className="flex items-center justify-between mb-1">
         <span className="block font-medium">{candidate.name}</span>
         {selected && <span className="text-xs font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded">×{alreadyQty}</span>}
@@ -50,7 +50,7 @@ function ProductButton({ candidate, selected, alreadyQty, onChoose }: { candidat
       <div className="flex items-center justify-between mt-1">
         <span className="text-sm text-primary">{candidate.variants.length ? 'اختر المتغير' : formatCurrency(Number(candidate.price))}</span>
         <div className="flex items-center gap-1">
-          <Button variant="outline" size="icon" className="h-6 w-6" onClick={(e) => { e.stopPropagation(); onChoose() }} disabled={!candidate.isAvailable}><Icon name="plus" size={12} /></Button>
+          <span aria-hidden="true" className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border"><Icon name="plus" size={12} /></span>
         </div>
       </div>
     </button>
