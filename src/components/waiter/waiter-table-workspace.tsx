@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -9,7 +9,11 @@ import { Icon } from '@/components/ui/icon'
 import { Input } from '@/components/ui/input'
 import { formatCurrency } from '@/lib/format'
 import type { WaiterWorkspace } from '@/lib/staff-waiter'
-import { cn } from '@/lib/utils'
+import { TableQrRequests } from '@/components/waiter/table-qr-requests'
+import { isActiveTableOrder, canManageTableOrder, mayAppendToOrder } from '@/lib/table-order-policy'
+import { InvoiceBoard } from '@/components/cashier/invoice-board'
+import type { InvoiceRow } from '@/lib/staff-invoices'
+import { parseOrderItemQuantity } from '@/lib/order-item-quantity'
 
 type Product = WaiterWorkspace['products'][number]
 type Order = WaiterWorkspace['openOrders'][number]
@@ -57,341 +61,101 @@ function ProductButton({ candidate, selected, alreadyQty, onChoose }: { candidat
   )
 }
 
-export function WaiterTableWorkspace({ workspace, table, initialOrderId }: { workspace: WaiterWorkspace; table: Table; initialOrderId?: string }) {
+export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { workspace: WaiterWorkspace; table: Table; initialOrderId?: string; invoices?: InvoiceRow[] }) {
   const router = useRouter()
-  const [, startTransition] = useTransition()
-  const orders = useMemo(() => workspace.openOrders.filter((order) => order.tableNumber === table.number && order.orderType === 'dine_in'), [table.number, workspace.openOrders])
-  const activeOrders = orders.filter((order) => order.status !== 'cancelled' && order.paymentStatus !== 'paid')
-  const editableOrder = activeOrders.find((order) => order.status === 'new' && !order.sentToKitchen && order.responsibleWaiterId === workspace.currentUserId) ?? null
-  const [draftQuantities, setDraftQuantities] = useState<Record<string, number>>({})
-  const [draftNotes, setDraftNotes] = useState<Record<string, string>>({})
-  const [removedItemIds, setRemovedItemIds] = useState<string[]>([])
+  const role = workspace.currentRole ?? 'waiter'
+  const order = workspace.openOrders.find((candidate) => candidate.tableId === table.id && isActiveTableOrder(candidate)) ?? null
+  const canManage = order ? canManageTableOrder(role, workspace.currentUserId, order.responsibleWaiterId) : table.openOrders === 0
+  const canAppend = order ? mayAppendToOrder(order.status, order.paymentStatus) : true
   const [pending, setPending] = useState<PendingLine[]>([])
-  const [modalOpen, setModalOpen] = useState(false)
-  const [cartOpen, setCartOpen] = useState(Boolean(initialOrderId))
-  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(initialOrderId ?? null)
-  const [quantityTargets, setQuantityTargets] = useState<Record<string, number>>({})
-  const [variantTargets, setVariantTargets] = useState<Record<string, string>>({})
-  const [variantQuantities, setVariantQuantities] = useState<Record<string, number>>({})
+  const [showAddPanel, setShowAddPanel] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [notice, setNotice] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [search, setSearch] = useState('')
-  const [category, setCategory] = useState('all')
-  const [activeTab, setActiveTab] = useState<'pos' | 'orders' | 'reports'>('pos')
-  const pendingQtyByProduct = useMemo(() => pending.reduce((acc, line) => { acc[line.productId] = (acc[line.productId] ?? 0) + line.qty; return acc }, {} as Record<string, number>), [pending])
-  const filtered = workspace.products.filter((candidate) => candidate.isAvailable && (category === 'all' || candidate.categoryId === category) && candidate.name.toLowerCase().includes(search.trim().toLowerCase()))
-  const requestKey = useRef(crypto.randomUUID())
-  const draftKey = `skoon.waiter.table-draft:${workspace.currentUserId}:${workspace.branchId}:${table.id}`
-  const selectedOrder = orders.find((order) => order.id === selectedOrderId) ?? null
-
-  const hasExistingDraft = !!removedItemIds.length || (editableOrder?.items.some((item) => (draftQuantities[item.id] ?? item.qty) !== item.qty || (draftNotes[item.id] ?? item.note ?? '') !== (item.note ?? '')) ?? false)
-  const hasDraft = hasExistingDraft || pending.length > 0
-
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [tab, setTab] = useState<'items' | 'history' | 'kitchen' | 'invoice'>('items')
+  const inFlight = useRef(false)
+  const attempt = useRef<{ fingerprint: string; key: string } | null>(null)
+  const createdOrder = useRef<string | null>(null)
+  const mode = order ? 'ADD_ITEMS' : 'CREATE_ORDER'
+  const home = role === 'cashier' ? '/cashier' : '/waiter'
+  const identity = order?.id ?? 'new'
   useEffect(() => {
-    const warn = (event: BeforeUnloadEvent) => { if (hasDraft) event.preventDefault() }
+    const timer = window.setInterval(() => { if (!pending.length && !showAddPanel && !inFlight.current && !document.hidden && navigator.onLine) router.refresh() }, 15000)
+    return () => window.clearInterval(timer)
+  }, [router, pending.length, showAddPanel])
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => { if (pending.length) event.preventDefault() }
     window.addEventListener('beforeunload', warn)
     return () => window.removeEventListener('beforeunload', warn)
-  }, [hasDraft])
-
-  useEffect(() => {
-    const interval = window.setInterval(() => { if (!hasDraft && !modalOpen && !busy) startTransition(() => router.refresh()) }, 20_000)
-    return () => window.clearInterval(interval)
-  }, [busy, hasDraft, modalOpen, router])
-
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(draftKey)
-      if (!raw) return
-      const value = JSON.parse(raw) as { pending?: PendingLine[] }
-      if (Array.isArray(value.pending)) setPending(value.pending.filter((line) => workspace.products.some((product) => product.id === line.productId)))
-    } catch { window.localStorage.removeItem(draftKey) }
-  }, [draftKey, workspace.products])
-
-  useEffect(() => {
-    try {
-      if (pending.length) window.localStorage.setItem(draftKey, JSON.stringify({ pending }))
-      else window.localStorage.removeItem(draftKey)
-    } catch { /* The in-memory draft remains usable when storage is unavailable. */ }
-  }, [draftKey, pending])
-
-  function changeExisting(item: Order['items'][number], delta: number) {
-    setDraftQuantities((current) => ({ ...current, [item.id]: Math.max(1, Math.min(20, (current[item.id] ?? item.qty) + delta)) }))
+  }, [pending.length])
+  async function request(url: string, payload?: unknown, key?: string) {
+    const response = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', ...(key ? { 'idempotency-key': key } : {}) }, ...(payload === undefined ? {} : { body: JSON.stringify(payload) }) })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(data.error || 'تعذر تنفيذ العملية؛ حدّث حالة الطاولة')
+    return data
   }
-
-  function choose(candidate: Product) {
-    const existingQty = pendingQtyByProduct[candidate.id] ?? 0
-    if (existingQty > 0) {
-      setPending((current) => current.map((line) => line.productId === candidate.id ? { ...line, qty: line.qty + 1 } : line))
-      return
-    }
-    // Simple product: add directly to pending with qty=1
-    if (!candidate.variants.length && !candidate.modifierGroups.length) {
-      setPending((current) => [...current, { key: crypto.randomUUID(), productId: candidate.id, variantId: undefined, modifierSelections: {}, qty: 1, note: '' }])
-      return
-    }
-    // Complex product: open modal for variant/modifier selection
-    setModalOpen(true)
+  async function act(work: () => Promise<void>) {
+    if (inFlight.current) return
+    inFlight.current = true; setBusy(true); setError(''); setNotice('')
+    try { await work(); router.refresh() }
+    catch (e) { setError(e instanceof Error ? e.message : 'تعذر تنفيذ العملية'); router.refresh() }
+    finally { inFlight.current = false; setBusy(false) }
   }
-
   async function save() {
-    if (!hasDraft || busy) return
-    setBusy(true)
-    setError(null)
-    setNotice(null)
-    try {
-      if (hasExistingDraft && editableOrder) {
-        const response = await fetch(`/api/staff/orders/${editableOrder.id}`, {
-          method: 'PATCH',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            items: editableOrder.items.filter((item) => !removedItemIds.includes(item.id)).map((item) => ({ itemId: item.id, productId: item.productId, qty: draftQuantities[item.id] ?? item.qty, note: (draftNotes[item.id] ?? item.note ?? '').trim() || undefined })),
-            notes: editableOrder.orderNotes ?? undefined, expectedUpdatedAt: editableOrder.updatedAt,
-          }),
-        })
-        const data: unknown = await response.json().catch(() => null)
-        if (!response.ok) throw new Error(responseError(data, 'تعذر حفظ تعديلات الطلب؛ قد تكون بيانات الطلب تغيرت.'))
+    if (!pending.length || !canManage || !canAppend) return
+    await act(async () => {
+      const items = pending.map((line) => ({ productId: line.productId, variantId: line.variantId, modifierSelections: Object.entries(line.modifierSelections).map(([groupId, valueIds]) => ({ groupId, valueIds })), qty: line.qty, note: line.note.trim() || undefined }))
+      const target = createdOrder.current ?? order?.id
+      const fingerprint = JSON.stringify({ tableId: table.id, orderId: target ?? null, items })
+      if (!attempt.current || attempt.current.fingerprint !== fingerprint) attempt.current = { fingerprint, key: crypto.randomUUID() }
+      if (createdOrder.current) {
+        await request(`/api/staff/orders/${createdOrder.current}/send`)
+      } else if (target) {
+        await request(`/api/staff/orders/${target}/items/append`, { items, idempotencyKey: attempt.current.key }, attempt.current.key)
+      } else {
+        const result = await request('/api/staff/pos/orders', { orderType: 'dine_in', tableId: table.id, items }, attempt.current.key)
+        if (typeof result.id !== 'string') throw new Error('تعذر التحقق من رقم الطلب؛ حدّث الصفحة قبل المحاولة')
+        createdOrder.current = result.id
+        await request(`/api/staff/orders/${result.id}/send`)
       }
-
-      if (pending.length) {
-        const targetOrder = editableOrder ?? orders[0]
-        if (targetOrder) {
-          const appendResponse = await fetch(`/api/staff/orders/${targetOrder.id}/items/append`, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json', 'idempotency-key': requestKey.current },
-            body: JSON.stringify({
-              items: pending.map((line) => ({
-                productId: line.productId,
-                variantId: line.variantId,
-                modifierSelections: Object.entries(line.modifierSelections).map(([groupId, valueIds]) => ({ groupId, valueIds })),
-                qty: line.qty,
-                note: line.note.trim() || undefined,
-              })),
-              idempotencyKey: requestKey.current,
-            }),
-          })
-          const appended: unknown = await appendResponse.json().catch(() => null)
-          if (!appendResponse.ok) throw new Error(responseError(appended, 'تعذر إضافة الأصناف إلى الطلب الموجود.'))
-        } else {
-          const createResponse = await fetch('/api/staff/pos/orders', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json', 'idempotency-key': requestKey.current },
-            body: JSON.stringify({
-              orderType: 'dine_in', tableId: table.id,
-              items: pending.map((line) => ({ productId: line.productId, variantId: line.variantId, modifierSelections: Object.entries(line.modifierSelections).map(([groupId, valueIds]) => ({ groupId, valueIds })), qty: line.qty, note: line.note.trim() || undefined })),
-            }),
-          })
-          const created: unknown = await createResponse.json().catch(() => null)
-          if (!createResponse.ok) throw new Error(responseError(created, 'تعذر إنشاء الإضافات الجديدة.'))
-          const orderId = created && typeof created === 'object' && 'id' in created && typeof created.id === 'string' ? created.id : null
-          if (!orderId) throw new Error('تم إنشاء الطلب لكن تعذر التحقق من رقمه؛ حدّث الصفحة قبل إعادة المحاولة.')
-          const sendResponse = await fetch(`/api/staff/orders/${orderId}/send`, { method: 'POST' })
-          const sent: unknown = await sendResponse.json().catch(() => null)
-          if (!sendResponse.ok) throw new Error(`تم حفظ الإضافات في الطلب ${orderId} لكنها لم تُرسل للمطبخ: ${responseError(sent, 'أعد المحاولة من الطلب غير المرسل.')}`)
-        }
-      }
-
-      setDraftQuantities({})
-      setDraftNotes({})
-      setRemovedItemIds([])
-      setPending([])
-      requestKey.current = crypto.randomUUID()
-      setNotice('تم حفظ التغييرات وإرسال الإضافات المؤهلة للمطبخ.')
-      startTransition(() => router.refresh())
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'تعذر حفظ التغييرات.')
-      startTransition(() => router.refresh())
-    } finally {
-      setBusy(false)
+      const saved = createdOrder.current ?? target
+      setPending([]); attempt.current = null; createdOrder.current = null
+      setNotice('تم حفظ الأصناف في نفس الطلب')
+      if (saved) router.replace(`${home}/tables/${table.id}?orderId=${saved}`)
+      setTab('items')
+    })
+  }
+  async function edit(item: Order['items'][number], cancel: boolean) {
+    if (inFlight.current || !order || !canManage || item.servedQty > 0 || order.paymentStatus === 'paid') return
+    const reason = window.prompt('سبب التعديل أو الإلغاء (3 أحرف على الأقل)')?.trim()
+    if (!reason || reason.length < 3) return
+    const key = crypto.randomUUID()
+    if (cancel) {
+      if (!window.confirm('إلغاء الصنف مع تسجيل أثر الحجز والهالك حسب التحضير؟')) return
+      await act(async () => { await request(`/api/staff/orders/${order.id}/items/${item.id}/void`, { reason, expectedUpdatedAt: item.updatedAt, idempotencyKey: key }, key) })
+    } else {
+      const raw = window.prompt('الكمية الجديدة؛ الزيادة تُنشئ سطرًا جديدًا مستقلًا', String(item.qty))
+      if (raw === null) return
+      const parsed = parseOrderItemQuantity(raw)
+      if (parsed.error) { setError(parsed.error); return }
+      await act(async () => { await request(`/api/staff/orders/${order.id}/items/${item.id}/adjust`, { action: 'quantity', targetQuantity: parsed.quantity, reason, expectedUpdatedAt: item.updatedAt, idempotencyKey: key }, key) })
     }
   }
-
-  async function retryDispatch(order: Order) {
-    setBusy(true); setError(null); setNotice(null)
-    try {
-      const response = await fetch(`/api/staff/orders/${order.id}/send`, { method: 'POST' })
-      const data: unknown = await response.json().catch(() => null)
-      if (!response.ok) throw new Error(responseError(data, 'تعذر إعادة الإرسال للمطبخ.'))
-      setNotice(`تم إرسال ${order.number} للمطبخ دون إنشاء طلب جديد.`)
-      startTransition(() => router.refresh())
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'تعذر إعادة الإرسال للمطبخ.') }
-    finally { setBusy(false) }
+  async function quickQty(item: Order['items'][number], delta: number) {
+    if (inFlight.current || !order || !canManage || item.servedQty > 0 || order.paymentStatus === 'paid') return
+    const raw = window.prompt('الكمية الجديدة للصنف', String(Math.max(1, item.qty + delta)))
+    if (raw === null) return
+    const parsed = parseOrderItemQuantity(raw)
+    if (parsed.error) { setError(parsed.error); return }
+    await act(async () => { await request(`/api/staff/orders/${order.id}/items/${item.id}/adjust`, { action: 'quantity', targetQuantity: parsed.quantity, reason: 'تعديل كمي سريع', expectedUpdatedAt: item.updatedAt, idempotencyKey: crypto.randomUUID() }, crypto.randomUUID()) })
+  }
+  async function sendToKitchen() {
+    if (!order || !canManage || inFlight.current) return
+    await act(async () => { await request(`/api/staff/orders/${order.id}/send`); setNotice('تم إرسال الطلب للمطبخ') })
   }
 
-  async function cancelSavedItem(order: Order, item: Order['items'][number]) {
-    const reason = window.prompt(`سبب إلغاء ${item.name}`)?.trim()
-    if (!reason) return
-    setBusy(true); setError(null); setNotice(null)
-    try {
-      const response = await fetch(`/api/staff/orders/${order.id}/items/${item.id}/void`, {
-        method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': crypto.randomUUID() },
-        body: JSON.stringify({ reason }),
-      })
-      const data: unknown = await response.json().catch(() => null)
-      if (!response.ok) throw new Error(responseError(data, 'تعذر إلغاء الصنف وفق دورة المخزون.'))
-      setNotice('تم إلغاء الصنف وتطبيق معالجة الحجز أو الهالك الموثقة.')
-      setCartOpen(false)
-      startTransition(() => router.refresh())
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'تعذر إلغاء الصنف.') }
-    finally { setBusy(false) }
-  }
-
-  async function adjustSavedItem(order: Order, item: Order['items'][number], action: 'quantity' | 'variant') {
-    const targetQuantity = quantityTargets[item.id] ?? item.qty
-    const replaceQuantity = variantQuantities[item.id] ?? item.qty
-    const variantId = variantTargets[item.id]
-    if (action === 'quantity' && targetQuantity === item.qty) return
-    if (action === 'variant' && !variantId) { setError('اختر المتغير البديل أولًا.'); return }
-    const waste = action === 'quantity'
-      ? Math.max(0, item.preparedQty - targetQuantity)
-      : Math.max(0, replaceQuantity - Math.max(0, item.qty - item.preparedQty))
-    const message = waste > 0
-      ? `سيُسجل هالك لعدد ${waste} من الوحدات المحضرة، مع الحفاظ على سجل التحضير. هل تريد المتابعة؟`
-      : 'سيتم تحديث الحجز وإرسال العمل المتغير للمطبخ. هل تريد المتابعة؟'
-    if (!window.confirm(message)) return
-    const reason = window.prompt('سبب التعديل (مطلوب للسجل والمطبخ)')?.trim()
-    if (!reason) return
-    setBusy(true); setError(null); setNotice(null)
-    try {
-      const response = await fetch(`/api/staff/orders/${order.id}/items/${item.id}/adjust`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', 'idempotency-key': crypto.randomUUID() },
-        body: JSON.stringify(action === 'quantity'
-          ? { action, targetQuantity, reason, expectedUpdatedAt: item.updatedAt }
-          : { action, variantId, replaceQuantity, reason, expectedUpdatedAt: item.updatedAt }),
-      })
-      const data: unknown = await response.json().catch(() => null)
-      if (!response.ok) throw new Error(responseError(data, response.status === 409 ? 'تعارض مع تحديث المطبخ؛ حدّث الصفحة وأعد المحاولة.' : 'تعذر تعديل الصنف.'))
-      setNotice(action === 'quantity' ? 'تم تعديل الكمية والحجوزات وإبلاغ المطبخ.' : 'تم استبدال المتغير وتسجيل أثر التحضير وإبلاغ المطبخ.')
-      setCartOpen(false)
-      startTransition(() => router.refresh())
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'تعذر تعديل الصنف.') }
-    finally { setBusy(false) }
-  }
-
-  return <main dir="rtl" className="min-h-dvh bg-background pb-32">
-    <div className="mx-auto max-w-6xl space-y-3 p-3 sm:p-4">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <Button variant="outline" size="sm" onClick={() => { if (!hasDraft || window.confirm('لديك تغييرات غير محفوظة. هل تريد المغادرة؟')) router.push('/waiter') }}>
-            <Icon name="chevronRight" size={16} /> الطاولات
-          </Button>
-          <div><h1 className="text-2xl font-bold">الطاولة {table.number}</h1><p className="text-sm text-muted-foreground">{table.name ?? `السعة ${table.capacity}`} · {activeOrders.length ? `${activeOrders.length} طلب نشط` : 'فارغة'}</p></div>
-        </div>
-        <div className="flex items-center gap-2"><Badge tone={activeOrders.length ? 'warning' : 'success'}>{activeOrders.length ? 'مشغولة' : 'متاحة'}</Badge></div>
-      </header>
-
-      {/* Tab Navigation — at top */}
-      <div className="flex gap-1 border-b border-border mb-4">
-        <button
-          onClick={() => setActiveTab('pos')}
-          className={`-mb-px border-b-2 px-4 py-3 text-sm font-medium transition-colors ${activeTab === 'pos' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-muted-foreground hover:bg-muted/50'}`}
-        >
-          POS — إضافة أصناف
-        </button>
-        <button
-          onClick={() => setActiveTab('orders')}
-          className={`-mb-px border-b-2 px-4 py-3 text-sm font-medium transition-colors ${activeTab === 'orders' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-muted-foreground hover:bg-muted/50'}`}
-        >
-          الطلبات المفتوحة
-        </button>
-        <button
-          onClick={() => setActiveTab('reports')}
-          className={`-mb-px border-b-2 px-4 py-3 text-sm font-medium transition-colors ${activeTab === 'reports' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-muted-foreground hover:bg-muted/50'}`}
-        >
-          تقرير الطلبات
-        </button>
-      </div>
-
-      {error ? <p role="alert" className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">{error}</p> : null}
-      {notice ? <p role="status" className="rounded-lg bg-success/10 p-3 text-sm text-success">{notice}</p> : null}
-
-      {/* POS Tab */}
-      {activeTab === 'pos' && (
-        <>
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-            <Input icon="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="ابحث عن صنف…" aria-label="بحث المنتجات" />
-            <select value={category} onChange={(event) => setCategory(event.target.value)} className="h-10 rounded border bg-background px-3">
-              <option value="all">كل الأقسام</option>
-              {workspace.categories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-            </select>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-            {filtered.length === 0 ? (
-              <p className="col-span-full text-center text-muted-foreground py-8">لا توجد منتجات مطابقة للبحث أو التصنيف المحدد.</p>
-            ) : (
-              filtered.map((candidate) => {
-                const alreadyQty = pendingQtyByProduct[candidate.id] ?? 0
-                const selected = alreadyQty > 0
-                return <ProductButton key={candidate.id} candidate={candidate} selected={selected} alreadyQty={alreadyQty} onChoose={() => choose(candidate)} />
-              })
-            )}
-          </div>
-
-          {pending.length ? <Card className="mt-4 border-primary/40"><CardHeader><CardTitle>إضافات لم تُرسل</CardTitle></CardHeader><CardContent className="space-y-2">{pending.map((line) => { const product = workspace.products.find((candidate) => candidate.id === line.productId); const variant = product?.variants.find((candidate) => candidate.id === line.variantId); return <div key={line.key} className="flex items-center justify-between gap-3 rounded border p-3"><div><p className="font-medium">{product?.name}</p><p className="text-xs text-muted-foreground">{variant?.label ?? ''}{line.note ? ` · ${line.note}` : ''}</p></div><div className="flex items-center gap-2"><span>× {line.qty}</span><Button size="icon" variant="ghost" className="text-destructive" onClick={() => setPending((current) => current.filter((candidate) => candidate.key !== line.key))}><Icon name="trash" size={15} /></Button></div></div>})}</CardContent></Card> : null}
-        </>
-      )}
-
-      {/* Open Orders Tab */}
-      {activeTab === 'orders' && (
-        <section className="space-y-3">
-          {activeOrders.length === 0 ? (
-            <Card><CardContent className="p-8 text-center text-muted-foreground">لا توجد طلبات نشطة على هذه الطاولة. يمكنك إضافة أصناف من تبويب POS لبدء طلب جديد.</CardContent></Card>
-          ) : (
-            activeOrders.map((order) => {
-              const canEdit = editableOrder?.id === order.id
-              return <Card key={order.id}>
-                <details className="group">
-                <summary className="cursor-pointer list-none [&::-webkit-details-marker]:hidden">
-                  <CardHeader className="flex-row items-center justify-between gap-3"><div className="min-w-0"><CardTitle>{order.number}</CardTitle><p className="text-xs text-muted-foreground">{new Date(order.createdAt).toLocaleString('ar-EG')} · {order.responsibleWaiterName ?? 'غير مُعيّن'}</p></div><div className="flex shrink-0 flex-col items-end gap-1"><Badge tone={order.status === 'ready' ? 'success' : order.status === 'preparing' ? 'warning' : 'info'}>{statusLabel(order.status)}</Badge><span className="text-xs font-semibold text-primary">{formatCurrency(order.total)}</span><span className="text-[11px] text-muted-foreground group-open:hidden">عرض التفاصيل</span><span className="hidden text-[11px] text-muted-foreground group-open:inline">إخفاء التفاصيل</span></div></CardHeader>
-                </summary>
-                <CardContent className="space-y-2 border-t pt-3">
-                  {order.items.filter((item) => !removedItemIds.includes(item.id)).map((item) => <div key={item.id} className="rounded-lg border p-3">
-                    <div className="flex flex-wrap items-start justify-between gap-2"><div className="min-w-0"><p className="font-medium">{item.name}</p>{item.variantLabel ? <p className="text-xs text-primary">{item.variantLabel}</p> : null}{item.details.length ? <p className="text-xs text-muted-foreground">{item.details.join(' · ')}</p> : null}</div><div className="text-left text-sm"><p>{formatCurrency(item.unitPrice)} × {draftQuantities[item.id] ?? item.qty}</p><p className="font-semibold">{formatCurrency(item.unitPrice * (draftQuantities[item.id] ?? item.qty))}</p></div></div>
-                    <div className="mt-3 flex flex-wrap items-center gap-2"><Badge tone="muted">{itemStatus(item)}</Badge>{canEdit ? <><Button size="icon" variant="outline" className="h-10 w-10" onClick={() => changeExisting(item, -1)} aria-label={`إنقاص ${item.name}`}><Icon name="minus" size={14} /></Button><span className="min-w-6 text-center">{draftQuantities[item.id] ?? item.qty}</span><Button size="icon" variant="outline" className="h-10 w-10" onClick={() => changeExisting(item, 1)} aria-label={`زيادة ${item.name}`}><Icon name="plus" size={14} /></Button><Input className="h-10 min-w-48 flex-1" maxLength={255} value={draftNotes[item.id] ?? item.note ?? ''} onChange={(event) => setDraftNotes((current) => ({ ...current, [item.id]: event.target.value }))} placeholder="ملاحظات المطبخ" />{editableOrder && editableOrder.items.length - removedItemIds.length > 1 ? <Button size="icon" variant="ghost" className="text-destructive" onClick={() => setRemovedItemIds((current) => [...current, item.id])} aria-label={`إزالة ${item.name}`}><Icon name="trash" size={15} /></Button> : null}</> : <span className="text-xs text-muted-foreground">أُرسل للمطبخ؛ لا يمكن تغيير السطر دون إجراء الإلغاء المعتمد.</span>}</div>
-                  </div>)}
-                  <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-2 text-sm font-semibold"><span>إجمالي الطلب: {formatCurrency(order.total)}</span><div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => { setSelectedOrderId(order.id); setCartOpen(true) }}>عرض وتعديل الطلب</Button>{!order.sentToKitchen ? <Button size="sm" disabled={busy} onClick={() => void retryDispatch(order)}>إعادة الإرسال للمطبخ</Button> : null}</div></div>
-                </CardContent>
-                </details>
-              </Card>
-            })
-          )}
-        </section>
-      )}
-
-      {/* Order Reports Tab */}
-      {activeTab === 'reports' && (
-        <section className="space-y-3">
-          <div className="rounded-lg border p-4">
-            <CardHeader><CardTitle>تقرير الطلبات على الطاولة {table.number}</CardTitle><p className="text-xs text-muted-foreground mt-1">سجل جميع الطلبات على هذه الطاولة (المنفذة، الملغاة، والمدفوعة).</p></CardHeader>
-            <CardContent className="mt-4">
-              {orders.length === 0 ? (
-                <p className="text-center text-muted-foreground py-8">لا توجد طلبات مسجلة على هذه الطاولة حتى الآن.</p>
-              ) : (
-                <div className="space-y-2">
-                  {orders.map((order) => <div key={order.id} className="flex items-center justify-between gap-3 rounded border p-3 bg-muted/30">
-                    <div className="min-w-0"><p className="font-medium">{order.number}</p><p className="text-xs text-muted-foreground">{new Date(order.createdAt).toLocaleString('ar-EG')} · {statusLabel(order.status)}</p></div>
-                    <div className="flex items-center gap-2 text-right"><span className="text-xs font-semibold text-primary">{formatCurrency(order.total)}</span><Badge tone={order.paymentStatus === 'paid' ? 'success' : order.status === 'cancelled' ? 'destructive' : 'muted'}>{order.paymentStatus === 'paid' ? 'مدفوع' : order.status === 'cancelled' ? 'ملغي' : 'غير مدفوع'}</Badge></div>
-                  </div>)}
-                </div>
-              )}
-            </CardContent>
-          </div>
-        </section>
-      )}
-    </div>
-
-    {/* Global cart button — always visible */}
-    <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-background/95 p-3 backdrop-blur"><div className="mx-auto flex max-w-6xl gap-2"><Button variant="outline" className="flex-1" onClick={() => setCartOpen(true)}><Icon name="cart" size={16} /> سلة الطلب — طاولة {table.number}</Button><Button className="flex-[2]" disabled={!hasDraft || busy} onClick={() => void save()} title={!hasDraft ? 'لا توجد تغييرات غير محفوظة للحفظ' : busy ? 'جارٍ الحفظ…' : 'حفظ المسودات وإرسال التغييرات للمطبخ'}>{busy ? 'جارٍ الحفظ…' : 'حفظ وإرسال التغييرات للمطبخ'}</Button></div></div>
-    {modalOpen ? <AddProductModal tableNumber={table.number} products={workspace.products} categories={workspace.categories} pending={pending} setPending={setPending} onClose={() => setModalOpen(false)} /> : null}
-    {cartOpen ? <div role="dialog" aria-modal="true" aria-label="سلة الطلب" className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-2 sm:p-4" dir="rtl"><Card className="flex max-h-[calc(100dvh-1rem)] w-full max-w-2xl flex-col overflow-hidden"><CardHeader className="flex-row items-center justify-between border-b"><div><CardTitle>سلة الطلب — طاولة {table.number}</CardTitle><p className="text-xs text-muted-foreground">{selectedOrder ? selectedOrder.number : 'طلب جديد'}</p></div><Button variant="ghost" size="sm" onClick={() => setCartOpen(false)}>إغلاق</Button></CardHeader><CardContent className="min-h-0 space-y-3 overflow-y-auto p-4">{selectedOrder ? <section className="space-y-2"><h3 className="font-semibold">الأصناف المحفوظة</h3>{selectedOrder.items.map((item) => { const product = workspace.products.find((candidate) => candidate.id === item.productId); const target = quantityTargets[item.id] ?? item.qty; const replaceQty = variantQuantities[item.id] ?? item.qty; return <div key={item.id} className="space-y-3 rounded border p-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="font-medium">{item.name}</p><p className="text-xs text-muted-foreground">{item.variantLabel ?? ''}{item.details.length ? ` · ${item.details.join(' · ')}` : ''} · {itemStatus(item)}</p><p className="text-xs">الأصلية: {item.qty} · المحضرة: {item.preparedQty} · المقدمة: {item.servedQty}</p></div><span>{formatCurrency(item.unitPrice)} × {item.qty}</span></div>{item.servedQty === 0 ? <div className="grid gap-2 border-t pt-3 sm:grid-cols-2"><div className="space-y-2 rounded bg-muted/30 p-2"><label className="text-xs font-medium">الكمية المطلوبة</label><Input type="number" min={1} max={99} value={target} onChange={(event) => setQuantityTargets((current) => ({ ...current, [item.id]: Math.max(1, Math.min(99, Number(event.target.value) || 1)) }))} /><p className="text-xs text-muted-foreground">{target < item.preparedQty ? `سيُسجل هالك ${item.preparedQty - target} وحدات` : ''}</p></div></div> : null}</div>})}</section> : null}</CardContent></Card></div> : null}
-    {modalOpen ? <AddProductModal tableNumber={table.number} products={workspace.products} categories={workspace.categories} pending={pending} setPending={setPending} onClose={() => setModalOpen(false)} /> : null}
-  </main>
-}
-
-function AddProductModal({ tableNumber, products, categories, pending, setPending, onClose }: { tableNumber: string; products: Product[]; categories: WaiterWorkspace['categories']; pending: PendingLine[]; setPending: React.Dispatch<React.SetStateAction<PendingLine[]>>; onClose: () => void }) {
-  const closeButton = useRef<HTMLButtonElement>(null)
+  const pendingQtyByProduct = useMemo(() => pending.reduce((acc, line) => { acc[line.productId] = (acc[line.productId] ?? 0) + line.qty; return acc }, {} as Record<string, number>), [pending])
+  const categories = workspace.categories
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('all')
   const [product, setProduct] = useState<Product | null>(null)
@@ -400,15 +164,10 @@ function AddProductModal({ tableNumber, products, categories, pending, setPendin
   const [qty, setQty] = useState(1)
   const [note, setNote] = useState('')
 
-  const pendingQtyByProduct = useMemo(() => pending.reduce((acc, line) => { acc[line.productId] = (acc[line.productId] ?? 0) + line.qty; return acc }, {} as Record<string, number>), [pending])
-
-  const filtered = products.filter((candidate) => candidate.isAvailable && (category === 'all' || candidate.categoryId === category) && candidate.name.toLowerCase().includes(search.trim().toLowerCase()))
+  const filtered = productsFilter(workspace.products, search, category)
   const variant = product?.variants.find((candidate) => candidate.id === variantId)
   const modifierPrice = product?.modifierGroups.flatMap((group) => group.options.filter((option) => (selections[group.id] ?? []).includes(option.id))).reduce((sum, option) => sum + Number(option.priceAdjustment), 0) ?? 0
   const ready = !!product && (!product.variants.length || !!variantId) && product.modifierGroups.every((group) => { const count = (selections[group.id] ?? []).length; return count >= (group.isRequired ? Math.max(1, group.minSelections) : group.minSelections) && count <= group.maxSelections })
-
-  useEffect(() => { closeButton.current?.focus() }, [])
-  useEffect(() => { const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }; window.addEventListener('keydown', escape); return () => window.removeEventListener('keydown', escape) }, [onClose])
 
   function choose(candidate: Product) {
     const existingQty = pendingQtyByProduct[candidate.id] ?? 0
@@ -423,86 +182,279 @@ function AddProductModal({ tableNumber, products, categories, pending, setPendin
     setNote('')
   }
   function toggle(groupId: string, optionId: string, max: number) { setSelections((current) => { const values = current[groupId] ?? []; const next = values.includes(optionId) ? values.filter((id) => id !== optionId) : max === 1 ? [optionId] : values.length < max ? [...values, optionId] : values; return { ...current, [groupId]: next } }) }
+  function addSelectedToPending() {
+    if (!product) return
+    setPending((current) => [...current, { key: crypto.randomUUID(), productId: product.id, variantId: variantId || undefined, modifierSelections: selections, qty, note }])
+    setProduct(null)
+  }
+  function productsFilter(products: Product[], s: string, cat: string) {
+    return products.filter((candidate) => candidate.isAvailable && (cat === 'all' || candidate.categoryId === cat) && candidate.name.toLowerCase().includes(s.trim().toLowerCase()))
+  }
 
-  return (
-    <div role="dialog" aria-modal="true" aria-labelledby="add-product-title" className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-0 sm:p-4" dir="rtl">
-      <Card className="flex h-dvh w-full flex-col overflow-hidden rounded-none sm:h-auto sm:max-h-[calc(100dvh-2rem)] sm:max-w-4xl sm:rounded-lg">
-        <CardHeader className="flex-row items-center justify-between border-b"><CardTitle id="add-product-title">إنشاء طلب — طاولة {tableNumber}</CardTitle><Button ref={closeButton} size="sm" variant="ghost" onClick={onClose}>إغلاق</Button></CardHeader>
-        <CardContent className="min-h-0 flex-1 overflow-y-auto p-4">
-          {!product ? (
-            <>
-              <div className="grid gap-2 sm:grid-cols-[1fr_220px]">
-                <Input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} placeholder="ابحث عن صنف…" aria-label="بحث المنتجات" />
-                <select value={category} onChange={(event) => setCategory(event.target.value)} className="h-10 rounded border bg-background px-3">
-                  <option value="all">كل الأقسام</option>
-                  {categories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-                </select>
-              </div>
-              <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-                {filtered.map((candidate) => {
-                  const alreadyQty = pendingQtyByProduct[candidate.id] ?? 0
-                  const selected = alreadyQty > 0
-                  return (
-                    <ProductButton key={candidate.id} candidate={candidate} selected={selected} alreadyQty={alreadyQty} onChoose={() => choose(candidate)} />
-                  )
-                })}
-              </div>
-            </>
-          ) : (
-            <div className="space-y-4">
-              <Button variant="ghost" size="sm" onClick={() => setProduct(null)}>رجوع للمنتجات</Button>
-              <div>
-                <h3 className="text-lg font-bold">{product.name}</h3>
-                <p className="text-sm text-muted-foreground">السعر المعروض تقديري، والخادم يعيد احتسابه عند الحفظ.</p>
-              </div>
-              {product.variants.length ? (
-                <label className="block text-sm">
-                  <span className="mb-1 block font-medium">المتغير *</span>
-                  <select value={variantId} onChange={(event) => setVariantId(event.target.value)} className="h-10 w-full rounded border bg-background px-3">
-                    <option value="">اختر المتغير</option>
-                    {product.variants.map((item) => <option key={item.id} value={item.id}>{item.label} — {formatCurrency(Number(item.price))}</option>)}
-                  </select>
-                </label>
-              ) : null}
-              {product.modifierGroups.map((group) => (
-                <fieldset key={group.id} className="rounded-lg border p-3">
-                  <legend className="px-1 text-sm font-semibold">{group.name} {group.isRequired ? '*' : ''} ({group.minSelections}–{group.maxSelections})</legend>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {group.options.map((option) => (
-                      <label key={option.id} className="flex items-center gap-2 cursor-pointer">
-                        <input type="checkbox" checked={(selections[group.id] ?? []).includes(option.id)} onChange={() => toggle(group.id, option.id, group.maxSelections)} className="rounded border-primary" />
-                        <span className="text-sm">{option.label}</span>
-                        <span className="ml-auto text-xs text-muted-foreground">{Number(option.priceAdjustment) > 0 ? '+' + formatCurrency(Number(option.priceAdjustment)) : ''}</span>
-                      </label>
-                    ))}
-                  </div>
-                </fieldset>
-              ))}
-              <div className="mt-3 flex items-center justify-between gap-2">
-                <label className="text-sm font-medium">ملاحظات المطبخ</label>
-                <Input className="flex-1" maxLength={255} value={note} onChange={(event) => setNote(event.target.value)} placeholder="ملاحظات للمطبخ" />
-              </div>
-              <div className="mt-2 text-right">
-                <label className="text-xs font-medium">الكمية</label>
-                <div className="flex items-center gap-2">
-                  <Button variant="outline" size="sm" onClick={() => setQty((q) => Math.max(1, q - 1))}>-</Button>
-                  <span className="w-8 text-center font-semibold">{qty}</span>
-                  <Button variant="outline" size="sm" onClick={() => setQty((q) => Math.min(20, q + 1))}>+</Button>
+  return <main dir="rtl" className="min-h-dvh bg-background p-3 sm:p-5">
+    <div className="mx-auto max-w-6xl space-y-4">
+      <header className="rounded-xl border p-4 space-y-3">
+        <Button variant="outline" onClick={() => { if (!pending.length || window.confirm('مغادرة المسودة غير المحفوظة؟')) router.push(home) }}>الطاولات</Button>
+        <div className="flex flex-wrap justify-between gap-2">
+          <h1 className="text-2xl font-bold">طاولة {table.number} {table.name}</h1>
+          <Badge tone={table.openOrders ? 'warning' : 'success'}>{table.openOrders ? 'مشغولة' : 'متاحة'}</Badge>
+        </div>
+        {order ? (
+          <>
+            <p className="text-sm text-muted-foreground">طلب {order.number} · {statusLabel(order.status)} · أنشأه {order.creatorName ?? 'غير محدد'} · {new Date(order.createdAt).toLocaleString('ar-EG')}</p>
+            <div className="flex flex-wrap gap-5 text-sm">
+              <span>الإجمالي: {formatCurrency(order.total)}</span>
+              <span>المدفوع: {formatCurrency(order.paidAmount ?? 0)}</span>
+              <span>المتبقي: {formatCurrency(order.remainingAmount ?? order.total)}</span>
+            </div>
+            <div className="flex flex-wrap gap-2 mt-3">
+              {!order.sentToKitchen && canManage && <Button size="sm" disabled={busy} onClick={sendToKitchen}>إرسال للمطبخ</Button>}
+              {role === 'cashier' && <Button variant="outline" size="sm" onClick={() => setTab('invoice')}>الانتقال للدفع</Button>}
+              <Button variant="outline" size="sm" onClick={() => setTab('history')}>سجل الطلب</Button>
+              <Button variant="outline" size="sm" onClick={() => setTab('kitchen')}>تقدم المطبخ</Button>
+              <Button variant="outline" size="sm" onClick={() => setTab('invoice')}>عرض الفاتورة</Button>
+            </div>
+          </>
+        ) : (
+          <p>{table.openOrders ? 'الطاولة مشغولة بطلب لا تملك صلاحية إدارته؛ لا يمكن إنشاء طلب آخر.' : 'لا يوجد طلب على الطاولة. أضف أصناف أدناه لبدء طلب جديد.'}</p>
+        )}
+      </header>
+
+      {error && <p role="alert" className="rounded border border-destructive p-3">{error}</p>}
+      {notice && <p role="status" className="rounded border border-success bg-success/10 p-3">{notice}</p>}
+
+      {role === 'waiter' && <TableQrRequests tableId={table.id} />}
+
+      <nav aria-label="إجراءات الطلب" className="flex flex-wrap gap-2">
+        <Button
+          disabled={busy || !!createdOrder.current || !canManage}
+          onClick={() => setShowAddPanel(!showAddPanel)}
+        >
+          {showAddPanel ? 'إغلاق إضافة الأصناف' : order ? 'إضافة أصناف للطاولة' : 'بدء طلب جديد'}
+        </Button>
+        <Button variant="outline" onClick={() => setTab('items')}>عرض وتعديل الأصناف</Button>
+      </nav>
+
+      {showAddPanel && <AddItemsPanel
+        products={workspace.products}
+        categories={categories}
+        pending={pending}
+        setPending={setPending}
+        search={search}
+        setSearch={setSearch}
+        category={category}
+        setCategory={setCategory}
+        product={product}
+        setProduct={setProduct}
+        variantId={variantId}
+        setVariantId={setVariantId}
+        selections={selections}
+        setSelections={setSelections}
+        qty={qty}
+        setQty={setQty}
+        note={note}
+        setNote={setNote}
+        choose={choose}
+        toggle={toggle}
+        addSelectedToPending={addSelectedToPending}
+        filtered={filtered}
+        variant={variant}
+        modifierPrice={modifierPrice}
+        ready={ready}
+        pendingQtyByProduct={pendingQtyByProduct}
+        mode={mode}
+        order={order}
+        table={table}
+        busy={busy}
+        canManage={canManage}
+        canAppend={canAppend}
+        save={save}
+        createdOrder={!!createdOrder.current}
+      />}
+
+      {(tab === 'items' || tab === 'kitchen') && order && <section className="space-y-3">
+        <h2 className="font-bold">الأصناف في الطلب {order.number}</h2>
+        {order.items.length === 0 && <p className="text-muted-foreground">لا توجد أصناف بعد.</p>}
+        {order.items.map((item) => (
+          <Card key={item.id} className="hover:border-primary/50 transition-border">
+            <CardContent className="p-4 space-y-2">
+              <div className="flex flex-wrap justify-between gap-2 items-start">
+                <div className="min-w-0 flex-1">
+                  <h2 className="font-bold text-base">{item.name}</h2>
+                  {item.variantLabel && <p className="text-sm text-muted-foreground">{item.variantLabel}</p>}
+                  {item.details.length && <p className="text-sm text-muted-foreground">{item.details.join(' · ')}</p>}
+                  {item.note && <p className="text-sm text-muted-foreground">ملاحظة: {item.note}</p>}
+                </div>
+                <div className="text-right">
+                  <p className="font-semibold">{item.qty} × {formatCurrency(item.unitPrice)}</p>
+                  <p className="text-sm text-muted-foreground">{formatCurrency(item.lineTotal ?? item.unitPrice * item.qty)}</p>
+                  <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${item.servedQty >= item.qty ? 'bg-green/10 text-green' : item.preparedQty >= item.qty ? 'bg-blue/10 text-blue' : item.preparationStartedAt ? 'bg-amber/10 text-amber' : 'bg-primary/10 text-primary'}`}>{itemStatus(item)}</span>
+                  <p className="text-xs text-muted-foreground mt-1">جاهز {item.preparedQty}/{item.qty} · مقدم {item.servedQty}/{item.qty}</p>
                 </div>
               </div>
-            </div>
-          )}
-        </CardContent>
-        <div className="shrink-0 border-t bg-background p-3">
-          <div className="mb-2 flex items-center justify-between text-sm">
-            <span>مسودة الطلب: {pending.reduce((sum, line) => sum + line.qty, 0)} أصناف</span>
-            <Button variant="outline" size="sm" onClick={onClose}>مراجعة السلة</Button>
-          </div>
-          {product ? (
-            <Button className="w-full" disabled={!ready} onClick={() => { setPending((current) => [...current, { key: crypto.randomUUID(), productId: product.id, variantId: variantId || undefined, modifierSelections: selections, qty, note }]); setProduct(null) }}>إضافة للطلب ومتابعة الاختيار</Button>
-          ) : null}
-        </div>
-      </Card>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" size="sm" disabled={busy || item.servedQty > 0 || order.paymentStatus === 'paid'} onClick={() => void quickQty(item, 0)}>تعديل الكمية</Button>
+                <Button variant="outline" size="sm" disabled={busy || order.items.length <= 1 || item.servedQty > 0 || order.paymentStatus === 'paid'} onClick={() => void edit(item, true)}>إلغاء بسبب موثق</Button>
+                {item.servedQty > 0 && <p className="text-sm text-muted-foreground">صنف مقدم؛ التصحيح المالي عبر المسار المصرح فقط.</p>}
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </section>}
+
+      {tab === 'history' && order && <section className="rounded border p-4 space-y-2">
+        <h2 className="font-bold">سجل حالات الطلب الحالي</h2>
+        {order.history?.map((entry, index) => <p key={index} className="text-sm">{new Date(entry.at).toLocaleString('ar-EG')} · {statusLabel(entry.status)} · {entry.note}</p>)}
+      </section>}
+
+      {tab === 'invoice' && (role === 'cashier' ? (
+        <InvoiceBoard invoices={invoices} products={[]} initialOrderId={order?.id} />
+      ) : order && (
+        <section className="rounded border p-4 space-y-2">
+          <h2 className="font-bold">ملخص الفاتورة {order.number}</h2>
+          {order.items.map((item) => <p key={item.id} className="text-sm">{item.name} × {item.qty} — {formatCurrency(item.lineTotal ?? item.unitPrice * item.qty)}</p>)}
+          <p className="font-semibold">الإجمالي: {formatCurrency(order.total)} · المدفوع: {formatCurrency(order.paidAmount ?? 0)}</p>
+        </section>
+      ))}
     </div>
+  </main>
+}
+
+function AddItemsPanel({ products, categories, pending, setPending, search, setSearch, category, setCategory, product, setProduct, variantId, setVariantId, selections, setSelections, qty, setQty, note, setNote, choose, toggle, addSelectedToPending, filtered, variant, modifierPrice, ready, pendingQtyByProduct, mode, order, table, busy, canManage, canAppend, save, createdOrder }: {
+  products: Product[]
+  categories: WaiterWorkspace['categories']
+  pending: PendingLine[]
+  setPending: React.Dispatch<React.SetStateAction<PendingLine[]>>
+  search: string
+  setSearch: React.Dispatch<React.SetStateAction<string>>
+  category: string
+  setCategory: React.Dispatch<React.SetStateAction<string>>
+  product: Product | null
+  setProduct: React.Dispatch<React.SetStateAction<Product | null>>
+  variantId: string
+  setVariantId: React.Dispatch<React.SetStateAction<string>>
+  selections: Record<string, string[]>
+  setSelections: React.Dispatch<React.SetStateAction<Record<string, string[]>>>
+  qty: number
+  setQty: React.Dispatch<React.SetStateAction<number>>
+  note: string
+  setNote: React.Dispatch<React.SetStateAction<string>>
+  choose: (candidate: Product) => void
+  toggle: (groupId: string, optionId: string, max: number) => void
+  addSelectedToPending: () => void
+  filtered: Product[]
+  variant: Product['variants'][number] | undefined
+  modifierPrice: number
+  ready: boolean
+  pendingQtyByProduct: Record<string, number>
+  mode: 'ADD_ITEMS' | 'CREATE_ORDER'
+  order: Order | null
+  table: Table
+  busy: boolean
+  canManage: boolean
+  canAppend: boolean
+  save: () => void
+  createdOrder: boolean
+}) {
+  return (
+    <Card className="space-y-3">
+      <CardHeader className="flex-row items-center justify-between border-b">
+        <CardTitle>إضافة أصناف — طاولة {table.number}</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {!product ? (
+          <>
+            <div className="grid gap-2 sm:grid-cols-[1fr_220px]">
+              <Input autoFocus value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ابحث عن صنف…" aria-label="بحث المنتجات" />
+              <select value={category} onChange={(e) => setCategory(e.target.value)} className="h-10 rounded border bg-background px-3">
+                <option value="all">كل الأقسام</option>
+                {categories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+              </select>
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+              {filtered.map((candidate) => {
+                const alreadyQty = pendingQtyByProduct[candidate.id] ?? 0
+                const selected = alreadyQty > 0
+                return (
+                  <ProductButton key={candidate.id} candidate={candidate} selected={selected} alreadyQty={alreadyQty} onChoose={() => choose(candidate)} />
+                )
+              })}
+            </div>
+          </>
+        ) : (
+          <div className="space-y-4">
+            <Button variant="ghost" size="sm" onClick={() => setProduct(null)}>رجوع للمنتجات</Button>
+            <div>
+              <h3 className="text-lg font-bold">{product.name}</h3>
+              <p className="text-sm text-muted-foreground">السعر المعروض تقديري، والخادم يعيد احتسابه عند الحفظ.</p>
+            </div>
+            {product.variants.length ? (
+              <label className="block text-sm">
+                <span className="mb-1 block font-medium">المتغير *</span>
+                <select value={variantId} onChange={(e) => setVariantId(e.target.value)} className="h-10 w-full rounded border bg-background px-3">
+                  <option value="">اختر المتغير</option>
+                  {product.variants.map((item) => <option key={item.id} value={item.id}>{item.label} — {formatCurrency(Number(item.price))}</option>)}
+                </select>
+              </label>
+            ) : null}
+            {product.modifierGroups.map((group) => (
+              <fieldset key={group.id} className="rounded-lg border p-3">
+                <legend className="px-1 text-sm font-semibold">{group.name} {group.isRequired ? '*' : ''} ({group.minSelections}–{group.maxSelections})</legend>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {group.options.map((option) => (
+                    <label key={option.id} className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" checked={(selections[group.id] ?? []).includes(option.id)} onChange={() => toggle(group.id, option.id, group.maxSelections)} className="rounded border-primary" />
+                      <span className="text-sm">{option.label}</span>
+                      <span className="ml-auto text-xs text-muted-foreground">{Number(option.priceAdjustment) > 0 ? '+' + formatCurrency(Number(option.priceAdjustment)) : ''}</span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+            ))}
+            <div className="mt-3 flex items-center justify-between gap-2">
+              <label className="text-sm font-medium">ملاحظات المطبخ</label>
+              <Input className="flex-1" maxLength={255} value={note} onChange={(e) => setNote(e.target.value)} placeholder="ملاحظات للمطبخ" />
+            </div>
+            <div className="mt-2 text-right">
+              <label className="text-xs font-medium">الكمية</label>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={() => setQty((q) => Math.max(1, q - 1))}>-</Button>
+                <span className="w-8 text-center font-semibold">{qty}</span>
+                <Button variant="outline" size="sm" onClick={() => setQty((q) => Math.min(20, q + 1))}>+</Button>
+              </div>
+            </div>
+          </div>
+        )}
+      </CardContent>
+      <div className="shrink-0 border-t bg-background p-3">
+        <div className="mb-2 flex items-center justify-between text-sm">
+          <span>مسودة الإضافة: {pending.reduce((sum, line) => sum + line.qty, 0)} أصناف</span>
+          <Button variant="outline" size="sm" onClick={() => setProduct(null)}>مراجعة السلة</Button>
+        </div>
+        {product ? (
+          <Button className="w-full" disabled={!ready || busy} onClick={addSelectedToPending}>إضافة للمسودة ومتابعة الاختيار</Button>
+        ) : null}
+        {pending.length > 0 && (
+          <div className="mt-3 rounded border p-3 space-y-2">
+            <h3 className="text-sm font-bold">المنتجات المختارة للإضافة</h3>
+            <div className="space-y-1 max-h-40 overflow-y-auto pr-1">
+              {pending.map((line) => {
+                const p = products.find((p) => p.id === line.productId)
+                return (
+                  <div key={line.key} className="flex flex-wrap items-center gap-2 rounded border p-1.5">
+                    <span className="text-sm">{p?.name} × {line.qty}</span>
+                    {line.note && <span className="text-xs text-muted-foreground">({line.note})</span>}
+                    <Button size="sm" variant="outline" onClick={() => setPending((lines) => lines.filter((l) => l.key !== line.key))}>إزالة</Button>
+                  </div>
+                )
+              })}
+            </div>
+            <Button disabled={busy || !canManage || !canAppend} onClick={() => void save()} className="w-full">
+              {busy ? 'جارٍ الحفظ…' : createdOrder ? 'إعادة إرسال الطلب المحفوظ' : order ? 'تأكيد إضافة الأصناف لنفس الطلب' : 'تأكيد الطلب وإرساله للمطبخ'}
+            </Button>
+          </div>
+        )}
+      </div>
+    </Card>
   )
 }
