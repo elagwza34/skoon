@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma'
+import { activeTableOrderWhere, isActiveTableOrder } from '@/lib/table-order-policy'
 import { ROLE, requiresOperationalShift } from '@/lib/authz'
 import type { StaffSession } from '@/lib/session'
 import type { StaffOrderRow } from '@/lib/staff-orders'
@@ -13,6 +14,11 @@ import type { PosCatalogProduct } from '@/lib/staff-pos'
  * Requires the waiter to have an open shift for their branch.
  */
 export type WaiterOrderRow = StaffOrderRow & {
+  tableId?: string
+  creatorName?: string | null
+  paidAmount?: number
+  remainingAmount?: number
+  history?: { status: string; at: string; note: string | null }[]
   /** Current operational owner; distinct from immutable order.createdById. */
   responsibleWaiterId: string | null
   responsibleWaiterName: string | null
@@ -47,6 +53,7 @@ export interface OutgoingTableTransfer {
 }
 
 export interface WaiterWorkspace {
+  currentRole?: string
   currentUserId: string
   branchId: string
   branchName: string
@@ -158,12 +165,13 @@ export async function getWaiterWorkspace(session: StaffSession): Promise<WaiterW
 
   const openByTable = new Map<string, number>()
     for (const o of orders) {
-      if (!isWaiterTableOrderActive(o.status, o.paymentStatus)) continue
-      const key = o.cafeTable.number
+      if (!isActiveTableOrder(o)) continue
+      const key = o.cafeTableId.toString()
       openByTable.set(key, (openByTable.get(key) ?? 0) + 1)
     }
 
   return {
+    currentRole: session.role,
     currentUserId: session.id,
     branchId: session.branchId,
     branchName: branch?.name ?? '—',
@@ -171,12 +179,16 @@ export async function getWaiterWorkspace(session: StaffSession): Promise<WaiterW
     shift: shift ? { id: shift.id.toString(), openedAt: shift.openedAt.toISOString() } : null,
     tables: tables.map((t) => ({
       id: t.id.toString(), number: t.number, name: t.name, capacity: t.capacity,
-      openOrders: openByTable.get(t.number) ?? 0,
+      openOrders: openByTable.get(t.id.toString()) ?? 0,
     })),
     openOrders: orders
-      .filter((o) => isWaiterTableOrderActive(o.status, o.paymentStatus))
+      .filter((o) => isActiveTableOrder(o) && (session.role === ROLE.CASHIER || o.responsibleWaiterId === session.id))
       .map((o) => ({
         id: o.id.toString(), number: o.orderNumber, status: o.status,
+        tableId: o.cafeTableId.toString(), creatorName: o.createdBy?.name ?? null,
+        paidAmount: o.payments.reduce((sum, p) => sum + Number(p.amount), 0),
+        remainingAmount: Math.max(0, Number(o.total) - o.payments.reduce((sum, p) => sum + Number(p.amount), 0)),
+        history: o.statusHistory.map((h) => ({ status: h.toStatus, at: h.createdAt.toISOString(), note: h.note })),
         paymentStatus: o.paymentStatus, orderType: o.orderType,
         total: Number(o.total), customerName: o.customerName, source: o.source, orderNotes: o.notes,
         tableNumber: o.cafeTable.number, createdAt: o.createdAt.toISOString(), updatedAt: o.updatedAt.toISOString(),
@@ -190,7 +202,7 @@ export async function getWaiterWorkspace(session: StaffSession): Promise<WaiterW
         qrDecisionById: o.qrDecisionById?.toString() ?? null,
         responsibleWaiterId: o.responsibleWaiterId,
         responsibleWaiterName: o.responsibleWaiter?.name ?? null,
-        items: o.items.map((i) => { const labels = i.productVariantId || i.productVariantSnapshot ? resolveOrderItemVariantLabels(i.productVariantSnapshot, orderedVariantLabels(i.productVariant?.values.map((entry) => entry.value) ?? [])) : []; return { id: i.id.toString(), productId: i.productId.toString(), variantId: i.productVariantId?.toString() ?? null, name: i.productName, variantLabel: labels.length ? labels.join(' · ') : null, details: modifierSnapshotLabels(i.optionsSnapshot), qty: i.quantity, servedQty: i.servedQuantity, preparedQty: i.preparedQuantity, preparationStartedAt: i.preparationStartedAt?.toISOString() ?? null, unitPrice: Number(i.unitPrice), note: i.notes, updatedAt: i.updatedAt.toISOString() } }),
+        items: o.items.map((i) => { const labels = i.productVariantId || i.productVariantSnapshot ? resolveOrderItemVariantLabels(i.productVariantSnapshot, orderedVariantLabels(i.productVariant?.values.map((entry) => entry.value) ?? [])) : []; return { id: i.id.toString(), productId: i.productId.toString(), variantId: i.productVariantId?.toString() ?? null, name: i.productName, variantLabel: labels.length ? labels.join(' · ') : null, details: modifierSnapshotLabels(i.optionsSnapshot), qty: i.quantity, servedQty: i.servedQuantity, preparedQty: i.preparedQuantity, preparationStartedAt: i.preparationStartedAt?.toISOString() ?? null, unitPrice: Number(i.unitPrice), lineTotal: Number(i.lineTotal), note: i.notes, updatedAt: i.updatedAt.toISOString() } }),
         itemsCount: o.items.reduce((n, i) => n + i.quantity, 0),
       })),
     categories: categories.map((c) => ({ id: c.id.toString(), name: c.name })),
@@ -247,21 +259,21 @@ function loadWaiterWorkspaceData(session: StaffSession, branchScope: { branchId:
     prisma.order.findMany({
       where: {
         ...branchScope,
-        responsibleWaiterId: session.id,
-        status: { not: 'cancelled' },
-        paymentStatus: { not: 'paid' },
+        ...activeTableOrderWhere,
       },
       orderBy: { createdAt: 'desc' },
-      take: 100,
       select: {
-        id: true, orderNumber: true, status: true, paymentStatus: true, orderType: true, total: true, customerName: true,
+        id: true, cafeTableId: true, orderNumber: true, status: true, paymentStatus: true, orderType: true, total: true, customerName: true,
+        createdBy: { select: { name: true } },
+        payments: { where: { status: 'completed' }, select: { amount: true } },
+        statusHistory: { orderBy: { createdAt: 'asc' }, select: { toStatus: true, createdAt: true, note: true } },
         source: true, notes: true, createdAt: true, updatedAt: true, sentToKitchenAt: true, cancelReason: true, responsibleWaiterId: true, createdById: true,
         qrClaimedAt: true, qrApprovedAt: true, qrRejectedAt: true, qrDecisionById: true,
         responsibleWaiter: { select: { name: true } },
         cafeTable: { select: { number: true } },
         items: {
           where: { isVoided: false }, orderBy: { id: 'asc' },
-          select: { id: true, productId: true, productName: true, productVariantId: true, productVariantSnapshot: true, optionsSnapshot: true, productVariant: { select: { values: { select: { value: { select: { label: true, attribute: { select: { sortOrder: true } } } } } } } }, quantity: true, servedQuantity: true, preparedQuantity: true, preparationStartedAt: true, unitPrice: true, notes: true, updatedAt: true },
+          select: { id: true, productId: true, productName: true, productVariantId: true, productVariantSnapshot: true, optionsSnapshot: true, productVariant: { select: { values: { select: { value: { select: { label: true, attribute: { select: { sortOrder: true } } } } } } } }, quantity: true, servedQuantity: true, preparedQuantity: true, preparationStartedAt: true, unitPrice: true, lineTotal: true, notes: true, updatedAt: true },
         },
       },
     }),

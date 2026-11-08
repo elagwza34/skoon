@@ -115,9 +115,9 @@ export function OwnerInvoiceBoard({ invoices, session }: { invoices: InvoiceRow[
           <h2 className="text-lg font-bold">الفواتير</h2>
           <p className="text-sm text-muted-foreground">عرض الفواتير والفرع — للاطلاع من شاشة المالك.</p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide pb-1">
           {tabs.map((t) => (
-            <Button key={t.value} size="sm" variant={tab === t.value ? 'secondary' : 'outline'} onClick={() => setTab(t.value)}>
+            <Button key={t.value} size="sm" variant={tab === t.value ? 'secondary' : 'outline'} onClick={() => setTab(t.value)} className="shrink-0 whitespace-nowrap">
               {t.label}
             </Button>
           ))}
@@ -130,7 +130,7 @@ export function OwnerInvoiceBoard({ invoices, session }: { invoices: InvoiceRow[
           <div className="flex flex-wrap items-center gap-1.5 w-full sm:w-auto">
             {'الكل'}
             {['day', 'week', 'month'].map((p) => (
-              <Button key={p} size="sm" variant={rangePreset === p ? 'secondary' : 'outline'} onClick={() => { setRangePreset(p as RangePreset); setFromDate(''); setToDate('') }} className="flex-shrink-0">
+              <Button key={p} size="sm" variant={rangePreset === p ? 'secondary' : 'outline'} onClick={() => { setRangePreset(p as RangePreset); setFromDate(''); setToDate('') }} className="flex-shrink-0 whitespace-nowrap">
                 {p === 'day' ? 'يوم' : p === 'week' ? 'أسبوع' : 'شهر'}
               </Button>
             ))}
@@ -181,7 +181,7 @@ export function OwnerInvoiceBoard({ invoices, session }: { invoices: InvoiceRow[
                 </button>
                 {isOpen && (
                   <CardContent className="border-t border-border p-3 text-right bg-card">
-                    <div className="grid gap-2 sm:grid-cols-4 text-sm">
+                    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 text-sm">
                       <div><span className="text-[11px] text-muted-foreground block">الطاولة</span><span className="text-foreground">{invoice.table ? `طاولة ${invoice.table}` : 'تيك أواي'}</span></div>
                       <div><span className="text-[11px] text-muted-foreground block">المنشئ</span><span className="text-foreground">{invoice.creator ?? '—'}</span></div>
                       <div><span className="text-[11px] text-muted-foreground block">الإجمالي</span><span className="text-foreground font-medium">{money(invoice.total)}</span></div>
@@ -197,7 +197,7 @@ export function OwnerInvoiceBoard({ invoices, session }: { invoices: InvoiceRow[
                       )}
                       {tab === 'cancelled' && (
                         <Button size="sm" variant="destructive" onClick={(event) => { event.stopPropagation(); setDeleteModal([invoice.id]); setExpandedId(null) }}>
-                          احذف نهائياً
+                          أرشفة كاملة
                         </Button>
                       )}
                     </div>
@@ -213,12 +213,12 @@ export function OwnerInvoiceBoard({ invoices, session }: { invoices: InvoiceRow[
         <div role="dialog" aria-modal="true" aria-labelledby="delete-invoice-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <Card className="w-full max-w-md p-5" dir="rtl">
             <CardHeader>
-              <CardTitle id="delete-invoice-title">تأكيد حذف الفاتورة{deleteModal.length > 1 ? ` (${deleteModal.length} فواتير)` : ` ${deleteModal[0]}`}</CardTitle>
+              <CardTitle id="delete-invoice-title">تأكيد الأرشفة{deleteModal.length > 1 ? ` (${deleteModal.length} فواتير)` : ` ${deleteModal[0]}`}</CardTitle>
             </CardHeader>
             <CardContent className="mt-4">
-              <p className="text-sm text-muted-foreground">هل أنت متأكد من حذف هذه {deleteModal.length > 1 ? 'الفواتير المحددة نهائياً' : 'الفاتورة نهائياً'}؟</p>
+              <p className="text-sm text-muted-foreground">هل أنت متأكد من أرشفة هذه {deleteModal.length > 1 ? 'الفواتير كاملة' : 'الفاتورة كاملة'}؟</p>
               <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50/60 p-3">
-                <p className="text-xs text-amber-800">ملاحظة: الحذف الدائم للفواتير غير متاح حفاظاً على السجلات المالية. إذا لم يكن الحذف متاحاً، استخدم الإلغاء أو الاسترداد المعتمد.</p>
+                <p className="text-xs text-amber-800">ملاحظة: الأرشفة لا تحذف السجلات المالية. إذا لم يكن الأرشفة متاحاً (دفعات، مخزون، تدقيق نشط)، استخدم الإلغاء أو الاسترداد المعتمد.</p>
               </div>
               <label className="mt-3 block flex items-center gap-2 text-sm cursor-pointer">
                 <input type="checkbox" checked={releaseStock} onChange={(event) => setReleaseStock(event.target.checked)} />

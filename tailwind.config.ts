@@ -48,6 +48,12 @@ const config: Config = {
           DEFAULT: "hsl(var(--warning))",
           foreground: "hsl(var(--warning-foreground))",
         },
+        cafe: {
+          espresso: "hsl(var(--cafe-espresso))",
+          mocha: "hsl(var(--cafe-mocha))",
+          caramel: "hsl(var(--cafe-caramel))",
+          cream: "hsl(var(--cafe-cream))",
+        },
       },
       borderRadius: {
         DEFAULT: '0.5rem',

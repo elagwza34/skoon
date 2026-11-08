@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Card, CardContent, CardFooter } from '@/components/ui/card'
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -26,9 +26,7 @@ const egp = (n: number) =>
  * Customer menu + cart + order submit for one table token.
  * Prices shown come from the server; the submit API re-prices from the DB.
  *
- * UX: a sticky basket bar pins to the top and tracks the running total. Tapping
- * it opens a popup that reviews the lines and collects the customer name
- * (required) and phone (optional) before submitting.
+ * Styled with the café premium palette: Espresso, Mocha, Caramel, Cream.
  */
 export function MenuOrderView({ menu }: { menu: PublicMenu }) {
   const router = useRouter()
@@ -44,7 +42,6 @@ export function MenuOrderView({ menu }: { menu: PublicMenu }) {
   const [serviceBusy, setServiceBusy] = useState<string | null>(null)
   const [serviceMessage, setServiceMessage] = useState<string | null>(null)
 
-  // Lock body scroll while the cart popup is open.
   useEffect(() => {
     if (!cartOpen) return
     const prev = document.body.style.overflow
@@ -105,7 +102,6 @@ export function MenuOrderView({ menu }: { menu: PublicMenu }) {
       if (typeof data?.id !== 'string' || typeof data?.orderNumber !== 'string') {
         throw new Error('Order failed')
       }
-      // Persist so the customer can resume tracking after leaving the site.
       saveGuestOrder({ id: data.id, orderNumber: data.orderNumber })
       router.push(`/order/${encodeURIComponent(data.id)}?n=${encodeURIComponent(data.orderNumber)}`)
     } catch (e) {
@@ -126,13 +122,24 @@ export function MenuOrderView({ menu }: { menu: PublicMenu }) {
   }
 
   return (
-    <div dir="rtl" className="relative min-h-dvh overflow-x-hidden text-white">
+    <div dir="rtl" className="relative min-h-dvh overflow-x-hidden bg-cafe-espresso">
       {/* Same brand backdrop as the rest of the guest flow. */}
       <PublicBackdrop />
 
       <div className="relative z-20 mx-auto flex max-w-5xl flex-wrap gap-2 px-4 pt-3 sm:px-6">
-        {([['waiter_call', 'نادِ النادل'], ['bill', 'اطلب الحساب'], ['water', 'ماء'], ['utensils', 'أدوات'], ['assistance', 'مساعدة'], ['complaint', 'شكوى']] as const).map(([type, label]) => <Button key={type} size="sm" variant="secondary" disabled={!!serviceBusy} onClick={() => void requestService(type)}>{serviceBusy === type ? 'جارٍ الإرسال…' : label}</Button>)}
-        {serviceMessage ? <span className="self-center text-xs">{serviceMessage}</span> : null}
+        {([['waiter_call', 'نادِ النادل'], ['bill', 'اطلب الحساب'], ['water', 'ماء'], ['utensils', 'أدوات'], ['assistance', 'مساعدة'], ['complaint', 'شكوى']] as const).map(([type, label]) => (
+          <Button
+            key={type}
+            size="sm"
+            variant="outline"
+            disabled={!!serviceBusy}
+            onClick={() => void requestService(type)}
+            className="border-cafe-caramel/50 text-cafe-cream hover:bg-cafe-caramel/10 hover:text-cafe-caramel"
+          >
+            {serviceBusy === type ? 'جارٍ الإرسال…' : label}
+          </Button>
+        ))}
+        {serviceMessage ? <span className="self-center text-xs text-cafe-caramel">{serviceMessage}</span> : null}
       </div>
 
       {/* Sticky basket bar — always visible at the top; tap to review + submit. */}
@@ -141,7 +148,7 @@ export function MenuOrderView({ menu }: { menu: PublicMenu }) {
         onClick={() => setCartOpen(true)}
         className={cn(
           'sticky top-0 z-30 flex w-full items-center justify-between gap-3 px-4 py-3 text-start shadow-lg transition-colors sm:px-6',
-          itemCount > 0 ? 'bg-orange-500 text-white' : 'bg-black/40 text-white/70',
+          itemCount > 0 ? 'bg-cafe-caramel text-cafe-espresso' : 'bg-cafe-mocha/80 text-cafe-cream/80',
         )}
         aria-label="فتح سلة الطلب"
       >
@@ -151,7 +158,7 @@ export function MenuOrderView({ menu }: { menu: PublicMenu }) {
           <span
             className={cn(
               'inline-flex min-w-6 items-center justify-center rounded-full px-1.5 py-0.5 text-xs font-bold',
-              itemCount > 0 ? 'bg-white text-orange-600' : 'bg-white/20 text-white/80',
+              itemCount > 0 ? 'bg-cafe-cream text-cafe-espresso' : 'bg-white/10 text-cafe-cream/60',
             )}
           >
             {itemCount}
@@ -167,10 +174,10 @@ export function MenuOrderView({ menu }: { menu: PublicMenu }) {
       <div className="relative z-10 mx-auto flex w-full max-w-3xl flex-col gap-6 p-4 pb-28 sm:p-6">
         <header className="flex items-center justify-between gap-3">
           <div className="flex flex-col">
-            <span className="text-xs text-white/70">{menu.table.branchName}</span>
-            <span className="text-lg font-bold">طاولة {menu.table.number} · {menu.table.capacity} مقاعد</span>
+            <span className="text-xs text-cafe-cream/60">{menu.table.branchName}</span>
+            <span className="text-lg font-bold text-cafe-cream">طاولة {menu.table.number} · {menu.table.capacity} مقاعد</span>
           </div>
-          <Link href="/order-type" className="text-sm text-white/90 hover:underline">
+          <Link href="/order-type" className="text-sm text-cafe-cream/90 hover:text-cafe-caramel transition-colors">
             تغيير
           </Link>
         </header>
@@ -181,7 +188,7 @@ export function MenuOrderView({ menu }: { menu: PublicMenu }) {
           placeholder="دور على صنف…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          className="border-white/20 bg-white/10 text-white placeholder:text-white/60"
+          className="border-cafe-mocha/30 bg-cafe-mocha/40 text-cafe-cream placeholder:text-cafe-cream/50"
         />
 
         {/* Categories */}
@@ -192,42 +199,42 @@ export function MenuOrderView({ menu }: { menu: PublicMenu }) {
             { value: 'all', label: 'الكل' },
             ...menu.categories.map((c) => ({ value: c.id, label: c.name })),
           ]}
-          className="border-white/20 bg-white/10 [&>button]:text-white/70 [&>button[aria-pressed=true]]:bg-white [&>button[aria-pressed=true]]:text-purple-900"
+          className="border-cafe-mocha/30 bg-cafe-mocha/40 [&>button]:text-cafe-cream/70 [&>button[aria-pressed=true]]:bg-cafe-caramel [&>button[aria-pressed=true]]:text-cafe-espresso"
         />
 
         {/* Products */}
         {visible.length === 0 ? (
           <EmptyState title="مفيش نتائج" description="جرّب كلمة تانية أو اختار تصنيف مختلف." />
         ) : (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {visible.map((p) => {
               const inCart = cart.find((l) => l.productId === p.id)
               return (
-                <Card key={p.id} className="flex flex-col justify-between border-white/20 bg-white/10 text-white">
-                  <CardContent className="flex flex-col gap-1">
+                <Card key={p.id} className="flex flex-col justify-between border-cafe-mocha/30 bg-cafe-mocha/30 text-cafe-cream hover:border-cafe-caramel/50 transition-all">
+                  <CardContent className="flex flex-col gap-2">
                     <div className="flex items-start justify-between gap-2">
-                      <h3 className="font-semibold">{p.name}</h3>
-                      <span className="shrink-0 text-sm font-semibold text-orange-300">
+                      <h3 className="font-semibold text-cafe-cream">{p.name}</h3>
+                      <span className="shrink-0 text-sm font-semibold text-cafe-caramel">
                         {egp(Number(p.price))}
                       </span>
                     </div>
                     {p.description ? (
-                      <p className="line-clamp-2 text-sm text-white/70">{p.description}</p>
+                      <p className="line-clamp-2 text-sm text-cafe-cream/60">{p.description}</p>
                     ) : null}
                   </CardContent>
                   <CardFooter className="justify-end">
                     {inCart ? (
                       <div className="flex items-center gap-2">
-                        <Button size="icon" variant="outline" onClick={() => dec(p.id)} aria-label="إنقاص" className="border-white/30 bg-white/10 text-white hover:bg-white/20">
+                        <Button size="icon" variant="outline" onClick={() => dec(p.id)} aria-label="إنقاص" className="border-cafe-mocha/40 bg-cafe-mocha/40 text-cafe-cream hover:bg-cafe-mocha/60">
                           <Icon name="minus" size={16} />
                         </Button>
                         <span className="w-8 text-center font-semibold">{inCart.qty}</span>
-                        <Button size="icon" variant="outline" onClick={() => add(p.id)} aria-label="زيادة" className="border-white/30 bg-white/10 text-white hover:bg-white/20">
+                        <Button size="icon" variant="outline" onClick={() => add(p.id)} aria-label="زيادة" className="border-cafe-mocha/40 bg-cafe-mocha/40 text-cafe-cream hover:bg-cafe-mocha/60">
                           <Icon name="plus" size={16} />
                         </Button>
                       </div>
                     ) : (
-                      <Button size="sm" variant="secondary" onClick={() => add(p.id)} className="bg-white text-purple-900 hover:bg-orange-400 hover:text-purple-900">
+                      <Button size="sm" variant="secondary" onClick={() => add(p.id)} className="bg-cafe-caramel text-cafe-espresso hover:bg-cafe-caramel/90">
                         <Icon name="plus" size={16} />
                         أضف
                       </Button>
@@ -246,10 +253,10 @@ export function MenuOrderView({ menu }: { menu: PublicMenu }) {
           <button
             type="button"
             aria-label="إغلاق"
-            className="absolute inset-0 bg-black/60"
+            className="absolute inset-0 bg-cafe-espresso/60 backdrop-blur-sm"
             onClick={() => setCartOpen(false)}
           />
-          <div className="relative z-10 flex max-h-[90dvh] w-full max-w-md flex-col overflow-hidden rounded-t-2xl bg-card text-foreground shadow-xl sm:rounded-2xl">
+          <div className="relative z-10 flex max-h-[90dvh] w-full max-w-md flex-col overflow-hidden rounded-t-2xl bg-white text-foreground shadow-xl sm:rounded-2xl">
             <div className="flex items-center justify-between border-b border-border px-4 py-3">
               <h2 className="text-base font-bold">طلبك ({itemCount})</h2>
               <Button size="icon" variant="ghost" onClick={() => setCartOpen(false)} aria-label="إغلاق">

@@ -71,19 +71,6 @@ export async function createPublicOrder(input: CreateOrderInput & { idempotencyK
     }
   }
 
-  // Table occupancy check: a QR request for an occupied table is rejected so
-  // that only one open dine-in order can exist per table.
-  const occupied = await prisma.order.findFirst({
-    where: {
-      branchId,
-      cafeTableId: tableId,
-      status: { not: 'cancelled' },
-      paymentStatus: { not: 'paid' },
-    },
-    select: { id: true },
-  })
-  if (occupied) throw new Error('الطاولة مشغولة حالياً — لا يمكن إنشاء طلب QR جديد')
-
   const productIds = [...new Set(items.map((i) => BigInt(i.productId)))]
   const products = await prisma.product.findMany({
     where: {
@@ -93,11 +80,13 @@ export async function createPublicOrder(input: CreateOrderInput & { idempotencyK
       deletedAt: null,
       isAvailable: true,
     },
-    select: { id: true, name: true, price: true },
+    select: { id: true, name: true, price: true, variants: { where: { isActive: true, archivedAt: null }, select: { id: true }, take: 1 }, optionAssignments: { select: { productOption: { select: { isActive: true, isRequired: true, minSelections: true } } } } },
   })
   const priceById = new Map(products.map((p) => [p.id.toString(), p]))
   for (const item of items) {
     if (!priceById.has(item.productId)) throw new Error('Menu changed — please refresh')
+    const product = priceById.get(item.productId)!
+    if (product.variants.length || product.optionAssignments.some((a) => a.productOption.isActive && (a.productOption.isRequired || a.productOption.minSelections > 0))) throw new Error('هذا المنتج يحتاج اختيارات؛ اطلبه من النادل')
   }
 
   let total = 0
@@ -133,18 +122,6 @@ export async function createPublicOrder(input: CreateOrderInput & { idempotencyK
         return prior.result as unknown as CreatedOrder
       }
     }
-
-    // Recheck occupancy inside the transaction.
-    const occupiedInside = await tx.order.findFirst({
-      where: {
-        branchId,
-        cafeTableId: tableId,
-        status: { not: 'cancelled' },
-        paymentStatus: { not: 'paid' },
-      },
-      select: { id: true },
-    })
-    if (occupiedInside) throw new Error('الطاولة مشغولة حالياً — لا يمكن إنشاء طلب QR جديد')
 
     const order = await tx.order.create({
       data: {

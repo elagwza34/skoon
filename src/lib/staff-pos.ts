@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
+import { activeTableOrderWhere } from '@/lib/table-order-policy'
 import { ROLE } from '@/lib/authz'
 import type { StaffSession } from '@/lib/session'
 import { orderedVariantLabels } from '@/lib/order-item-variant'
@@ -105,7 +106,7 @@ export async function getPosCatalog(session: StaffSession): Promise<PosCatalog> 
     }),
     prisma.order.groupBy({
       by: ['cafeTableId'],
-      where: { ...branchScope, status: { in: ['new', 'preparing', 'ready'] }, paymentStatus: 'unpaid' },
+      where: { ...branchScope, ...activeTableOrderWhere },
       _count: { _all: true },
     }),
   ])

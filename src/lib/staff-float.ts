@@ -166,7 +166,7 @@ export async function recordFixedFloatMovement(session: StaffSession, input: unk
   const branchId = session.branchId ? BigInt(session.branchId) : BigInt(parsed.data.branchId ?? 0)
   if (!branchId || !staffCanAccessBranch(session, branchId)) throw new FloatError('غير مصرح', 403)
   const operational = session.role === ROLE.CASHIER && parsed.data.direction === 'withdrawal'
-  if (!operational && !hasAtLeast(session.role, ROLE.MANAGER)) throw new FloatError('غير مصرح', 403)
+  if (!operational && session.role !== ROLE.OWNER) throw new FloatError('غير مصرح — تحويلات الخزنة الثابتة للمالك فقط', 403)
   const shift = operational ? await getOpenShift(session.id, branchId) : null
   if (operational && !shift) throw new FloatError('يلزم وجود وردية كاشير مفتوحة', 409)
   const data = parsed.data
@@ -272,9 +272,9 @@ export async function getMainSafeSummary(session: StaffSession): Promise<MainSaf
   }
 }
 
-/** Withdraw from Main Safe — manager+ only. Prevents negative balance. */
+/** Withdraw from Main Safe — Owner only. Manager must not physically withdraw cash. */
 export async function withdrawFromMainSafe(session: StaffSession, amount: number, reason: string): Promise<{ id: string; occurredAt: string }> {
-  if (!hasAtLeast(session.role, ROLE.MANAGER)) throw new FloatError('Forbidden', 403)
+  if (session.role !== ROLE.OWNER) throw new FloatError('غير مصرح — السحب من الخزنة الرئيسية للمالك فقط', 403)
   if (!Number.isFinite(amount) || amount <= 0) throw new FloatError('Invalid amount', 400)
   if (!reason.trim() || reason.trim().length < 3) throw new FloatError('Reason required', 400)
   const branchId = session.branchId ? BigInt(session.branchId) : await firstBranchId()
@@ -321,9 +321,9 @@ export async function withdrawFromMainSafe(session: StaffSession, amount: number
   })
 }
 
-/** Transfer from Main Safe to Fixed Float — manager+ only. */
+/** Transfer from Main Safe to Fixed Float — Owner only. Manager must not physically move cash. */
 export async function transferMainSafeToFixedFloat(session: StaffSession, amount: number, reason: string): Promise<{ withdrawalId: string; additionId: string }> {
-  if (!hasAtLeast(session.role, ROLE.MANAGER)) throw new FloatError('Forbidden', 403)
+  if (session.role !== ROLE.OWNER) throw new FloatError('غير مصرح — التحويل من الخزنة الرئيسية للمالك فقط', 403)
   if (!Number.isFinite(amount) || amount <= 0) throw new FloatError('Invalid amount', 400)
   if (!reason.trim() || reason.trim().length < 3) throw new FloatError('Reason required', 400)
   const branchId = session.branchId ? BigInt(session.branchId) : await firstBranchId()

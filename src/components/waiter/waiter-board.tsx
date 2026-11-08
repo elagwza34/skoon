@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
+import { TableQrRequests } from '@/components/waiter/table-qr-requests'
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -138,7 +139,6 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
   const [cartOpen, setCartOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
-  const [editing, setEditing] = useState<WaiterWorkspace['openOrders'][number] | null>(null)
   const [showingTableOrderModal, setShowingTableOrderModal] = useState<{ orderId: string; tableNumber: string } | null>(null)
   const [showingProductPicker, setShowingProductPicker] = useState<{ orderId: string; tableNumber: string } | null>(null)
   const [productSearch, setProductSearch] = useState('')
@@ -206,7 +206,8 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
   const handleSendToKitchen = async (orderId: string) => {
     setError(null)
     try {
-      await fetch(`/api/staff/orders/${orderId}/send`, { method: 'POST' })
+      const response = await fetch(`/api/staff/orders/${orderId}/send`, { method: 'POST' })
+      if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error ?? 'تعذر الإرسال')
       startTransition(() => router.refresh())
       setSuccess('تم إرسال الطلب للمطبخ')
       setTimeout(() => setSuccess(null), 3000)
@@ -219,11 +220,12 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
   const handleMarkStatus = async (orderId: string, to: 'ready' | 'served') => {
     setError(null)
     try {
-      await fetch(`/api/staff/orders/${orderId}/status`, {
+      const response = await fetch(`/api/staff/orders/${orderId}/status`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: to }),
+        body: JSON.stringify({ to }),
       })
+      if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error ?? 'تعذر تحديث الحالة')
       startTransition(() => router.refresh())
       setSuccess(to === 'ready' ? 'تم تهيئة الطلب كجاهز' : 'تم تحديد الطلب كمقدم')
       setTimeout(() => setSuccess(null), 3000)
@@ -238,11 +240,12 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
     if (!reason) { setError('سبب الإلغاء مطلوب.'); return }
     setError(null)
     try {
-      await fetch(`/api/staff/orders/${orderId}/status`, {
+      const response = await fetch(`/api/staff/orders/${orderId}/status`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ to: 'cancelled', reason }),
       })
+      if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error ?? 'تعذر الإلغاء')
       startTransition(() => router.refresh())
       setSuccess('تم إلغاء الطلب')
       setTimeout(() => setSuccess(null), 3000)
@@ -253,7 +256,7 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
   }
 
   const handleEditOrder = (order: WaiterWorkspace['openOrders'][number]) => {
-    setEditing(order)
+    if (order.tableId) router.push(`/waiter/tables/${order.tableId}?orderId=${order.id}`)
     setTab('pos')
   }
 
@@ -441,6 +444,7 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
           {/* TAB: QR Orders */}
           {tab === 'qr' && (
             <>
+              <TableQrRequests />
               <div className="mb-3">
                 <p className="text-sm text-muted-foreground">طلبات QR بانتظار الاعتماد أو المعالجة.</p>
               </div>
@@ -504,31 +508,6 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
         </div>
       </main>
 
-      {/* Edit Order Modal */}
-      {editing && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setEditing(null)}>
-          <div className="bg-card rounded-lg border border-border p-6 w-full max-w-2xl mx-4" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold">تعديل الطلب #{editing.number}</h2>
-              <Button variant="outline" size="sm" onClick={() => setEditing(null)}>
-                <Icon name="close" size={16} />
-              </Button>
-            </div>
-            <p className="text-sm text-muted-foreground mb-4">الطاولة {editing.tableNumber} · {formatCurrency(editing.total)}</p>
-            <PosCheckout
-              catalog={catalog as any}
-              initialTableId={(editing as any).cafeTable?.id ?? selectedTableId ?? undefined}
-              mode="waiter"
-              catalogVisible={true}
-              cartOpen={false}
-              onOrderCreated={() => { setEditing(null); setTab('orders') }}
-            />
-            <div className="mt-4 flex justify-end">
-              <Button onClick={() => setEditing(null)}>إغلاق</Button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

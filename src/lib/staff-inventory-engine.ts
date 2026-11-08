@@ -201,14 +201,41 @@ export async function consumeOrderReservations(
   requestedItems?: readonly { orderItemId: bigint; quantity: number }[],
 ): Promise<void> {
   const requestedByItem = new Map((requestedItems ?? []).map((item) => [item.orderItemId.toString(), item.quantity]))
+  if (requestedItems && requestedByItem.size !== requestedItems.length) throw new StockError('الصنف مكرر في طلب التقديم', 400)
   const reservations = await tx.inventoryReservation.findMany({
     where: { orderItem: { orderId }, status: 'active' },
     orderBy: { id: 'asc' },
     include: { orderItem: { select: { id: true, quantity: true, servedQuantity: true, preparationStartedById: true } }, inventoryItem: { select: { id: true, branchId: true } } },
   })
   const servedDeltas = new Map<string, number>()
+  if (mode === 'consumption') {
+    // Callers hold the order row lock. Menu-unit progress belongs to the line,
+    // not its ingredient reservations (an untracked line has none).
+    const lines = await tx.orderItem.findMany({
+      where: { orderId, isVoided: false },
+      select: { id: true, quantity: true, servedQuantity: true },
+    })
+    for (const line of lines) {
+      const id = line.id.toString()
+      if (requestedItems && !requestedByItem.has(id)) continue
+      const remaining = line.quantity - line.servedQuantity
+      if (!requestedItems && remaining === 0) continue
+      const delta = requestedByItem.get(id) ?? remaining
+      if (!Number.isInteger(delta) || delta <= 0 || delta > remaining) throw new StockError('كمية التقديم غير صالحة', 409)
+      servedDeltas.set(id, delta)
+    }
+    if (requestedItems && servedDeltas.size !== requestedByItem.size) throw new StockError('صنف التقديم غير موجود أو ملغى', 409)
+    const withoutReservations = new Set([...servedDeltas.keys()].filter((id) => !reservations.some((r) => r.orderItemId.toString() === id)))
+    if (withoutReservations.size) {
+      // Missing reservations for a tracked line are an error, never permission
+      // to serve without stock consumption. Genuine untracked products pass.
+      const demand = await orderDemand(tx, orderId)
+      if (demand.some((entry) => withoutReservations.has(entry.orderItemId.toString()))) throw new StockError('الصنف يحتاج حجز مخزون قبل التقديم', 409)
+    }
+  }
   for (const reservation of reservations) {
     if (requestedItems && !requestedByItem.has(reservation.orderItemId.toString())) continue
+    if (mode === 'consumption' && !servedDeltas.has(reservation.orderItemId.toString())) continue
     const lineQuantity = reservation.orderItem.quantity
     const remainingMenuUnits = lineQuantity - reservation.orderItem.servedQuantity
     const requested = requestedByItem.get(reservation.orderItemId.toString()) ?? remainingMenuUnits
@@ -280,7 +307,6 @@ export async function consumeOrderReservations(
         await tx.employeeAccountability.create({ data: { branchId: reservation.inventoryItem.branchId, employeeId: reservation.orderItem.preparationStartedById, wasteEventId: waste.id, amount: costTotal.toFixed(2) } })
       }
     }
-    if (mode === 'consumption') servedDeltas.set(reservation.orderItemId.toString(), requested)
   }
   if (mode === 'consumption') {
     for (const [orderItemId, delta] of servedDeltas) {

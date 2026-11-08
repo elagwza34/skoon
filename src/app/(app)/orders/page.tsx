@@ -24,7 +24,7 @@ export default async function OrdersPage() {
   return (
     <OrdersBoard
       orders={orders}
-      canPay={hasAtLeast(session.role, ROLE.CASHIER)}
+      canPay={session.role === ROLE.OWNER || session.role === ROLE.CASHIER}
       canRefund={hasAtLeast(session.role, ROLE.MANAGER)}
       canManage={hasAtLeast(session.role, ROLE.MANAGER)}
     />

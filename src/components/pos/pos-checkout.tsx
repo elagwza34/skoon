@@ -103,6 +103,8 @@ export function PosCheckout({
   const [modifierQuantity, setModifierQuantity] = useState(1)
   const submissionKey = useRef<string | null>(null)
   const paymentKey = useRef<string | null>(null)
+  const servingAttempt = useRef<{ fingerprint: string; key: string } | null>(null)
+  const servingInFlight = useRef(false)
   const skipDraftPersist = useRef(false)
   const cartPersistSent = useRef(false)
   const cartSummarySent = useRef(false)
@@ -430,14 +432,18 @@ export function PosCheckout({
     }
   }
   async function handover(order: StaffOrderRow) {
-    if (busy || order.status !== 'ready') return
+    if (busy || servingInFlight.current || order.status !== 'ready') return
+    servingInFlight.current = true
     setBusy(true)
     setError(null)
     try {
+      const items = order.items.filter((item) => item.qty > item.servedQty).map((item) => ({ orderItemId: item.id, quantity: item.qty - item.servedQty }))
+      const fingerprint = JSON.stringify({ orderId: order.id, items })
+      if (!servingAttempt.current || servingAttempt.current.fingerprint !== fingerprint) servingAttempt.current = { fingerprint, key: crypto.randomUUID() }
       const response = await fetch(`/api/staff/orders/${order.id}/status`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ action: 'serve_items', items: order.items.map((item) => ({ orderItemId: item.id, quantity: item.qty - item.servedQty })) }),
+        body: JSON.stringify({ action: 'serve_items', items, idempotencyKey: servingAttempt.current.key }),
       })
       const body = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(body.error ?? 'تعذر تأكيد تسليم الطلب')
@@ -445,6 +451,7 @@ export function PosCheckout({
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'تعذر تأكيد تسليم الطلب')
     } finally {
+      servingInFlight.current = false
       setBusy(false)
     }
   }

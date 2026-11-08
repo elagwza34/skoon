@@ -114,11 +114,11 @@ export async function adjustOrderItem(session: StaffSession, orderIdRaw: string,
       if (!lockedShift || lockedShift.status !== 'open' || lockedShift.cashierId !== session.id || lockedShift.branchId !== order.branchId) throw new OrderItemAdjustmentError('الوردية لم تعد مفتوحة', 409)
     }
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('order-item-adjustment:' || ${orderIdRaw}))`
-    const rows = await tx.$queryRaw<{ status: string; payment_status: string; responsible_waiter_id: string | null; discount_type: string | null; discount_value: unknown; tax_rate: unknown }[]>`
-      SELECT status, payment_status, responsible_waiter_id, discount_type, discount_value, tax_rate FROM orders WHERE id = ${orderId} FOR UPDATE`
+    const rows = await tx.$queryRaw<{ status: string; payment_status: string; responsible_waiter_id: string | null; discount_type: string | null; discount_value: unknown; tax_rate: unknown; sent_to_kitchen_at: Date | null }[]>`
+      SELECT status, payment_status, responsible_waiter_id, discount_type, discount_value, tax_rate, sent_to_kitchen_at FROM orders WHERE id = ${orderId} FOR UPDATE`
     const lockedOrder = rows[0]
     if (!lockedOrder || !['new', 'preparing', 'ready'].includes(lockedOrder.status)) throw new OrderItemAdjustmentError('لا يمكن تعديل طلب مغلق', 409)
-    if (lockedOrder.payment_status === 'paid' || await tx.payment.count({ where: { orderId, status: 'completed' } })) throw new OrderItemAdjustmentError('لا يمكن للنادل تعديل طلب تم تحصيله', 409)
+    if (lockedOrder.payment_status === 'paid' || (session.role === ROLE.WAITER && await tx.payment.count({ where: { orderId, status: 'completed' } }))) throw new OrderItemAdjustmentError('لا يمكن تعديل طلب محصل عبر هذا المسار', 409)
     if (session.role === ROLE.WAITER && lockedOrder.responsible_waiter_id !== session.id) throw new OrderItemAdjustmentError('تغيّرت مسؤولية الطلب؛ حدّث الصفحة', 409)
     const repeated = await tx.financialOperation.findUnique({ where: operationKey })
     if (repeated) { if (repeated.fingerprint !== fingerprint) throw new OrderItemAdjustmentError('مفتاح العملية مستخدم لتعديل مختلف', 409); return repeated.result }
@@ -139,7 +139,7 @@ export async function adjustOrderItem(session: StaffSession, orderIdRaw: string,
         if (target === item.quantity) throw new OrderItemAdjustmentError('الكمية لم تتغير')
         if (target > item.quantity) {
           const extra = await cloneLine(tx, item, { quantity: target - item.quantity })
-          await reserveOrderItemInventory(tx, orderId, extra.id)
+          if (lockedOrder.sent_to_kitchen_at) await reserveOrderItemInventory(tx, orderId, extra.id)
           createdIds.push(extra.id.toString())
         } else if (target >= item.preparedQuantity) {
           await releaseOrderItemReservationUnits(tx, orderId, item.id, item.quantity - target, item.quantity)
@@ -150,7 +150,7 @@ export async function adjustOrderItem(session: StaffSession, orderIdRaw: string,
           await releaseOrderItemReservations(tx, orderId, item.id)
           await tx.orderItem.update({ where: { id: item.id }, data: { isVoided: true, voidReason: parsed.data.reason } })
           const retained = await cloneLine(tx, item, { quantity: target, preparedQuantity: target })
-          await reserveOrderItemInventory(tx, orderId, retained.id)
+          if (lockedOrder.sent_to_kitchen_at) await reserveOrderItemInventory(tx, orderId, retained.id)
           createdIds.push(retained.id.toString())
         }
       } else {
@@ -174,11 +174,11 @@ export async function adjustOrderItem(session: StaffSession, orderIdRaw: string,
           const retainedPrepared = item.preparedQuantity - wasteQuantity
           if (remaining) {
             const retained = await cloneLine(tx, item, { quantity: remaining, preparedQuantity: retainedPrepared })
-            await reserveOrderItemInventory(tx, orderId, retained.id); createdIds.push(retained.id.toString())
+            if (lockedOrder.sent_to_kitchen_at) await reserveOrderItemInventory(tx, orderId, retained.id); createdIds.push(retained.id.toString())
           }
         }
         const replacement = await cloneLine(tx, item, { quantity: replacing, variant })
-        await reserveOrderItemInventory(tx, orderId, replacement.id); createdIds.push(replacement.id.toString())
+        if (lockedOrder.sent_to_kitchen_at) await reserveOrderItemInventory(tx, orderId, replacement.id); createdIds.push(replacement.id.toString())
       }
     } catch (error) {
       if (error instanceof StockError) throw new OrderItemAdjustmentError(error.message, error.status)
@@ -189,9 +189,11 @@ export async function adjustOrderItem(session: StaffSession, orderIdRaw: string,
       await tx.orderStatusHistory.create({ data: { orderId, fromStatus: 'ready', toStatus: 'preparing', changedById: session.id, note: 'Additional or replacement preparation work created by waiter adjustment' } })
     }
     const total = await recalculate(tx, orderId, lockedOrder)
+    const collected = await tx.payment.aggregate({ where: { orderId, status: 'completed' }, _sum: { amount: true } })
+    if (Math.round(Number(total) * 100) < Math.round(Number(collected._sum.amount ?? 0) * 100)) throw new OrderItemAdjustmentError('الإجمالي أقل من المبلغ المحصل؛ يلزم إجراء مالي مصرح', 409)
     const result = { orderId: orderIdRaw, orderItemId: itemIdRaw, action: parsed.data.action, createdItemIds: createdIds, wasteQuantity, total }
     await tx.auditLog.create({ data: { userId: session.id, branchId: order.branchId, action: `order.item_${parsed.data.action}_adjusted`, entityType: 'order_item', entityId: item.id, oldValues: { quantity: item.quantity, variantId: item.productVariantId?.toString() ?? null, preparedQuantity: item.preparedQuantity }, newValues: { request: parsed.data, result } } })
-    await notifyRole(tx, ROLE.KITCHEN, order.branchId, { type: 'order.created', title: parsed.data.action === 'quantity' ? 'تعديل كمية في طلب قيد التحضير' : 'استبدال متغير في طلب قيد التحضير', body: parsed.data.reason, orderId })
+    if (lockedOrder.sent_to_kitchen_at) await notifyRole(tx, ROLE.KITCHEN, order.branchId, { type: 'order.created', title: parsed.data.action === 'quantity' ? 'تعديل كمية في طلب قيد التحضير' : 'استبدال متغير في طلب قيد التحضير', body: parsed.data.reason, orderId })
     await tx.financialOperation.create({ data: { branchId: order.branchId, actorId: session.id, operationType, idempotencyKey: parsed.data.idempotencyKey, fingerprint, result } })
     return result
   })

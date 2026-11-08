@@ -3,6 +3,7 @@ import { isOwner, requiresOperationalShift } from '@/lib/authz'
 import { requirePageAccess } from '@/lib/require-page-access'
 import { getOpenShift } from '@/lib/staff-shifts'
 import { getWaiterWorkspace } from '@/lib/staff-waiter'
+import { getCashierInvoices } from '@/lib/staff-invoices'
 import { WaiterTableWorkspace } from '@/components/waiter/waiter-table-workspace'
 
 export const dynamic = 'force-dynamic'
@@ -25,5 +26,7 @@ export default async function CashierTablePage({ params, searchParams }: { param
   const { orderId } = await searchParams
   const initialOrderId = typeof orderId === 'string' && workspace.openOrders.some((order) => order.id === orderId && order.tableNumber === table.number) ? orderId : undefined
 
-  return <WaiterTableWorkspace workspace={workspace} table={table} initialOrderId={initialOrderId} />
+  const active = workspace.openOrders.find((order) => order.tableId === table.id)
+  const invoices = active ? await getCashierInvoices(session, { orderId: BigInt(active.id) }) : []
+  return <WaiterTableWorkspace key={active?.id ?? 'new'} workspace={workspace} table={table} initialOrderId={initialOrderId} invoices={invoices} />
 }

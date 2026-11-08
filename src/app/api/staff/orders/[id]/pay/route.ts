@@ -31,8 +31,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const session = await getStaffSession()
   if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
 
-  // Waiters cannot collect payments or settle invoices
-  if (session.role === 'waiter') return NextResponse.json({ error: 'غير مصرح — التحصيل والحصر النقدي للكاشير فقط' }, { status: 403 })
+  // Waiters and Managers cannot collect payments or settle invoices — cash custody is Cashier/Owner only
+  if (session.role === 'waiter' || session.role === 'manager') return NextResponse.json({ error: 'غير مصرح — التحصيل والحصر النقدي للكاشير أو المالك فقط' }, { status: 403 })
 
   const { id } = await ctx.params
   let body: { action?: string } & Record<string, unknown>
@@ -52,13 +52,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       const result = method === 'cash'
         ? await finalizeOrderPayment(session, id, input)
         : await confirmElectronicPayment(session, id, input)
-      const invoice = (await getCashierInvoices(session)).find((row) => row.id === result.orderId)
+      const invoice = (await getCashierInvoices(session, { orderId: BigInt(result.orderId) }))[0]
       if (!invoice) return NextResponse.json({ error: 'Payment recorded but the updated invoice could not be loaded.' }, { status: 503 })
       return NextResponse.json({ ...result, invoice }, { status: 201 })
     }
 
     if (body.action === 'refund_request') {
-      const result = await requestRefund(session, id, { ...body, idempotencyKey })
+      const result = await requestRefund(session, id, { ...body, idempotencyKey: idempotencyKey ?? undefined })
       return NextResponse.json(result, { status: 201 })
     }
 
@@ -68,7 +68,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     }
 
     if (body.action === 'refund_execute') {
-      const result = await executeRefund(session, body)
+      const result = await executeRefund(session, { ...body, idempotencyKey: idempotencyKey ?? undefined })
       return NextResponse.json(result, { status: 200 })
     }
 

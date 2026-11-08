@@ -13,6 +13,7 @@ import { Icon } from '@/components/ui/icon'
 import { homeForRole } from '@/lib/route-access'
 import { logoutAction } from '@/app/login/actions'
 import type { ShiftBoardData, ShiftView } from '@/lib/staff-shifts'
+import { CashHandoverPanel } from '@/components/shifts/cash-handover-panel'
 
 const CASH_HANDLING_ROLES = ['cashier', 'manager']
 
@@ -35,7 +36,7 @@ function paymentBadge(paymentStatus: string): { tone: BadgeTone; label: string }
   return { tone: 'muted', label: 'غير مدفوع' }
 }
 
-export function ShiftsBoard({ initial }: { initial: ShiftBoardData }) {
+export function ShiftsBoard({ initial, actorId }: { initial: ShiftBoardData; actorId: string }) {
   const router = useRouter()
   const [, startTransition] = useTransition()
   const [data, setData] = useState(initial)
@@ -125,6 +126,7 @@ export function ShiftsBoard({ initial }: { initial: ShiftBoardData }) {
 
   return (
     <div className="flex flex-col gap-4" dir="rtl">
+      <CashHandoverPanel actorId={actorId} role={data.userRole} branchId={data.branchId} />
       {error ? (
         <Card className="border-destructive/40">
           <CardContent className="pt-5 text-sm text-destructive">{error}</CardContent>

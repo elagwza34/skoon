@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto'
+import { mayAppendToOrder } from '@/lib/table-order-policy'
+import { validateModifierSelections } from '@/lib/staff-pos-write'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { ROLE, hasAtLeast, hasPermission, requiresOperationalShift, type RoleSlug } from '@/lib/authz'
@@ -33,8 +35,8 @@ export function isOrderStatus(v: string): v is OrderStatus {
 }
 
 /** Pure counterpart of the kitchen queue predicate, kept testable without a DB. */
-export function isKitchenTicketVisible(status: string, sentToKitchen: boolean, orderType = 'dine_in', paymentStatus = 'unpaid'): boolean {
-  return sentToKitchen && (orderType !== 'takeaway' || paymentStatus === 'paid') && (status === 'new' || status === 'preparing' || status === 'ready')
+export function isKitchenTicketVisible(status: string, sentToKitchen: boolean, orderType = 'dine_in', paymentStatus = 'unpaid', source = ''): boolean {
+  return sentToKitchen && (orderType !== 'takeaway' || paymentStatus === 'paid') && (source !== 'qr' || paymentStatus === 'paid') && (status === 'new' || status === 'preparing' || status === 'ready')
 }
 
 export function takeawayDispatchBlocker(orderType: string, paymentStatus: string): 'unpaid' | null {
@@ -79,7 +81,7 @@ export interface StaffOrderRow {
   tableNumber: string
   createdAt: string
   updatedAt: string
-  items: { id: string; productId: string; variantId: string | null; name: string; variantLabel: string | null; details: string[]; qty: number; servedQty: number; preparedQty: number; preparationStartedAt: string | null; unitPrice: number; note: string | null; updatedAt: string }[]
+  items: { id: string; productId: string; variantId: string | null; name: string; variantLabel: string | null; details: string[]; qty: number; servedQty: number; preparedQty: number; preparationStartedAt: string | null; unitPrice: number; lineTotal?: number; note: string | null; updatedAt: string }[]
   itemsCount: number
   createdById?: string | null
   qrClaimedAt?: string | null
@@ -293,11 +295,19 @@ export const waiterOrderEditSchema = z.object({
 const serveItemsSchema = z.object({
   items: z.array(z.object({ orderItemId: z.string().regex(/^\d+$/), quantity: z.coerce.number().int().positive().max(99) })).min(1).max(30),
   interventionReason: z.string().trim().min(3).max(255).optional(),
+  idempotencyKey: z.string().trim().min(8).max(100),
 })
 const prepareItemsSchema = z.object({
   mode: z.enum(['start', 'ready']),
   itemIds: z.array(z.string().regex(/^\d+$/)).min(1).max(30),
 })
+
+type DispatchState = { status: string; branch_id: bigint; order_type: string; payment_status: string; sent_to_kitchen_at: Date | null; source: string; qr_approved_at: Date | null }
+
+function requireKitchenDispatch(order: DispatchState) {
+  if (order.status === 'pending' || !order.sent_to_kitchen_at || (order.source === 'qr' && !order.qr_approved_at)) throw new OrderError('يجب اعتماد الطلب وإرساله للمطبخ قبل التحضير', 409)
+  if (takeawayDispatchBlocker(order.order_type, order.payment_status)) throw new OrderError('يجب تحصيل طلب التيك أواي بالكامل قبل التحضير', 409)
+}
 
 /** A small, DB-free status projection shared by the KDS and its tests. */
 export function itemPreparationState(item: { qty: number; preparedQty: number; preparationStartedAt: string | null }): 'new' | 'preparing' | 'ready' {
@@ -321,10 +331,15 @@ export async function prepareOrderItems(session: StaffSession, orderIdRaw: strin
   const orderId = BigInt(orderIdRaw)
   const order = await prisma.order.findUnique({ where: { id: orderId }, select: { id: true, branchId: true, orderNumber: true } })
   if (!order || !staffCanAccessBranch(session, order.branchId)) throw new OrderError('Order not found', 404)
-  if (requiresOperationalShift(session.role) && !await getOpenShift(session.id, order.branchId)) throw new OrderError('An open shift is required', 409)
+  const activeShift = await getOpenShift(session.id, order.branchId)
+  if (!activeShift) throw new OrderError('An open shift is required', 409)
 
   return prisma.$transaction(async (tx) => {
-    const locked = await tx.$queryRaw<{ status: string }[]>`SELECT status FROM orders WHERE id = ${orderId} FOR UPDATE`
+    const shift = await lockAndReadShift(tx, activeShift.id)
+    if (!shift || shift.status !== 'open' || shift.cashierId !== session.id || shift.branchId !== order.branchId) throw new OrderError('الوردية لم تعد مفتوحة', 409)
+    const locked = await tx.$queryRaw<DispatchState[]>`SELECT status, branch_id, order_type, payment_status, sent_to_kitchen_at, source, qr_approved_at FROM orders WHERE id = ${orderId} FOR UPDATE`
+    if (!locked[0] || locked[0].branch_id !== order.branchId || !staffCanAccessBranch(session, locked[0].branch_id)) throw new OrderError('Order not found', 404)
+    requireKitchenDispatch(locked[0])
     if (!locked[0] || !['new', 'preparing'].includes(locked[0].status)) throw new OrderError('Only active kitchen orders can be prepared', 409)
     const uniqueIds = [...new Set(parsed.data.itemIds)]
     if (uniqueIds.length !== parsed.data.itemIds.length) throw new OrderError('An item may only be prepared once per request', 400)
@@ -366,20 +381,23 @@ export async function editWaiterOrder(session: StaffSession, orderIdRaw: string,
   const order = await prisma.order.findUnique({ where: { id: orderId }, select: { id: true, branchId: true, responsibleWaiterId: true } })
   if (!order || !staffCanAccessBranch(session, order.branchId)) throw new OrderError('Order not found', 404)
   if (session.role === ROLE.WAITER && order.responsibleWaiterId !== session.id) throw new OrderError('Forbidden', 403)
-  if (requiresOperationalShift(session.role)) {
-    if (session.branchId === null || !await getOpenShift(session.id, order.branchId)) throw new OrderError('An open shift is required', 409)
-  }
+  const editingShift = await getOpenShift(session.id, order.branchId)
+  if (!editingShift) throw new OrderError('An open shift is required', 409)
 
   return prisma.$transaction(async (tx) => {
-    const locked = await tx.$queryRaw<{ status: string; sent_to_kitchen_at: Date | null; discount_type: string | null; discount_value: unknown; tax_rate: unknown; updated_at: Date }[]>`
-      SELECT status, sent_to_kitchen_at, discount_type, discount_value, tax_rate, updated_at FROM orders WHERE id = ${orderId} FOR UPDATE
+    const lockedShift = await lockAndReadShift(tx, editingShift.id)
+    if (!lockedShift || lockedShift.status !== 'open' || lockedShift.cashierId !== session.id || lockedShift.branchId !== order.branchId) throw new OrderError('الوردية لم تعد مفتوحة', 409)
+    const locked = await tx.$queryRaw<{ status: string; sent_to_kitchen_at: Date | null; discount_type: string | null; discount_value: unknown; tax_rate: unknown; updated_at: Date; responsible_waiter_id: string | null }[]>`
+      SELECT status, sent_to_kitchen_at, discount_type, discount_value, tax_rate, updated_at, responsible_waiter_id FROM orders WHERE id = ${orderId} FOR UPDATE
     `
     const row = locked[0]
     if (!row || row.status !== 'new' || row.sent_to_kitchen_at) throw new OrderError('Only unsent new orders can be edited', 409)
+    if (row.responsible_waiter_id !== session.id) throw new OrderError('تغيرت مسؤولية الطلب', 403)
     if (row.updated_at.toISOString() !== parsed.data.expectedUpdatedAt) throw new OrderError('تغيّر الطلب بواسطة موظف آخر؛ حدّث الصفحة وراجع التغييرات', 409)
     const submittedItemIds = parsed.data.items.flatMap((item) => item.itemId ? [BigInt(item.itemId)] : [])
     if (new Set(submittedItemIds.map(String)).size !== submittedItemIds.length) throw new OrderError('Duplicate order item', 400)
     const existingItems = await tx.orderItem.findMany({ where: { orderId, isVoided: false }, select: { id: true, productId: true } })
+    if (parsed.data.items.some((item) => !item.itemId) || submittedItemIds.length !== existingItems.length) throw new OrderError('استخدم إضافة الأصناف أو الإلغاء الموثق بدل استبدال سطور الطلب', 409)
     const existingById = new Map(existingItems.map((item) => [item.id.toString(), item]))
     for (const item of parsed.data.items) {
       if (!item.itemId) continue
@@ -400,6 +418,8 @@ export async function editWaiterOrder(session: StaffSession, orderIdRaw: string,
     const invoiceKind = invoiceDiscountKind(row.discount_type)
     const result = await recalculateOpenOrderInvoice(tx, orderId, invoiceKind, invoiceDiscountValue(invoiceKind, row.discount_value), row.tax_rate)
     const { calculated, tax, total } = result
+    const collected = await tx.payment.aggregate({ where: { orderId: order.id, status: 'completed' }, _sum: { amount: true } })
+    if (total < moneyCents(Number(collected._sum.amount ?? 0))) throw new OrderError('الإجمالي أقل من المبلغ المحصل؛ يلزم تصحيح مالي مصرح', 409)
     const itemsCount = parsed.data.items.reduce((sum, item) => sum + item.qty, 0)
     await tx.order.update({ where: { id: orderId }, data: { notes: parsed.data.notes || null, itemsSubtotal: centsText(calculated.subtotalCents), itemDiscountAmount: centsText(calculated.itemDiscountCents), discountEligibleBase: centsText(calculated.eligibleBaseCents), discountAmount: centsText(calculated.itemDiscountCents + calculated.invoiceDiscountCents), taxAmount: centsText(tax), total: centsText(total) } })
     await tx.auditLog.create({ data: { userId: session.id, branchId: order.branchId, action: 'waiter.order_edit', entityType: 'order', entityId: orderId, newValues: { itemsCount, total: centsText(total), notes: parsed.data.notes || null } } })
@@ -429,15 +449,16 @@ export async function transitionOrderStatus(
 
   const order = await prisma.order.findUnique({
     where: { id: BigInt(orderId) },
-    select: { id: true, branchId: true, status: true, paymentStatus: true, orderNumber: true, responsibleWaiterId: true },
+    select: { id: true, branchId: true, status: true, paymentStatus: true, orderNumber: true, responsibleWaiterId: true, orderType: true },
   })
   if (!order) throw new OrderError('Order not found', 404)
   if (!staffCanAccessBranch(session, order.branchId)) throw new OrderError('Forbidden', 403)
 
   // The acting employee must have an open shift for their branch.
+  let activeShift: Awaited<ReturnType<typeof getOpenShift>> = null
   if (requiresOperationalShift(session.role)) {
   if (session.branchId === null) throw new OrderError('غير مصرح — لا فرع مرتبط بالمستخدم', 403)
-  const activeShift = await getOpenShift(session.id, BigInt(session.branchId))
+  activeShift = await getOpenShift(session.id, BigInt(session.branchId))
   if (!activeShift) throw new OrderError('لا توجد وردية مفتوحة لهذا الموظف — افتح وردية أولًا من صفحة الورديات (/shifts)', 409)
   }
 
@@ -455,11 +476,17 @@ export async function transitionOrderStatus(
   if (to === 'cancelled' && order.paymentStatus === 'paid') throw new OrderError('A paid order must be refunded through the payment correction flow', 409)
 
   await prisma.$transaction(async (tx) => {
-    const lockedRows = await tx.$queryRaw<{ status: string; payment_status: string; responsible_waiter_id: string | null }[]>`
-      SELECT status, payment_status, responsible_waiter_id FROM orders WHERE id = ${order.id} FOR UPDATE
+    if (activeShift) {
+      const shift = await lockAndReadShift(tx, activeShift.id)
+      if (!shift || shift.status !== 'open' || shift.cashierId !== session.id || shift.branchId !== order.branchId) throw new OrderError('الوردية لم تعد مفتوحة', 409)
+    }
+    const lockedRows = await tx.$queryRaw<(DispatchState & { responsible_waiter_id: string | null })[]>`
+      SELECT status, branch_id, order_type, payment_status, sent_to_kitchen_at, source, qr_approved_at, responsible_waiter_id FROM orders WHERE id = ${order.id} FOR UPDATE
     `
     const locked = lockedRows[0]
     if (!locked || locked.status !== current) throw new OrderError('Order status changed; refresh and retry', 409)
+    if (locked.branch_id !== order.branchId || !staffCanAccessBranch(session, locked.branch_id)) throw new OrderError('Forbidden', 403)
+    if (to === 'preparing' || to === 'ready') requireKitchenDispatch(locked)
     if (to === 'cancelled' && session.role === ROLE.WAITER && locked.responsible_waiter_id !== session.id && !hasPermission(session.permissions, 'orders.cancel')) throw new OrderError('Order responsibility changed; refresh and retry', 409)
     if (to === 'cancelled' && locked.payment_status === 'paid') throw new OrderError('A paid order must be refunded through the payment correction flow', 409)
     // Inventory is deliberately not consumed at acceptance/ready. Preparation
@@ -547,12 +574,12 @@ export async function appendOrderItems(
 
   const order = await prisma.order.findUnique({
     where: { id: BigInt(orderIdRaw) },
-    select: { id: true, branchId: true, status: true, paymentStatus: true, orderNumber: true, responsibleWaiterId: true },
+    select: { id: true, branchId: true, status: true, paymentStatus: true, orderNumber: true, responsibleWaiterId: true, orderType: true },
   })
   if (!order) throw new OrderError('الطلب غير موجود', 404)
   if (!staffCanAccessBranch(session, order.branchId)) throw new OrderError('غير مصرح', 403)
   if (session.role === ROLE.WAITER && order.responsibleWaiterId !== session.id) throw new OrderError('لا يمكنك إضافة أصناف لطلب نادل آخر', 403)
-  if (!['new', 'preparing', 'ready'].includes(order.status)) throw new OrderError('لا يمكن إضافة أصناف لطلب مغلق', 409)
+  if (!mayAppendToOrder(order.status, order.paymentStatus)) throw new OrderError('لا يمكن إضافة أصناف لطلب مغلق', 409)
   if (order.paymentStatus === 'paid') throw new OrderError('لا يمكن إضافة أصناف لطلب تم تحصيله', 409)
 
   const openShift = requiresOperationalShift(session.role) ? await getOpenShift(session.id, order.branchId) : null
@@ -596,7 +623,7 @@ export async function appendOrderItems(
   }
 
   const key = parsed.data.idempotencyKey?.trim() || null
-  const fingerprint = key ? createHash('sha256').update(JSON.stringify({ orderId: orderIdRaw, items: items.map((i) => ({ productId: i.productId, variantId: i.variantId ?? null, qty: i.qty, note: i.note ?? null })) })).digest('hex') : null
+  const fingerprint = key ? createHash('sha256').update(JSON.stringify({ orderId: orderIdRaw, items: items.map((i) => ({ productId: i.productId, variantId: i.variantId ?? null, modifierSelections: i.modifierSelections, qty: i.qty, note: i.note ?? null })) })).digest('hex') : null
   if (key) {
     const prior = await prisma.financialOperation.findUnique({ where: { branchId_actorId_operationType_idempotencyKey: { branchId: order.branchId, actorId: session.id, operationType: 'order_item_append', idempotencyKey: key } } })
     if (prior) {
@@ -612,10 +639,10 @@ export async function appendOrderItems(
     }
 
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('order-item-append:' || ${orderIdRaw}))`
-    const locked = await tx.$queryRaw<{ status: string; payment_status: string; responsible_waiter_id: string | null }[]>`
-      SELECT status, payment_status, responsible_waiter_id FROM orders WHERE id = ${order.id} FOR UPDATE
+    const locked = await tx.$queryRaw<{ status: string; payment_status: string; responsible_waiter_id: string | null; sent_to_kitchen_at: Date | null }[]>`
+      SELECT status, payment_status, responsible_waiter_id, sent_to_kitchen_at FROM orders WHERE id = ${order.id} FOR UPDATE
     `
-    if (!locked[0] || !['new', 'preparing', 'ready'].includes(locked[0].status)) throw new OrderError('الطلب لم يعد مفتوحاً للتعديل', 409)
+    if (!locked[0] || !mayAppendToOrder(locked[0].status, locked[0].payment_status)) throw new OrderError('الطلب لم يعد مفتوحاً للتعديل', 409)
     if (locked[0].payment_status === 'paid') throw new OrderError('لا يمكن إضافة أصناف لطلب تم تحصيله', 409)
     if (session.role === ROLE.WAITER && locked[0].responsible_waiter_id !== session.id) throw new OrderError('تغيّرت مسؤولية الطلب؛ حدّث الصفحة', 409)
 
@@ -627,6 +654,10 @@ export async function appendOrderItems(
       }
     }
 
+    for (const item of items) {
+      try { validateModifierSelections(priceById.get(item.productId)!, item.modifierSelections) }
+      catch (error) { throw new OrderError(error instanceof Error ? error.message : 'اختيارات المنتج غير صالحة', 400) }
+    }
     const now = new Date()
     const createdItemIds: string[] = []
     let totalAddedCents = 0n
@@ -668,15 +699,15 @@ export async function appendOrderItems(
           notes: item.note?.trim() || null,
         },
       })
-      await reserveOrderItemInventory(tx, order.id, created.id)
+      if (locked[0].sent_to_kitchen_at) await reserveOrderItemInventory(tx, order.id, created.id)
       createdItemIds.push(created.id.toString())
     }
 
     // Revert to preparing if order was ready — new items need kitchen work
-    const wasReady = locked[0].status === 'ready'
-    if (wasReady) {
+    const wasReady = ['ready', 'served'].includes(locked[0].status)
+    if (wasReady && locked[0].sent_to_kitchen_at) {
       await tx.order.update({ where: { id: order.id }, data: { status: 'preparing', readyAt: null } })
-      await tx.orderStatusHistory.create({ data: { orderId: order.id, fromStatus: 'ready', toStatus: 'preparing', changedById: session.id, note: 'تم إضافة أصناف جديدة إلى طلب جاهز — عادت الحالة إلى قيد التحضير' } })
+      await tx.orderStatusHistory.create({ data: { orderId: order.id, fromStatus: locked[0].status, toStatus: 'preparing', changedById: session.id, note: 'تم إضافة أصناف جديدة إلى طلب جاهز — عادت الحالة إلى قيد التحضير' } })
     }
 
     // Recalculate order totals
@@ -684,6 +715,8 @@ export async function appendOrderItems(
     const kind = invoiceDiscountKind(orderRow?.discountType ?? null)
     const result = await recalculateOpenOrderInvoice(tx, order.id, kind, invoiceDiscountValue(kind, orderRow?.discountValue ?? 0), orderRow?.taxRate ?? 0)
     const { calculated, tax, total } = result
+    const collected = await tx.payment.aggregate({ where: { orderId: order.id, status: 'completed' }, _sum: { amount: true } })
+    if (total < moneyCents(Number(collected._sum.amount ?? 0))) throw new OrderError('الإجمالي أقل من المحصل؛ يلزم تصحيح مالي مصرح', 409)
     await tx.order.update({
       where: { id: order.id },
       data: {
@@ -703,14 +736,14 @@ export async function appendOrderItems(
         action: 'order.items_append',
         entityType: 'order',
         entityId: order.id,
-        newValues: { addedItemIds: createdItemIds, itemsAdded: items.length, totalAdded: totalAddedCents.toString(), newTotal: centsText(total) },
+        newValues: { addedItemIds: createdItemIds, itemsAdded: items.length, totalAdded: totalAddedCents.toString(), newTotal: centsText(total), addedBy: session.id, addedAt: now.toISOString() },
       },
     })
 
-    await notifyRole(tx, ROLE.KITCHEN, order.branchId, {
+    if (locked[0].sent_to_kitchen_at) await notifyRole(tx, ROLE.KITCHEN, order.branchId, {
       type: 'order.created',
       title: `إضافة أصناف إلى الطلب ${order.orderNumber}`,
-      body: 'تمت الإضافة إلى طلب مفتوح',
+      body: `أصناف جديدة فقط: ${createdItemIds.join(', ')}`,
       orderId: order.id,
     })
 
@@ -743,17 +776,35 @@ export async function serveOrderItems(session: StaffSession, orderIdRaw: string,
   const order = await prisma.order.findUnique({ where: { id: orderId }, select: { id: true, branchId: true, status: true, paymentStatus: true, orderType: true, orderNumber: true, responsibleWaiterId: true } })
   if (!order || !staffCanAccessBranch(session, order.branchId)) throw new OrderError('Order not found', 404)
   if (session.role === ROLE.CASHIER && (order.orderType !== 'takeaway' || order.paymentStatus !== 'paid')) throw new OrderError('Cashier handover is limited to paid takeaway orders', 403)
-  if (requiresOperationalShift(session.role) && !await getOpenShift(session.id, order.branchId)) throw new OrderError('An open shift is required', 409)
-  const emergency = session.role === ROLE.WAITER && order.responsibleWaiterId !== session.id
-  if (emergency && !parsed.data.interventionReason) throw new OrderError('Emergency serving requires an intervention reason', 400)
+  const fingerprint = createHash('sha256').update(JSON.stringify({ orderId: orderIdRaw, items: parsed.data.items, interventionReason: parsed.data.interventionReason ?? null })).digest('hex')
+  const operationWhere = { branchId_actorId_operationType_idempotencyKey: { branchId: order.branchId, actorId: session.id, operationType: 'order_items_serve', idempotencyKey: parsed.data.idempotencyKey } }
+  type ServeResult = { id: string; served: { orderItemId: string; quantity: number }[]; orderComplete: boolean; status: string }
+  const replay = (prior: { fingerprint: string; result: unknown } | null) => {
+    if (!prior) return null
+    if (prior.fingerprint !== fingerprint) throw new OrderError('مفتاح التقديم مستخدم لطلب مختلف', 409)
+    return prior.result as ServeResult
+  }
+  const prior = replay(await prisma.financialOperation.findUnique({ where: operationWhere }))
+  if (prior) return prior
+  const activeShift = await getOpenShift(session.id, order.branchId)
+  if (!activeShift) throw new OrderError('An open shift is required', 409)
 
   return prisma.$transaction(async (tx) => {
-    const locked = await tx.$queryRaw<{ status: string }[]>`SELECT status FROM orders WHERE id = ${orderId} FOR UPDATE`
+    const shift = await lockAndReadShift(tx, activeShift.id)
+    if (!shift || shift.status !== 'open' || shift.cashierId !== session.id || shift.branchId !== order.branchId) throw new OrderError('الوردية لم تعد مفتوحة', 409)
+    const locked = await tx.$queryRaw<(DispatchState & { responsible_waiter_id: string | null })[]>`SELECT status, branch_id, order_type, payment_status, sent_to_kitchen_at, source, qr_approved_at, responsible_waiter_id FROM orders WHERE id = ${orderId} FOR UPDATE`
+    if (!locked[0] || locked[0].branch_id !== order.branchId || !staffCanAccessBranch(session, locked[0].branch_id)) throw new OrderError('Order not found', 404)
+    const repeated = replay(await tx.financialOperation.findUnique({ where: operationWhere }))
+    if (repeated) return repeated
     if (!['preparing', 'ready'].includes(locked[0]?.status ?? '')) throw new OrderError('Only prepared order items can be served', 409)
+    requireKitchenDispatch(locked[0])
+    if (session.role === ROLE.CASHIER && (locked[0].order_type !== 'takeaway' || locked[0].payment_status !== 'paid')) throw new OrderError('Cashier handover is limited to paid takeaway orders', 403)
+    const emergency = session.role === ROLE.WAITER && locked[0].responsible_waiter_id !== session.id
+    if (emergency && !parsed.data.interventionReason) throw new OrderError('Emergency serving requires an intervention reason', 400)
     // Emergency service is a fall-back, not a way to bypass a responsible
     // waiter who is currently on an operational shift.
-    if (emergency && order.responsibleWaiterId) {
-      const responsibleShift = await tx.shift.findFirst({ where: { cashierId: order.responsibleWaiterId, branchId: order.branchId, status: 'open' }, select: { id: true } })
+    if (emergency && locked[0].responsible_waiter_id) {
+      const responsibleShift = await tx.shift.findFirst({ where: { cashierId: locked[0].responsible_waiter_id, branchId: order.branchId, status: 'open' }, select: { id: true } })
       if (responsibleShift) throw new OrderError('The responsible waiter is still available; use normal responsibility handover', 409)
     }
     const requested = new Map<string, number>()
@@ -775,8 +826,10 @@ export async function serveOrderItems(session: StaffSession, orderIdRaw: string,
       await tx.orderStatusHistory.create({ data: { orderId, fromStatus: locked[0].status, toStatus: 'served', changedById: session.id } })
       await emitStatusNotifications(tx, { to: 'served', orderId, branchId: order.branchId, orderNumber: order.orderNumber })
     }
-    await tx.auditLog.create({ data: { userId: session.id, branchId: order.branchId, action: emergency ? 'order.items_emergency_served' : 'order.items_served', entityType: 'order', entityId: orderId, newValues: { items: parsed.data.items, orderComplete: complete, responsibleWaiterId: order.responsibleWaiterId, interventionReason: parsed.data.interventionReason ?? null, interventionAt: emergency ? new Date().toISOString() : null } } })
-    return { id: orderId.toString(), served: parsed.data.items, orderComplete: complete, status: complete ? 'served' : 'ready' }
+    await tx.auditLog.create({ data: { userId: session.id, branchId: order.branchId, action: emergency ? 'order.items_emergency_served' : 'order.items_served', entityType: 'order', entityId: orderId, newValues: { items: parsed.data.items, orderComplete: complete, responsibleWaiterId: locked[0].responsible_waiter_id, interventionReason: parsed.data.interventionReason ?? null, interventionAt: emergency ? new Date().toISOString() : null } } })
+    const result: ServeResult = { id: orderId.toString(), served: parsed.data.items, orderComplete: complete, status: complete ? 'served' : locked[0].status }
+    await tx.financialOperation.create({ data: { ...operationWhere.branchId_actorId_operationType_idempotencyKey, fingerprint, result } })
+    return result
   })
 }
 
@@ -799,7 +852,6 @@ export async function sendOrderToKitchen(session: StaffSession, orderId: string)
   })
   if (!order) throw new OrderError('الطلب غير موجود', 404)
   if (!staffCanAccessBranch(session, order.branchId)) throw new OrderError('غير مصرح', 403)
-  if (session.role === ROLE.CASHIER && order.orderType !== 'takeaway') throw new OrderError('Cashier dispatch is limited to prepaid takeaway orders', 403)
   if (session.role === ROLE.WAITER && order.responsibleWaiterId !== session.id) throw new OrderError('Only the responsible waiter may dispatch this order', 403)
   if (order.source === 'qr' && !order.qrApprovedAt) throw new OrderError('QR orders must be claimed and approved before dispatch', 409)
   if (order.status !== 'new') throw new OrderError('لا يمكن إرسال طلب ليس في حالة "جديد" للمطبخ', 409)
@@ -807,13 +859,14 @@ export async function sendOrderToKitchen(session: StaffSession, orderId: string)
   if (order.sentToKitchenAt) return { id: order.id.toString(), orderNumber: order.orderNumber, sent: true }
 
   // The waiter must have an open shift for their branch.
-  if (requiresOperationalShift(session.role)) {
-  if (session.branchId === null) throw new OrderError('غير مصرح — لا فرع مرتبط بالمستخدم', 403)
-  const activeShift = await getOpenShift(session.id, BigInt(session.branchId))
-  if (!activeShift) throw new OrderError('لا توجد وردية مفتوحة لهذا الويتر — افتح وردية أولًا من صفحة الورديات (/shifts)', 409)
-  }
+  const activeShift = requiresOperationalShift(session.role) ? await getOpenShift(session.id, order.branchId) : null
+  if (requiresOperationalShift(session.role) && !activeShift) throw new OrderError('يلزم وجود وردية مفتوحة', 409)
 
   await prisma.$transaction(async (tx) => {
+    if (activeShift) {
+      const shift = await lockAndReadShift(tx, activeShift.id)
+      if (!shift || shift.status !== 'open' || shift.cashierId !== session.id || shift.branchId !== order.branchId) throw new OrderError('الوردية لم تعد مفتوحة', 409)
+    }
     const locked = await tx.$queryRaw<{ status: string; payment_status: string; order_type: string; sent_to_kitchen_at: Date | null }[]>`
       SELECT status, payment_status, order_type, sent_to_kitchen_at FROM orders WHERE id = ${order.id} FOR UPDATE
     `

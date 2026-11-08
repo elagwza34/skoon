@@ -18,5 +18,5 @@ export default async function ShiftsPage({
   const { branchId } = await searchParams
   const board = await getShiftsBoard(session, branchId)
 
-  return <ShiftsBoard initial={board} />
+  return <ShiftsBoard initial={board} actorId={session.id} />
 }

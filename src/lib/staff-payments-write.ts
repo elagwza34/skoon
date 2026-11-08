@@ -5,8 +5,8 @@ import { prisma } from '@/lib/prisma'
 import { ROLE, hasAtLeast, requiresOperationalShift } from '@/lib/authz'
 import { staffCanAccessBranch, type StaffSession } from '@/lib/session'
 import { notifyRole } from '@/lib/notifications'
-import { getOpenShift } from '@/lib/staff-shifts'
-import { lockAndReadShift } from '@/lib/financial-shift-lock'
+import { getOpenShift, readShiftCashState } from '@/lib/staff-shifts'
+import { lockAndReadShift, type LockedOpenShift } from '@/lib/financial-shift-lock'
 
 /**
  * Payments write — server-only. Money is NEVER accepted from the client.
@@ -105,7 +105,7 @@ export async function finalizeOrderPayment(
   orderIdRaw: string,
   input: unknown,
 ): Promise<PaymentResult> {
-  if (!hasAtLeast(session.role, ROLE.CASHIER)) throw new PaymentError('غير مصرح', 403)
+  if (session.role !== ROLE.OWNER && session.role !== ROLE.CASHIER) throw new PaymentError('غير مصرح — التحصيل النقدي للكاشير أو المالك فقط', 403)
   if (!/^\d+$/.test(orderIdRaw)) throw new PaymentError('الطلب غير موجود', 404)
 
   const parsed = paymentCollectionSchema.safeParse(input)
@@ -238,7 +238,7 @@ export async function confirmElectronicPayment(
   orderIdRaw: string,
   input: unknown,
 ): Promise<PaymentResult> {
-  if (!hasAtLeast(session.role, ROLE.CASHIER)) throw new PaymentError('غير مصرح', 403)
+  if (session.role !== ROLE.OWNER && session.role !== ROLE.CASHIER) throw new PaymentError('غير مصرح — تأكيد الدفع الإلكتروني للكاشير أو المالك فقط', 403)
   if (!/^\d+$/.test(orderIdRaw)) throw new PaymentError('الطلب غير موجود', 404)
 
   const parsed = paymentCollectionSchema.safeParse(input)
@@ -375,7 +375,8 @@ export async function confirmElectronicPayment(
 export const refundRequestSchema = z.object({
   orderId: z.string().regex(/^\d+$/),
   paymentId: z.string().regex(/^\d+$/),
-  amount: z.coerce.number().positive('مبلغ الاسترداد يجب أن يكون أكبر من صفر').max(9_999_999),
+  amount: z.coerce.number().positive('مبلغ الاسترداد يجب أن يكون أكبر من صفر').max(9_999_999)
+    .refine((value) => Math.abs(value * 100 - Math.round(value * 100)) < 0.000001, 'مبلغ الاسترداد يجب أن يكون بدقة القرش'),
   reason: z.string().trim().min(3, 'سبب الاسترداد مطلوب (3 أحرف على الأقل)').max(500),
   idempotencyKey: z.string().trim().min(8).max(100).optional(),
 })
@@ -415,6 +416,20 @@ type RefundStatus = (typeof REFUND_STATUSES)[number]
 
 function isRefundStatus(v: string): v is RefundStatus {
   return REFUND_STATUSES.includes(v as RefundStatus)
+}
+
+/** Serialize all lifecycle writers on the source payment, then the refund. */
+async function lockRefundPayment(tx: Prisma.TransactionClient, paymentId: bigint, branchId: bigint) {
+  const rows = await tx.$queryRaw<{ id: bigint }[]>`SELECT id FROM payments WHERE id = ${paymentId} AND branch_id = ${branchId} FOR UPDATE`
+  if (!rows.length) throw new PaymentError('الدفعة غير موجودة في الفرع', 404)
+}
+
+async function lockRefund(tx: Prisma.TransactionClient, refundId: bigint, paymentId: bigint, branchId: bigint) {
+  const rows = await tx.$queryRaw<{ id: bigint }[]>`SELECT id FROM refunds WHERE id = ${refundId} AND payment_id = ${paymentId} AND branch_id = ${branchId} FOR UPDATE`
+  if (!rows.length) throw new PaymentError('الاسترداد غير موجود في الفرع والدفعة', 404)
+  const refund = await tx.refund.findUnique({ where: { id: refundId } })
+  if (!refund || refund.branchId !== branchId || refund.paymentId !== paymentId) throw new PaymentError('تغير ربط الاسترداد', 409)
+  return refund
 }
 
 /** Refundable balance = original payment amount minus completed refunds. */
@@ -473,10 +488,10 @@ export async function requestRefund(
     if (prior) { if (prior.fingerprint !== fingerprint) throw new PaymentError('مفتاح العملية استُخدم لطلب مختلف', 409); return prior.result as unknown as RefundResult }
   }
 
-  const reservable = await reservableBalance(prisma, BigInt(paymentId))
-  if (amount > reservable) throw new PaymentError('مبلغ الاسترداد يتجاوز الرصيد القابل للاسترداد', 409)
-
   return prisma.$transaction(async (tx) => {
+    await lockRefundPayment(tx, BigInt(paymentId), order.branchId)
+    const lockedPayment = await tx.payment.findUnique({ where: { id: BigInt(paymentId) } })
+    if (!lockedPayment || lockedPayment.status !== 'completed' || lockedPayment.orderId !== order.id || lockedPayment.branchId !== order.branchId || lockedPayment.method !== payment.method) throw new PaymentError('تغيرت الدفعة الأصلية', 409)
     if (key) {
       const prior = await tx.financialOperation.findUnique({ where: { branchId_actorId_operationType_idempotencyKey: { branchId: order.branchId, actorId: session.id, operationType: 'refund_request', idempotencyKey: key } } })
       if (prior) { if (prior.fingerprint !== fingerprint) throw new PaymentError('مفتاح العملية استُخدم لطلب مختلف', 409); return prior.result as unknown as RefundResult }
@@ -552,18 +567,20 @@ export async function decideRefund(
   const order = await prisma.order.findUnique({ where: { id: refund.orderId }, select: { orderNumber: true } })
 
   return prisma.$transaction(async (tx) => {
-    const current = await tx.refund.findUnique({ where: { id: BigInt(refundId) }, select: { id: true, status: true, requestedById: true } })
+    await lockRefundPayment(tx, refund.paymentId, refund.branchId)
+    const current = await lockRefund(tx, refund.id, refund.paymentId, refund.branchId)
     if (!current || current.status !== 'REQUESTED') throw new PaymentError('تغيرت حالة طلب الاسترداد؛ حدّث الصفحة', 409)
     if (current.requestedById === session.id) throw new PaymentError('لا يمكن الموافقة على استرداد طلبك بنفسك', 403)
 
-    const updated = await tx.refund.update({
-      where: { id: BigInt(refundId) },
+    const changed = await tx.refund.updateMany({
+      where: { id: current.id, branchId: refund.branchId, status: 'REQUESTED' },
       data: {
         status: approve ? 'APPROVED' : 'CANCELLED',
         ...(approve ? { approvedById: session.id, approvedAt: new Date() } : {}),
       },
-      select: { id: true, amount: true, method: true, status: true },
     })
+    if (changed.count !== 1) throw new PaymentError('تغيرت حالة الاسترداد', 409)
+    const updated = { ...current, status: approve ? 'APPROVED' : 'CANCELLED' }
 
     await tx.auditLog.create({
       data: {
@@ -597,97 +614,84 @@ export async function decideRefund(
  * Cash: requires open shift + sufficient till cash.
  * Electronic: requires external reference + evidence note.
  */
-export async function executeRefund(
-  session: StaffSession,
-  input: unknown,
-): Promise<RefundResult> {
+export async function executeRefund(session: StaffSession, input: unknown): Promise<RefundResult> {
   const parsed = refundExecuteSchema.safeParse(input)
   if (!parsed.success) throw new PaymentError(parsed.error.issues[0]?.message ?? 'بيانات غير صالحة', 400)
-  const { refundId, externalReference, evidenceNote } = parsed.data
-
-  const refund = await prisma.refund.findUnique({ where: { id: BigInt(refundId) }, select: { id: true, branchId: true, status: true, amount: true, method: true, paymentId: true, orderId: true } })
-  if (!refund) throw new PaymentError('طلب الاسترداد غير موجود', 404)
-  if (!staffCanAccessBranch(session, refund.branchId)) throw new PaymentError('غير مصرح', 403)
-  if (refund.status !== 'APPROVED') throw new PaymentError('لا يمكن تنفيذ استرداد غير معتمد', 409)
-
-  const payment = await prisma.payment.findUnique({ where: { id: refund.paymentId }, select: { id: true, orderId: true, branchId: true, status: true, amount: true, method: true } })
-  if (!payment || payment.status !== 'completed') throw new PaymentError('الدفعة الأصلية غير مكتملة', 409)
-
-  const electronic = refund.method !== 'cash'
-  if (electronic && !hasAtLeast(session.role, ROLE.MANAGER)) throw new PaymentError('تنفيذ استرداد إلكتروني يتطلب مدير أو مالك', 403)
-  if (!electronic && !hasAtLeast(session.role, ROLE.CASHIER)) throw new PaymentError('غير مصرح', 403)
-
-  const key = parsed.data.idempotencyKey
-  const fingerprint = createHash('sha256').update(JSON.stringify({ refundId, externalReference, evidenceNote })).digest('hex')
-  if (key) {
-    const prior = await prisma.financialOperation.findUnique({ where: { branchId_actorId_operationType_idempotencyKey: { branchId: refund.branchId, actorId: session.id, operationType: 'refund_execute', idempotencyKey: key } } })
-    if (prior) { if (prior.fingerprint !== fingerprint) throw new PaymentError('مفتاح العملية استُخدم لطلب مختلف', 409); return prior.result as unknown as RefundResult }
+  const { refundId, externalReference, evidenceNote, idempotencyKey: key } = parsed.data
+  const observed = await prisma.refund.findUnique({ where: { id: BigInt(refundId) } })
+  if (!observed) throw new PaymentError('طلب الاسترداد غير موجود', 404)
+  if (!staffCanAccessBranch(session, observed.branchId)) throw new PaymentError('غير مصرح', 403)
+  const electronic = observed.method !== 'cash'
+  if (electronic) {
+    if (!hasAtLeast(session.role, ROLE.MANAGER)) throw new PaymentError('غير مصرح بتنفيذ الاسترداد الإلكتروني', 403)
+  } else {
+    if (session.role !== ROLE.OWNER && session.role !== ROLE.CASHIER) throw new PaymentError('غير مصرح بتنفيذ الاسترداد النقدي', 403)
   }
-
-  const openShift = !electronic ? await getOpenShift(session.id, refund.branchId) : null
-  if (!electronic && !openShift) throw new PaymentError('لا توجد وردية مفتوحة للاسترداد النقدي', 409)
-
+  if (electronic && (!externalReference?.trim() || !evidenceNote?.trim())) throw new PaymentError('مرجع الاسترداد الإلكتروني ودليل التنفيذ مطلوبان', 400)
+  const fingerprint = createHash('sha256').update(JSON.stringify({ refundId, externalReference, evidenceNote })).digest('hex')
+  const operationWhere = key ? { branchId_actorId_operationType_idempotencyKey: { branchId: observed.branchId, actorId: session.id, operationType: 'refund_execute', idempotencyKey: key } } : null
+  const replay = (prior: { fingerprint: string; result: unknown } | null) => {
+    if (!prior) return null
+    if (prior.fingerprint !== fingerprint) throw new PaymentError('مفتاح العملية استُخدم لطلب مختلف', 409)
+    return prior.result as RefundResult
+  }
+  // Durable replay precedes status/open-shift checks, including after close.
+  if (operationWhere) {
+    const prior = replay(await prisma.financialOperation.findUnique({ where: operationWhere }))
+    if (prior) return prior
+  }
+  const observedShift = electronic ? null : await getOpenShift(session.id, observed.branchId)
+  if (!electronic && !observedShift) throw new PaymentError('لا توجد وردية مفتوحة للاسترداد النقدي', 409)
   return prisma.$transaction(async (tx) => {
-    if (key) {
-      const prior = await tx.financialOperation.findUnique({ where: { branchId_actorId_operationType_idempotencyKey: { branchId: refund.branchId, actorId: session.id, operationType: 'refund_execute', idempotencyKey: key } } })
-      if (prior) { if (prior.fingerprint !== fingerprint) throw new PaymentError('مفتاح العملية استُخدم لطلب مختلف', 409); return prior.result as unknown as RefundResult }
+    // Same ordering as collection/close: executing shift FIRST, then payment,
+    // then refund. Different drawers still serialize on the original payment.
+    const lockedShift: LockedOpenShift | null = observedShift ? await lockAndReadShift(tx, observedShift.id) : null
+    await lockRefundPayment(tx, observed.paymentId, observed.branchId)
+    const refund = await lockRefund(tx, observed.id, observed.paymentId, observed.branchId)
+    if (operationWhere) {
+      const prior = replay(await tx.financialOperation.findUnique({ where: operationWhere }))
+      if (prior) return prior
     }
-
-    const current = await tx.refund.findUnique({ where: { id: BigInt(refundId) }, select: { id: true, status: true } })
-    if (!current || current.status !== 'APPROVED') throw new PaymentError('تغيرت حالة طلب الاسترداد؛ حدّث الصفحة', 409)
-
-    // Revalidate refundable balance under lock.
-    const remaining = await refundableBalance(tx, refund.paymentId)
-    if (Number(refund.amount) > remaining) throw new PaymentError('مبلغ الاسترداد يتجاوز الرصيد القابل للاسترداد بعد طلبات متزامنة', 409)
-
-    // Cash refund: validate sufficient till cash.
-    if (!electronic) {
-      const shift = await lockAndReadShift(tx, openShift!.id)
-      if (!shift || shift.status !== 'open' || shift.cashierId !== session.id) throw new PaymentError('الوردية ليست مفتوحة أو ليست وريكتك', 409)
-      const shiftRow = await tx.shift.findUnique({ where: { id: shift.id }, select: { expectedCash: true, closingCash: true } })
-      const tillBalance = round2(Number(shiftRow?.expectedCash ?? 0) - Number(shiftRow?.closingCash ?? 0))
-      if (Number(refund.amount) > tillBalance) throw new PaymentError('رصيد الصندوق غير كافٍ للاسترداد النقدي', 409)
+    if (observedShift && (!lockedShift || lockedShift.status !== 'open' || lockedShift.cashierId !== session.id || lockedShift.branchId !== observed.branchId)) throw new PaymentError('الوردية مغلقة أو لا تخص الكاشير والفرع', 409)
+    if (refund.method !== observed.method || refund.orderId !== observed.orderId) throw new PaymentError('تغير ربط الاسترداد', 409)
+    if (refund.status !== 'APPROVED') throw new PaymentError('لا يمكن تنفيذ استرداد غير معتمد أو منفذ سابقًا', 409)
+    const payment = await tx.payment.findUnique({ where: { id: refund.paymentId } })
+    if (!payment || payment.status !== 'completed' || payment.branchId !== refund.branchId || payment.orderId !== refund.orderId || payment.method !== refund.method) throw new PaymentError('ربط الدفعة والاسترداد غير صالح', 409)
+    if (!Number.isFinite(Number(refund.amount)) || Number(refund.amount) <= 0 || Math.abs(Number(refund.amount) * 100 - Math.round(Number(refund.amount) * 100)) > 0.000001) throw new PaymentError('مبلغ استرداد غير صالح', 409)
+    if (Number(refund.amount) > await refundableBalance(tx, refund.paymentId)) throw new PaymentError('مبلغ الاسترداد يتجاوز الرصيد القابل للاسترداد', 409)
+    let expectedBefore: number | null = null
+    if (observedShift) {
+      const shift = await tx.shift.findUnique({ where: { id: observedShift.id } })
+      if (!shift) throw new PaymentError('الوردية غير موجودة', 409)
+      expectedBefore = (await readShiftCashState(tx, shift)).expectedCash
+      if (Number(refund.amount) > expectedBefore) throw new PaymentError('رصيد الصندوق غير كافٍ للاسترداد النقدي', 409)
     }
-
-    const updated = await tx.refund.update({
-      where: { id: BigInt(refundId) },
-      data: {
-        status: 'COMPLETED',
-        executedById: session.id,
-        executedAt: new Date(),
-        ...(electronic ? { externalReference: externalReference?.trim() || null, evidenceNote: evidenceNote?.trim() || null } : {}),
-      },
-      select: { id: true, amount: true, method: true, status: true },
+    // Existing unlinked evidence must never be silently duplicated.
+    const existing = await tx.financialMovement.findFirst({ where: { branchId: refund.branchId, type: 'cash_refund', metadata: { path: ['refundId'], equals: refundId } }, select: { id: true } })
+    if (existing) throw new PaymentError('يوجد أثر نقدي سابق يتطلب مراجعة موثقة', 409)
+    const at = new Date()
+    const changed = await tx.refund.updateMany({
+      where: { id: refund.id, branchId: refund.branchId, paymentId: refund.paymentId, status: 'APPROVED' },
+      data: { status: 'COMPLETED', executedById: session.id, executedAt: at,
+        ...(electronic ? { externalReference: externalReference!.trim(), evidenceNote: evidenceNote!.trim() } : {}) },
     })
-
-    await tx.auditLog.create({
-      data: {
-        userId: session.id,
-        branchId: refund.branchId,
-        action: 'refund.execute',
-        entityType: 'refund',
-        entityId: refund.id,
-        newValues: {
-          refundId: refund.id.toString(),
-          method: refund.method,
-          amount: refund.amount.toString(),
-          executedBy: session.id,
-          executedAt: new Date().toISOString(),
-          externalReference: electronic ? externalReference : null,
-        },
-      },
-    })
-
-    const result: RefundResult = {
-      refundId: updated.id.toString(),
-      orderId: refund.orderId.toString(),
-      orderNumber: '',
-      paymentId: refund.paymentId.toString(),
-      amount: updated.amount.toString(),
-      method: updated.method as PaymentMethod,
-      status: updated.status,
-    }
-    if (key) await tx.financialOperation.create({ data: { branchId: refund.branchId, actorId: session.id, operationType: 'refund_execute', idempotencyKey: key, fingerprint, result: result as unknown as Prisma.InputJsonValue } })
+    if (changed.count !== 1) throw new PaymentError('تغيرت حالة الاسترداد', 409)
+    const movement = observedShift ? await tx.financialMovement.create({ data: {
+      branchId: refund.branchId, type: 'cash_refund', status: 'posted', amount: refund.amount,
+      sourceAccount: 'CASHIER_TILL', destinationAccount: 'CUSTOMER', sourceShiftId: observedShift.id,
+      actorId: session.id, occurredAt: at, reason: 'Executed cash refund',
+      metadata: { refundId, paymentId: refund.paymentId.toString(), orderId: refund.orderId.toString(), executedBy: session.id, executedAt: at.toISOString() },
+    } }) : null
+    await tx.auditLog.create({ data: {
+      userId: session.id, branchId: refund.branchId, action: 'refund.execute', entityType: 'refund', entityId: refund.id,
+      oldValues: { status: refund.status },
+      newValues: { refundId, method: refund.method, amount: refund.amount.toString(), executedBy: session.id, executedAt: at.toISOString(),
+        executionShiftId: observedShift?.id.toString() ?? null, movementId: movement?.id.toString() ?? null,
+        expectedCashBefore: expectedBefore?.toFixed(2) ?? null, expectedCashAfter: expectedBefore === null ? null : round2(expectedBefore - Number(refund.amount)).toFixed(2),
+        externalReference: electronic ? externalReference!.trim() : null },
+    } })
+    const result: RefundResult = { refundId, orderId: refund.orderId.toString(), orderNumber: '', paymentId: refund.paymentId.toString(), amount: refund.amount.toString(), method: refund.method as PaymentMethod, status: 'COMPLETED' }
+    if (operationWhere) await tx.financialOperation.create({ data: { branchId: refund.branchId, actorId: session.id, operationType: 'refund_execute', idempotencyKey: key!, fingerprint, result: result as unknown as Prisma.InputJsonValue } })
     return result
   })
 }
@@ -710,15 +714,17 @@ export async function cancelRefund(
   const order = await prisma.order.findUnique({ where: { id: refund.orderId }, select: { orderNumber: true } })
 
   return prisma.$transaction(async (tx) => {
-    const current = await tx.refund.findUnique({ where: { id: BigInt(refundId) }, select: { id: true, status: true, requestedById: true } })
+    await lockRefundPayment(tx, refund.paymentId, refund.branchId)
+    const current = await lockRefund(tx, refund.id, refund.paymentId, refund.branchId)
     if (!current || !['REQUESTED', 'APPROVED'].includes(current.status)) throw new PaymentError('تغيرت حالة طلب الاسترداد؛ حدّث الصفحة', 409)
     if (current.requestedById !== session.id && !hasAtLeast(session.role, ROLE.MANAGER)) throw new PaymentError('لا يمكن إلغاء استرداد طلب شخص آخر', 403)
 
-    const updated = await tx.refund.update({
-      where: { id: BigInt(refundId) },
+    const changed = await tx.refund.updateMany({
+      where: { id: current.id, branchId: refund.branchId, status: current.status },
       data: { status: 'CANCELLED' },
-      select: { id: true, amount: true, method: true, status: true },
     })
+    if (changed.count !== 1) throw new PaymentError('تغيرت حالة الاسترداد', 409)
+    const updated = { ...current, status: 'CANCELLED' }
 
     await tx.auditLog.create({
       data: {

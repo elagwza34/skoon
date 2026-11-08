@@ -25,5 +25,5 @@ export default async function WaiterTablePage({ params, searchParams }: { params
   const { orderId } = await searchParams
   const initialOrderId = typeof orderId === 'string' && workspace.openOrders.some((order) => order.id === orderId && order.tableNumber === table.number) ? orderId : undefined
 
-  return <WaiterTableWorkspace workspace={workspace} table={table} initialOrderId={initialOrderId} />
+  return <WaiterTableWorkspace key={workspace.openOrders.find((order) => order.tableId === table.id)?.id ?? 'new'} workspace={workspace} table={table} initialOrderId={initialOrderId} />
 }

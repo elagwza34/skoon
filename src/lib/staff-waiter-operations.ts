@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
+import { activeTableOrderWhere } from '@/lib/table-order-policy'
 import { ROLE, hasAtLeast, requiresOperationalShift } from '@/lib/authz'
 import { staffCanAccessBranch, type StaffSession } from '@/lib/session'
 import { getOpenShift } from '@/lib/staff-shifts'
@@ -81,7 +82,7 @@ export async function approveQrOrder(session: StaffSession, orderIdRaw: string, 
   requireWaiter(session)
   if (!idSchema.safeParse(orderIdRaw).success) throw new OrderError('Order not found', 404)
   const orderId = BigInt(orderIdRaw)
-  const preflight = await prisma.order.findUnique({ where: { id: orderId }, select: { branchId: true } })
+  const preflight = await prisma.order.findUnique({ where: { id: orderId }, select: { branchId: true, cafeTableId: true } })
   if (!preflight) throw new OrderError('Order not found', 404)
   await requireOperationalShift(session, preflight.branchId)
 
@@ -89,12 +90,15 @@ export async function approveQrOrder(session: StaffSession, orderIdRaw: string, 
   const idempotencyKey = typeof parsedInput.idempotencyKey === 'string' ? parsedInput.idempotencyKey.trim() || null : null
 
   return prisma.$transaction(async (tx) => {
+    // Same physical-table lock as POS creation, before source/target order locks.
+    await tx.$queryRaw`SELECT id FROM cafe_tables WHERE id = ${preflight.cafeTableId} AND branch_id = ${preflight.branchId} FOR UPDATE`
     const rows = await tx.$queryRaw<{ branch_id: bigint; order_number: string; source: string; status: string; sent_to_kitchen_at: Date | null; responsible_waiter_id: string | null; qr_rejected_at: Date | null; cafe_table_id: bigint }[]>`
       SELECT branch_id, order_number, source, status, sent_to_kitchen_at, responsible_waiter_id, qr_rejected_at, cafe_table_id FROM orders WHERE id = ${orderId} FOR UPDATE`
     const row = rows[0]
     if (!row || !staffCanAccessBranch(session, row.branch_id)) throw new OrderError('Order not found', 404)
     if (row.source !== 'qr') throw new OrderError('Only QR orders can be approved', 403)
     if (row.responsible_waiter_id && row.responsible_waiter_id !== session.id) throw new OrderError('Only the responsible waiter may approve this QR order', 403)
+    if (row.cafe_table_id !== preflight.cafeTableId) throw new OrderError('تغيرت الطاولة؛ حدّث الصفحة', 409)
     if (row.qr_rejected_at || row.status !== 'pending') throw new OrderError('QR order is no longer approvable', 409)
     if (row.sent_to_kitchen_at) return { id: orderIdRaw, approved: true, idempotent: true }
 
@@ -112,14 +116,17 @@ export async function approveQrOrder(session: StaffSession, orderIdRaw: string, 
       where: {
         branchId: row.branch_id,
         cafeTableId: row.cafe_table_id,
-        status: { not: 'cancelled' },
-        paymentStatus: { not: 'paid' },
+        ...activeTableOrderWhere,
         id: { not: orderId },
       },
-      select: { id: true, orderNumber: true, status: true, paymentStatus: true },
+      select: { id: true, orderNumber: true, status: true, paymentStatus: true, responsibleWaiterId: true, sentToKitchenAt: true },
     })
 
     if (existingOrder) {
+      await tx.$queryRaw`SELECT id FROM orders WHERE id = ${existingOrder.id} FOR UPDATE`
+      const currentTarget = await tx.order.findUnique({ where: { id: existingOrder.id }, select: { status: true, paymentStatus: true } })
+      if (!currentTarget || currentTarget.paymentStatus === 'paid' || ['cancelled', 'pending'].includes(currentTarget.status)) throw new OrderError('تغير طلب الطاولة؛ أعد المراجعة', 409)
+      if (existingOrder.responsibleWaiterId !== session.id) throw new OrderError('اعتماد الإضافات لنادل الطلب المسؤول فقط', 403)
       // Append QR items to the existing open order.
       const qrItems = await tx.orderItem.findMany({
         where: { orderId, isVoided: false },
@@ -131,7 +138,7 @@ export async function approveQrOrder(session: StaffSession, orderIdRaw: string, 
         let totalAddedCents = 0n
 
         for (const item of qrItems) {
-          const product = await prisma.product.findUnique({
+          const product = await tx.product.findUnique({
             where: { id: item.productId },
             select: { id: true, name: true, price: true, variants: { where: { isActive: true, isAvailable: true, archivedAt: null }, select: { id: true, price: true, combinationKey: true, values: { select: { value: { select: { label: true, attribute: { select: { sortOrder: true } } } } } } } } },
           })
@@ -163,13 +170,13 @@ export async function approveQrOrder(session: StaffSession, orderIdRaw: string, 
             select: { id: true },
           })
           createdItemIds.push(created.id)
-          await reserveOrderItemInventory(tx, existingOrder.id, created.id)
+          if (existingOrder.sentToKitchenAt) await reserveOrderItemInventory(tx, existingOrder.id, created.id)
         }
 
         // Revert to preparing if existing order was ready — new items need kitchen work
-        if (existingOrder.status === 'ready') {
+        if (existingOrder.sentToKitchenAt && ['ready', 'served'].includes(currentTarget.status)) {
           await tx.order.update({ where: { id: existingOrder.id }, data: { status: 'preparing', readyAt: null } })
-          await tx.orderStatusHistory.create({ data: { orderId: existingOrder.id, fromStatus: 'ready', toStatus: 'preparing', changedById: session.id, note: 'تم إضافة أصناف من طلب QR إلى طلب جاهز — عادت الحالة إلى قيد التحضير' } })
+          await tx.orderStatusHistory.create({ data: { orderId: existingOrder.id, fromStatus: currentTarget.status, toStatus: 'preparing', changedById: session.id, note: 'تم إضافة أصناف من طلب QR إلى طلب جاهز — عادت الحالة إلى قيد التحضير' } })
         }
 
         // Recalculate existing order totals
@@ -199,7 +206,7 @@ export async function approveQrOrder(session: StaffSession, orderIdRaw: string, 
             newValues: { mergedFromQrOrder: orderId.toString(), qrOrderNumber: row.order_number, itemsAppended: qrItems.length },
           },
         })
-        await notifyRole(tx, ROLE.KITCHEN, row.branch_id, {
+        if (existingOrder.sentToKitchenAt) await notifyRole(tx, ROLE.KITCHEN, row.branch_id, {
           type: 'order.created',
           title: `إضافة أصناف QR إلى الطلب ${existingOrder.orderNumber}`,
           body: 'تمت إضافة أصناف طلب QR معتمد إلى طلب مفتوح موجود',
@@ -270,22 +277,26 @@ export async function reassignOrderResponsibility(session: StaffSession, orderId
 }
 
 export async function transferOrderTable(session: StaffSession, orderIdRaw: string, input: unknown) {
-  if (session.role !== ROLE.WAITER) throw new OrderError('Waiter role required', 403)
+  // Physical table identity is immutable for waiter operations. Responsibility
+  // handovers use their separate existing approval workflow.
+  if (!hasAtLeast(session.role, ROLE.MANAGER)) throw new OrderError('لا يمكن للنادل تغيير طاولة طلب قائم', 403)
   if (!idSchema.safeParse(orderIdRaw).success) throw new OrderError('Order not found', 404)
   const parsed = transferSchema.safeParse(input); if (!parsed.success) throw new OrderError('Invalid table transfer', 400)
   const orderId = BigInt(orderIdRaw); const destinationId = BigInt(parsed.data.tableId)
-  const preflight = await prisma.order.findUnique({ where: { id: orderId }, select: { branchId: true } }); if (!preflight) throw new OrderError('Order not found', 404)
+  const preflight = await prisma.order.findUnique({ where: { id: orderId }, select: { branchId: true, cafeTableId: true } }); if (!preflight) throw new OrderError('Order not found', 404)
   await requireOperationalShift(session, preflight.branchId)
   return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM cafe_tables WHERE branch_id = ${preflight.branchId} AND id IN (${preflight.cafeTableId}, ${destinationId}) ORDER BY id FOR UPDATE`
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('table-transfer:' || ${preflight.branchId.toString()} || ':' || ${destinationId.toString()}))`
     const rows = await tx.$queryRaw<{ branch_id: bigint; cafe_table_id: bigint; status: string; payment_status: string; responsible_waiter_id: string | null }[]>`SELECT branch_id, cafe_table_id, status, payment_status, responsible_waiter_id FROM orders WHERE id = ${orderId} FOR UPDATE`
     const order = rows[0]; if (!order || !staffCanAccessBranch(session, order.branch_id)) throw new OrderError('Order not found', 404)
+    if (order.cafe_table_id !== preflight.cafeTableId) throw new OrderError('تغيرت الطاولة؛ حدّث الصفحة', 409)
     if (order.cafe_table_id === destinationId) throw new OrderError('Order is already assigned to this table', 409)
     if (!isTransferEligible(order.status, order.payment_status)) throw new OrderError('Only unpaid active orders may be transferred', 409)
     if (!hasAtLeast(session.role, ROLE.MANAGER) && order.responsible_waiter_id !== session.id) throw new OrderError('Only the responsible waiter may transfer this order', 403)
     const destination = await tx.cafeTable.findFirst({ where: { id: destinationId, branchId: order.branch_id, isActive: true, deletedAt: null }, select: { id: true } })
     if (!destination) throw new OrderError('Destination table is unavailable', 422)
-    const occupied = await tx.order.findFirst({ where: { cafeTableId: destinationId, id: { not: orderId }, status: { in: ['new', 'preparing', 'ready'] } }, select: { id: true } })
+    const occupied = await tx.order.findFirst({ where: { branchId: order.branch_id, cafeTableId: destinationId, id: { not: orderId }, ...activeTableOrderWhere }, select: { id: true } })
     if (occupied) throw new OrderError('Destination table already has an active order', 409)
     await tx.order.update({ where: { id: orderId }, data: { cafeTableId: destinationId } })
     await tx.orderTableTransfer.create({ data: { orderId, branchId: order.branch_id, fromTableId: order.cafe_table_id, toTableId: destinationId, transferredById: session.id, reason: parsed.data.reason } })
@@ -671,7 +682,7 @@ export async function listUnclaimedQrOrders(session: StaffSession) {
   return prisma.order.findMany({
     where: {
       source: 'qr',
-      responsibleWaiterId: null,
+      OR: [{ responsibleWaiterId: null }, { responsibleWaiterId: session.id }],
       branchId,
       status: 'pending',
       isArchived: false,

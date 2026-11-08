@@ -5,6 +5,8 @@ import { staffCanAccessBranch, type StaffSession } from '@/lib/session'
 import { PosError, posOrderSchema } from '@/lib/staff-pos'
 import { notifyRole } from '@/lib/notifications'
 import { getOpenShift } from '@/lib/staff-shifts'
+import { lockAndReadShift } from '@/lib/financial-shift-lock'
+import { activeTableOrderWhere } from '@/lib/table-order-policy'
 import { createOrderItemVariantSnapshot } from '@/lib/order-item-variant'
 import { calculateInvoiceDiscounts, type DiscountKind } from '@/lib/invoice-discounts'
 import { containsDiscountSubmission } from '@/lib/pos-discount-policy'
@@ -164,6 +166,10 @@ export async function createPosOrder(session: StaffSession, input: unknown, idem
   const total = centsText(calculated.finalCents)
 
   const created = await prisma.$transaction(async (tx) => {
+    if (openShift) {
+      const locked = await lockAndReadShift(tx, openShift.id)
+      if (!locked || locked.status !== 'open' || locked.cashierId !== session.id || locked.branchId !== branchId) throw new PosError('الوردية لم تعد مفتوحة', 409)
+    }
     // The lock makes the read/check/create sequence safe when a client retries
     // the same submission concurrently. The durable record commits with the order.
     if (key) {
@@ -174,22 +180,17 @@ export async function createPosOrder(session: StaffSession, input: unknown, idem
         return prior.result as unknown as PosOrderResult
       }
     }
+    if (parsed.data.orderType === 'dine_in') {
+      const lockedTable = await tx.$queryRaw<{ id: bigint }[]>`SELECT id FROM cafe_tables WHERE id = ${tableId} AND branch_id = ${branchId} AND is_active = true AND deleted_at IS NULL FOR UPDATE`
+      if (!lockedTable.length) throw new PosError('الطاولة غير متاحة', 409)
+      const occupied = await tx.order.findFirst({ where: { branchId, cafeTableId: tableId, ...activeTableOrderWhere }, select: { id: true } })
+      if (occupied) throw new PosError('الطاولة مشغولة؛ افتح طلبها الحالي لإضافة الأصناف', 409)
+    }
     if (session.role === ROLE.WAITER && reservationId) {
       const claimedTableId = await validateAndClaimWaiterReservationTx(
         tx, session.id, branchId, reservationId,
       )
       if (claimedTableId !== tableId) throw new PosError('الحجز لم يعد سارياً للطاولة المحددة', 409)
-    } else if (parsed.data.orderType === 'dine_in') {
-      const occupied = await tx.order.findFirst({
-        where: {
-          branchId,
-          cafeTableId: tableId,
-          status: { not: 'cancelled' },
-          paymentStatus: { not: 'paid' },
-        },
-        select: { id: true },
-      })
-      if (occupied) throw new PosError('الطاولة مشغولة حالياً، اختر طاولة أخرى', 409)
     }
 
     const order = await tx.order.create({
@@ -259,7 +260,7 @@ type ProductWithModifiers = {
   optionAssignments: Array<{ productOption: { id: bigint; name: string; type: string; isRequired: boolean; minSelections: number; maxSelections: number; isActive: boolean; values: Array<{ id: bigint; value: string; priceAdjustment: { toString(): string } }> } }>
 }
 
-function validateModifierSelections(product: ProductWithModifiers, input: Array<{ groupId: string; valueIds: string[] }>) {
+export function validateModifierSelections(product: ProductWithModifiers, input: Array<{ groupId: string; valueIds: string[] }>) {
   const submitted = new Map<string, string[]>()
   for (const selection of input) {
     if (submitted.has(selection.groupId)) throw new PosError('لا يمكن تكرار مجموعة الإضافات', 400)

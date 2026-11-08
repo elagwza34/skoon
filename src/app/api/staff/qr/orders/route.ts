@@ -19,7 +19,7 @@ export async function GET() {
     if (!shift) return NextResponse.json({ error: 'An open shift is required' }, { status: 409 })
   }
   const orders = await listUnclaimedQrOrders(session)
-  return NextResponse.json({ orders })
+  return NextResponse.json({ orders: orders.map((order) => ({ id: order.id.toString(), number: order.orderNumber, total: order.total.toString(), tableId: order.cafeTable.id.toString(), tableNumber: order.cafeTable.number })) })
 }
 
 export async function POST(req: Request) {

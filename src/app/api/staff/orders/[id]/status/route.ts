@@ -23,7 +23,7 @@ export async function POST(req: Request, { params }: Params) {
 
   const { id } = await params
 
-  let body: { action?: string; to?: unknown; reason?: unknown; items?: unknown; mode?: unknown; itemIds?: unknown }
+  let body: { action?: string; to?: unknown; reason?: unknown; items?: unknown; mode?: unknown; itemIds?: unknown; idempotencyKey?: unknown; interventionReason?: unknown }
   try {
     body = await req.json()
   } catch {
@@ -42,7 +42,7 @@ export async function POST(req: Request, { params }: Params) {
 
   if (body.action === 'serve_items') {
     try {
-      return NextResponse.json(await serveOrderItems(session, id, { items: body.items }))
+      return NextResponse.json(await serveOrderItems(session, id, { items: body.items, interventionReason: body.interventionReason, idempotencyKey: req.headers.get('idempotency-key') ?? body.idempotencyKey }))
     } catch (e) {
       if (e instanceof OrderError) return NextResponse.json({ error: e.message }, { status: e.status })
       return NextResponse.json({ error: 'Item serving failed' }, { status: 500 })

@@ -11,6 +11,7 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { formatCurrency, formatDateShort, formatTime, formatNumber } from '@/lib/format'
 import type { StaffSession } from '@/lib/session'
 import type { ShiftBoardData, ShiftView } from '@/lib/staff-shifts'
+import { CashHandoverPanel } from '@/components/shifts/cash-handover-panel'
 
 /**
  * CashierDashboard — renders the shift-aware cashier workstation.
@@ -149,6 +150,7 @@ export function CashierDashboard({
 
   return (
     <div className="flex flex-col gap-5" dir="rtl">
+      <CashHandoverPanel actorId={session.id} role={session.role} branchId={data.branchId} />
       {!compact && <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">لوحة الكاشير</h1>

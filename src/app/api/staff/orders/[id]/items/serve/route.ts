@@ -16,7 +16,7 @@ export async function POST(_req: Request, { params }: Params) {
 
   const { id } = await params
 
-  let body: { items?: { orderItemId: string; quantity: number }[] }
+  let body: { items?: { orderItemId: string; quantity: number }[]; idempotencyKey?: unknown; interventionReason?: unknown }
   try {
     body = await _req.json()
   } catch {
@@ -24,7 +24,7 @@ export async function POST(_req: Request, { params }: Params) {
   }
 
   try {
-    const result = await serveOrderItems(session, id, { items: body.items ?? [] })
+    const result = await serveOrderItems(session, id, { items: body.items ?? [], interventionReason: body.interventionReason, idempotencyKey: _req.headers.get('idempotency-key') ?? body.idempotencyKey })
     return NextResponse.json(result)
   } catch (e) {
     if (e instanceof OrderError) return NextResponse.json({ error: e.message }, { status: e.status })

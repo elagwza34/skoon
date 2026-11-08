@@ -15,6 +15,7 @@ export class OrderItemVoidError extends Error {
 const inputSchema = z.object({
   reason: z.string().trim().min(3, 'سبب إزالة الصنف مطلوب').max(255),
   idempotencyKey: z.string().trim().min(8).max(100),
+  expectedUpdatedAt: z.string().datetime().optional(),
   releaseStock: z.preprocess((value) => value === 'true' || value === true, z.boolean().default(true)).optional(),
 })
 
@@ -71,20 +72,21 @@ export async function voidOpenOrderItem(session: StaffSession, orderIdRaw: strin
     }
     const item = await tx.orderItem.findFirst({
       where: { id: orderItemId, orderId },
-      select: { id: true, productName: true, quantity: true, isVoided: true, preparedQuantity: true, servedQuantity: true, preparationStartedAt: true },
+      select: { id: true, productName: true, quantity: true, isVoided: true, preparedQuantity: true, servedQuantity: true, preparationStartedAt: true, updatedAt: true },
     })
     if (!item) throw new OrderItemVoidError('الصنف غير موجود داخل هذا الطلب', 404)
     if (item.isVoided) throw new OrderItemVoidError('تمت إزالة الصنف بالفعل', 409)
     const activeItems = await tx.orderItem.count({ where: { orderId, isVoided: false } })
-    const blocker = orderItemVoidBlocker({ status: locked.status, paymentStatus: locked.payment_status, completedPayments: paid, servedQuantity: item.servedQuantity, activeItems })
+    if (parsed.data.expectedUpdatedAt && parsed.data.expectedUpdatedAt !== item.updatedAt.toISOString()) throw new OrderItemVoidError('تغيّر الصنف؛ حدّث الصفحة', 409)
+    const blocker = orderItemVoidBlocker({ status: locked.status, paymentStatus: locked.payment_status, completedPayments: session.role === ROLE.CASHIER ? 0 : paid, servedQuantity: item.servedQuantity, activeItems })
     if (blocker === 'closed') throw new OrderItemVoidError('لا يمكن إزالة أصناف من طلب مغلق أو ملغى', 409)
     if (blocker === 'paid') throw new OrderItemVoidError('لا يمكن إزالة صنف من فاتورة تم تحصيلها', 409)
     if (blocker === 'served') throw new OrderItemVoidError('لا يمكن إزالة صنف تم تقديمه؛ يلزم إجراء تصحيح مصرح دون إعادة المخزون تلقائيًا', 409)
     if (blocker === 'last_item') throw new OrderItemVoidError('هذا آخر صنف؛ استخدم إلغاء الطلب بالكامل مع تسجيل السبب', 409)
 
     try {
-      if (item.preparationStartedAt || item.preparedQuantity > 0) {
-        await consumeOrderReservations(tx, orderId, session.id, 'waste', parsed.data.reason, [{ orderItemId, quantity: item.quantity }])
+      if (item.preparedQuantity > 0) {
+        await consumeOrderReservations(tx, orderId, session.id, 'waste', parsed.data.reason, [{ orderItemId, quantity: item.preparedQuantity }])
       }
       if (parsed.data.releaseStock !== false) {
         await releaseOrderItemReservations(tx, orderId, orderItemId)
@@ -102,6 +104,8 @@ export async function voidOpenOrderItem(session: StaffSession, orderIdRaw: strin
       throw error
     }
     const nextStatus = locked.status === 'ready' ? 'ready' : locked.status
+    const collected = await tx.payment.aggregate({ where: { orderId, status: 'completed' }, _sum: { amount: true } })
+    if (recalculated.total < BigInt(Math.round(Number(collected._sum.amount ?? 0) * 100))) throw new OrderItemVoidError('الإجمالي أقل من المحصل؛ يلزم إجراء مالي مصرح', 409)
     await tx.order.update({ where: { id: orderId }, data: {
       itemsSubtotal: centsText(recalculated.calculated.subtotalCents),
       itemDiscountAmount: centsText(recalculated.calculated.itemDiscountCents),

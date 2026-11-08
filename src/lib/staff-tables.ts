@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import { ROLE } from '@/lib/authz'
 import type { StaffSession } from '@/lib/session'
+import { activeTableOrderWhere } from '@/lib/table-order-policy'
 
 /** Staff tables — real branch tables + live occupancy from open orders. */
 export interface StaffTable {
@@ -29,7 +30,7 @@ export async function getStaffTables(session: StaffSession): Promise<StaffTable[
     }),
     prisma.order.groupBy({
       by: ['cafeTableId'],
-      where: { ...branchScope, status: { in: ['new', 'preparing', 'ready'] } },
+      where: { ...branchScope, ...activeTableOrderWhere },
       _count: { _all: true },
     }),
   ])

@@ -28,10 +28,10 @@ const money = (value: number | string) => formatMoney(Number(value))
 const dateTime = (value: string) => { const date = new Date(value); const time = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).format(date); return `${formatDateShort(date)} ${time}` }
 const key = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`
 
-export function InvoiceBoard({ invoices, products, categories, defaultTab = 'open', workspace = false }: {
-  invoices: InvoiceRow[]; products: { id: string; name: string; price: string; categoryId?: string; isAvailable?: boolean; categoryName?: string; variants?: { id: string; label: string; price: string }[] }[]; categories?: { id: string; name: string }[]; defaultTab?: InvoiceTab; workspace?: boolean
+export function InvoiceBoard({ invoices, products, categories, defaultTab = 'open', workspace = false, initialOrderId }: {
+  invoices: InvoiceRow[]; products: { id: string; name: string; price: string; categoryId?: string; isAvailable?: boolean; categoryName?: string; variants?: { id: string; label: string; price: string }[] }[]; categories?: { id: string; name: string }[]; defaultTab?: InvoiceTab; workspace?: boolean; initialOrderId?: string
 }) {
-  const router = useRouter(); const [query, setQuery] = useState(''); const [selectedId, setSelectedId] = useState<string | null>(null)
+  const router = useRouter(); const [query, setQuery] = useState(''); const [selectedId, setSelectedId] = useState<string | null>(initialOrderId ?? null)
   const [tableFilter, setTableFilter] = useState('all')
   const [preview, setPreview] = useState<ReceiptPreviewState | null>(null); const [received, setReceived] = useState(''); const [method, setMethod] = useState('cash'); const [electronicPaymentConfirmed, setElectronicPaymentConfirmed] = useState(false); const [receivedNotice, setReceivedNotice] = useState<string | null>(null)
   const [externalTransactionReference, setExternalTransactionReference] = useState('')
@@ -237,7 +237,7 @@ function InvoiceEditor({ invoice, products, categories, editable, pending, recei
       if (Number.isFinite(aid) && Number.isFinite(bid) && aid !== bid) return aid - bid;
       return String(a.id).localeCompare(String(b.id));
     }).map((item) => <InvoiceLineEditor key={item.id} item={item} editable={editable} pending={pending} edit={edit} removeItem={removeItem} />)}</div>
-    {editable && <Button type="button" className="w-full justify-between" onClick={() => { setAddProductSearch(''); setAddProductCategory('all'); setAddProductSelected(null); setAddProductQty(1); setAddProductModal(true) }}><Icon name="plus" size={16} /> إضافة صنف</Button>}
+    {editable && products.length > 0 && <Button type="button" className="w-full justify-between" onClick={() => { setAddProductSearch(''); setAddProductCategory('all'); setAddProductSelected(null); setAddProductQty(1); setAddProductModal(true) }}><Icon name="plus" size={16} /> إضافة صنف</Button>}
     <Totals invoice={invoice} />
     {editable && <div className="mt-3 space-y-2 rounded-lg border border-amber-200/70 p-3"><div className="flex flex-wrap gap-2"><select value={discountType} onChange={(event) => setDiscountType(event.target.value as 'none' | 'percentage' | 'amount')} className="rounded-lg border bg-background p-2 text-sm"><option value="none">بدون خصم للفاتورة</option><option value="percentage">نسبة مئوية (%)</option><option value="amount">مبلغ ثابت</option></select><Input value={discountValue} disabled={discountType === 'none'} onChange={(event) => setDiscountValue(event.target.value)} inputMode="decimal" placeholder="قيمة خصم الفاتورة" className="max-w-44" /></div><Input value={invoiceNotes} onChange={(event) => setInvoiceNotes(event.target.value)} placeholder="ملاحظات الفاتورة..." />{financialNotice && <p className="text-xs text-destructive">{financialNotice}</p>}<Button disabled={pending} onClick={applyFinancials}>تطبيق خصم الفاتورة</Button></div>}
     {(editable || cancellable) && (
