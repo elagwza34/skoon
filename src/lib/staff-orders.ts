@@ -980,6 +980,12 @@ export async function deleteOrderSafely(session: StaffSession, orderIdRaw: strin
     // Release all active inventory reservations back to stock
     await releaseOrderReservations(tx, orderId)
 
+    // Clear responsibility history linked to this order before the order row is deleted
+    await tx.orderResponsibilityHistory.deleteMany({ where: { orderId } })
+
+    // Clear table transfers linked to this order before the order row is deleted
+    await tx.orderTableTransfer.deleteMany({ where: { orderId } })
+
     // Void all order items (soft delete at line level preserves line audit)
     await tx.orderItem.updateMany({
       where: { orderId, isVoided: false },
