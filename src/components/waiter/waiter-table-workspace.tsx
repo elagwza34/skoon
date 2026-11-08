@@ -68,6 +68,7 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
   const [reassignBusy, setReassignBusy] = useState(false)
   const [deleteReason, setDeleteReason] = useState('')
   const [deleteBusy, setDeleteBusy] = useState(false)
+  const [invoiceModalOpen, setInvoiceModalOpen] = useState(false)
   const inFlight = useRef(false)
   const attempt = useRef<{ fingerprint: string; key: string } | null>(null)
   const createdOrder = useRef<string | null>(null)
@@ -132,6 +133,12 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
     if (parsed.error) { setError(parsed.error); return }
     await act(async () => { await request(`/api/staff/orders/${order.id}/items/${item.id}/adjust`, { action: 'quantity', targetQuantity: parsed.quantity, reason: 'تعديل كمي سريع', expectedUpdatedAt: item.updatedAt, idempotencyKey: crypto.randomUUID() }, crypto.randomUUID()) })
   }
+  async function adjustQty(item: Order['items'][number], delta: number) {
+    if (inFlight.current || !order || !canManage || item.servedQty > 0 || order.paymentStatus === 'paid' || isReadOnly) return
+    const target = Math.max(1, item.qty + delta)
+    const key = crypto.randomUUID()
+    await act(async () => { await request(`/api/staff/orders/${order.id}/items/${item.id}/adjust`, { action: 'quantity', targetQuantity: target, reason: 'تعديل كمي', expectedUpdatedAt: item.updatedAt, idempotencyKey: key }, key) })
+  }
   async function sendToKitchen() {
     if (!order || !canManage || inFlight.current || isReadOnly) return
     await act(async () => { await request(`/api/staff/orders/${order.id}/send`); setNotice('تم إرسال الطلب للمطبخ') })
@@ -159,7 +166,7 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
     if (inFlight.current || !order || !canManage || isReadOnly) return
     if (!window.confirm('تأكيد حذف الطلب نهائياً؟ سيتم إرجاع حجوزات المخزون ولا يمكن استعادة الطلب بعد الحذف.')) return
     await act(async () => {
-      await request(`/api/staff/orders/${order.id}/delete`, { method: 'DELETE' }, undefined)
+      await request(`/api/staff/orders/${order.id}/delete`, undefined, undefined, 'DELETE')
       setNotice('تم حذف الطلب وإرجاع حجوزات المخزون')
       setTab('order')
       router.refresh()
@@ -246,7 +253,7 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
                 {role === 'cashier' && !isReadOnly && <Button variant="outline" size="sm" onClick={() => setTab('order')}>الانتقال للدفع</Button>}
                 <Button variant="outline" size="sm" disabled={isReadOnly} onClick={() => setTab('order')}>سجل الطلب</Button>
                 <Button variant="outline" size="sm" disabled={isReadOnly} onClick={() => setTab('order')}>تقدم المطبخ</Button>
-                <Button variant="outline" size="sm" disabled={isReadOnly} onClick={() => setTab('order')}>عرض الفاتورة</Button>
+                <Button variant="outline" size="sm" disabled={isReadOnly} onClick={() => setInvoiceModalOpen(true)}>عرض الفاتورة</Button>
               </div>
             </>
           ) : (
@@ -263,14 +270,9 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
             onClick={() => setTab(tab === 'order' ? 'pos' : 'order')}
             className={tab === 'pos' ? 'bg-primary text-primary-foreground' : ''}
           >
-            {tab === 'pos' ? 'العودة للطلب الجاري' : 'نقطة البيع'}
+            {tab === 'pos' ? 'العودة للطلب الجاري' : 'pos'}
           </Button>
           <Button variant="outline" disabled={isReadOnly} onClick={() => setTab('order')}>الطلب الجاري</Button>
-          {order ? (
-            <Button variant="outline" size="sm" disabled={isReadOnly || busy || !canManage || !canAppend} onClick={() => setTab('pos')}>
-              إضافة أصناف
-            </Button>
-          ) : null}
         </nav>
       </div>
 
@@ -297,8 +299,10 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" size="sm" disabled={busy || item.servedQty > 0 || order.paymentStatus === 'paid' || isReadOnly} onClick={() => void adjustQty(item, 1)}>+</Button>
+                  <Button variant="outline" size="sm" disabled={busy || item.servedQty > 0 || order.paymentStatus === 'paid' || isReadOnly || item.qty <= 1} onClick={() => void adjustQty(item, -1)}>−</Button>
+                  <Button variant="outline" size="sm" disabled={busy || item.servedQty > 0 || order.paymentStatus === 'paid' || isReadOnly} onClick={() => void edit(item, true)}>حذف الصنف</Button>
                   <Button variant="outline" size="sm" disabled={busy || item.servedQty > 0 || order.paymentStatus === 'paid' || isReadOnly} onClick={() => void quickQty(item, 0)}>تعديل الكمية</Button>
-                  <Button variant="outline" size="sm" disabled={busy || order.items.length <= 1 || item.servedQty > 0 || order.paymentStatus === 'paid' || isReadOnly} onClick={() => void edit(item, true)}>إلغاء بسبب موثق</Button>
                   {item.servedQty > 0 && <p className="text-sm text-muted-foreground">صنف مقدم؛ التصحيح المالي عبر المسار المصرح فقط.</p>}
                 </div>
               </CardContent>
@@ -335,12 +339,6 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
           </div>
           {reassignBusy && <p className="text-xs text-muted-foreground mt-1">جارٍ إعادة التوزيع…</p>}
           <p className="text-xs text-muted-foreground mt-2">يplat تتطلب نادلاً في نفس الفرع مع وردية نشطة</p>
-        </section>}
-
-        {tab === 'order' && order && <section className="rounded border p-4 space-y-2">
-          <h2 className="font-bold">عرض الفاتورة</h2>
-          {order.items.map((item) => <p key={item.id} className="text-sm">{item.name} × {item.qty} — {formatCurrency(item.lineTotal ?? item.unitPrice * item.qty)}</p>)}
-          <p className="font-semibold">الإجمالي: {formatCurrency(order.total)} · المدفوع: {formatCurrency(order.paidAmount ?? 0)}</p>
         </section>}
 
         {tab === 'order' && order && order.paymentStatus !== 'paid' && order.items.every((item) => item.servedQty === 0 && !item.preparationStartedAt) && !isReadOnly && <section className="rounded border border-destructive/20 bg-destructive/5 p-4 space-y-3">
@@ -424,14 +422,21 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
           )}
         </section>}
         </div>
+      </div>
 
-        {order && (
-          <aside className="w-[360px] shrink-0 order-2 rounded-xl border bg-background p-4 space-y-4">
-            <div className="flex items-center justify-between p-3 border-b bg-cafe-espresso text-cafe-cream rounded-lg">
-              <h2 className="text-lg font-bold">تفاصيل الطلب #{order.number}</h2>
+      {/* موديل تفاصيل الفاتورة */}
+      {invoiceModalOpen && order && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setInvoiceModalOpen(false)} />
+          <div className="relative z-10 w-full max-w-md max-h-[90vh] bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-border">
+            <div className="flex items-center justify-between p-4 border-b bg-cafe-espresso text-cafe-cream">
+              <h2 className="text-lg font-bold">تفاصيل الفاتورة #{order.number}</h2>
+              <Button size="icon" variant="ghost" onClick={() => setInvoiceModalOpen(false)}>
+                <Icon name="close" size={18} className="text-cafe-cream" />
+              </Button>
             </div>
-            <div className="space-y-3">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="p-6 overflow-y-auto">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
                 <div className="space-y-1">
                   <p className="text-xs text-muted-foreground">رقم الطاولة</p>
                   <p className="font-semibold">طاولة {table.number} {table.name}</p>
@@ -490,9 +495,9 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
                 </div>
               </div>
             </div>
-          </aside>
-        )}
-      </div>
+          </div>
+        </div>
+      )}
     </main>
   )
 }
