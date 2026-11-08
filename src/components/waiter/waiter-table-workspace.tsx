@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -12,6 +12,7 @@ import type { WaiterWorkspace } from '@/lib/staff-waiter'
 import { isActiveTableOrder, canManageTableOrder, mayAppendToOrder } from '@/lib/table-order-policy'
 import type { InvoiceRow } from '@/lib/staff-invoices'
 import { parseOrderItemQuantity } from '@/lib/order-item-quantity'
+import gsap from 'gsap'
 
 type Product = WaiterWorkspace['products'][number]
 type Order = WaiterWorkspace['openOrders'][number]
@@ -32,11 +33,11 @@ function responseError(data: unknown, fallback: string) {
   return data && typeof data === 'object' && 'error' in data && typeof data.error === 'string' ? data.error : fallback
 }
 
-function ProductButton({ candidate, selected, alreadyQty, onChoose }: { candidate: Product; selected: boolean; alreadyQty: number; onChoose: () => void }) {
+function ProductButton({ candidate, selected, alreadyQty, onChoose, onClick }: { candidate: Product; selected: boolean; alreadyQty: number; onChoose: (clientX: number, clientY: number) => void; onClick?: (e: React.MouseEvent) => void }) {
   const base = 'rounded-lg p-3 text-right transition-all'
   const cls = selected ? `${base} border-2 border-primary bg-primary/5 ring-1 ring-primary` : `${base} border border-muted hover:border-primary hover:bg-primary/5`
   return (
-    <button type="button" onClick={onChoose} disabled={!candidate.isAvailable} className={cls}>
+    <button type="button" onClick={e => { onClick?.(e); onChoose(e.clientX, e.clientY) }} disabled={!candidate.isAvailable} className={cls}>
       <div className="flex items-center justify-between mb-1">
         <span className="block font-medium">{candidate.name}</span>
         {selected && <span className="text-xs font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded">×{alreadyQty}</span>}
@@ -183,12 +184,71 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
   const [qty, setQty] = useState(1)
   const [note, setNote] = useState('')
 
+  const [cartItems, setCartItems] = useState<Record<string, { productId: string; productName: string; variantId?: string; variantLabel?: string; modifierSelections: Record<string, string[]>; qty: number; note?: string }>>({})
+  const [cartModalOpen, setCartModalOpen] = useState(false)
+  const [fly, setFly] = useState<{ x: number; y: number } | null>(null)
+  const cartRef = useRef<HTMLButtonElement>(null)
+  const flyRef = useRef<HTMLDivElement>(null)
+
+  const cartCount = useMemo(() => Object.values(cartItems).reduce((sum, line) => sum + line.qty, 0), [cartItems])
+  const cartTotal = useMemo(() => Object.values(cartItems).reduce((sum, line) => {
+    const p = workspace.products.find((candidate) => candidate.id === line.productId)
+    const base = Number(p?.price ?? 0) * line.qty
+    return sum + base
+  }, 0), [cartItems, workspace.products])
+
+  function cartKey(line: { productId: string; productName: string; variantId?: string; variantLabel?: string; modifierSelections: Record<string, string[]>; qty: number; note?: string }) {
+    return `${line.productId}:${line.variantId ?? ''}:${JSON.stringify(Object.entries(line.modifierSelections).sort())}`
+  }
+
+  function addToCart(line: { productId: string; productName: string; variantId?: string; variantLabel?: string; modifierSelections: Record<string, string[]>; qty: number; note?: string }, fromX: number, fromY: number) {
+    const key = `${line.productId}:${line.variantId ?? ''}:${JSON.stringify(Object.entries(line.modifierSelections).sort())}`
+    setCartItems(prev => {
+      const existing = prev[key]
+      if (existing) {
+        return { ...prev, [key]: { ...existing, qty: existing.qty + line.qty } }
+      }
+      return { ...prev, [key]: line }
+    })
+    const cartRect = cartRef.current?.getBoundingClientRect()
+    if (cartRect && fromX && fromY) {
+      setFly({ x: fromX, y: fromY })
+      requestAnimationFrame(() => {
+        if (flyRef.current) {
+          gsap.fromTo(flyRef.current, { x: 0, y: 0, scale: 1, opacity: 1 }, {
+            x: cartRect.left - fromX + 12,
+            y: cartRect.top - fromY + 8,
+            scale: 0.2,
+            opacity: 0.8,
+            duration: 0.55,
+            ease: 'power2.inOut',
+            onComplete: () => setFly(null)
+          })
+        } else {
+          setFly(null)
+        }
+      })
+    }
+  }
+
   const filtered = productsFilter(workspace.products, search, category)
   const variant = product?.variants.find((candidate) => candidate.id === variantId)
   const modifierPrice = product?.modifierGroups.flatMap((group) => group.options.filter((option) => (selections[group.id] ?? []).includes(option.id))).reduce((sum, option) => sum + Number(option.priceAdjustment), 0) ?? 0
   const ready = !!product && (!product.variants.length || !!variantId) && product.modifierGroups.every((group) => { const count = (selections[group.id] ?? []).length; return count >= (group.isRequired ? Math.max(1, group.minSelections) : group.minSelections) && count <= group.maxSelections })
 
-  function choose(candidate: Product) {
+  function choose(candidate: Product, clientX: number, clientY: number) {
+    if (!candidate.variants.length) {
+      addToCart({
+        productId: candidate.id,
+        productName: candidate.name,
+        variantId: undefined,
+        variantLabel: undefined,
+        modifierSelections: {},
+        qty: 1,
+        note: ''
+      }, clientX, clientY)
+      return
+    }
     setProduct(candidate)
     setVariantId('')
     setSelections({})
@@ -197,37 +257,23 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
   }
   function toggle(groupId: string, optionId: string, max: number) { setSelections((current) => { const values = current[groupId] ?? []; const next = values.includes(optionId) ? values.filter((id) => id !== optionId) : max === 1 ? [optionId] : values.length < max ? [...values, optionId] : values; return { ...current, [groupId]: next } }) }
 
-  async function addDirectlyToOrder() {
+  function addDirectlyToOrder() {
     if (!product || !canManage || !canAppend || isReadOnly) return
-    const items = [{ productId: product.id, variantId: variantId || undefined, modifierSelections: Object.entries(selections).map(([groupId, valueIds]) => ({ groupId, valueIds })), qty, note: note.trim() || undefined }]
-    const target = order?.id
-    const fingerprint = JSON.stringify({ tableId: table.id, orderId: target ?? null, items })
-    if (!attempt.current || attempt.current.fingerprint !== fingerprint) attempt.current = { fingerprint, key: crypto.randomUUID() }
-    const requestKey = attempt.current.key
-    if (target) {
-      await act(async () => {
-        await request(`/api/staff/orders/${target}/items/append`, { items, idempotencyKey: requestKey }, requestKey)
-        setProduct(null)
-        setSelections({})
-        setQty(1)
-        setNote('')
-        setNotice('تم إضافة الصنف للطلب مباشرة')
-      })
-    } else {
-      await act(async () => {
-        const result = await request('/api/staff/pos/orders', { orderType: 'dine_in', tableId: table.id, items }, requestKey)
-        if (typeof result.id !== 'string') throw new Error('تعذر إنشاء الطلب؛ حدّث الصفحة')
-        createdOrder.current = result.id
-        await request(`/api/staff/orders/${result.id}/send`)
-        setProduct(null)
-        setSelections({})
-        setQty(1)
-        setNote('')
-        setNotice('تم إنشاء الطلب وتوزيعه على المطبخ تلقائياً')
-        if (result.id) router.replace(`${home}/tables/${table.id}?orderId=${result.id}`)
-        setTab('order')
-      })
+    const line = {
+      productId: product.id,
+      productName: product.name,
+      variantId: variantId || undefined,
+      variantLabel: variant?.label,
+      modifierSelections: selections,
+      qty,
+      note: note.trim() || undefined
     }
+    addToCart(line, 0, 0)
+    setProduct(null)
+    setSelections({})
+    setQty(1)
+    setNote('')
+    setNotice('تم إضافة الصنف إلى سلة الطلب')
   }
   function productsFilter(products: Product[], s: string, cat: string) {
     return products.filter((candidate) => candidate.isAvailable && (cat === 'all' || candidate.categoryId === cat) && candidate.name.toLowerCase().includes(s.trim().toLowerCase()))
@@ -265,7 +311,7 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
         {error && <p role="alert" className="rounded border border-destructive p-3">{error}</p>}
         {notice && <p role="status" className="rounded border border-success bg-success/10 p-3">{notice}</p>}
 
-        <nav aria-label="إجراءات الطاولة" className="flex flex-wrap gap-2">
+        <nav aria-label="إجراءات الطاولة" className="flex flex-wrap items-center gap-2">
           <Button
             disabled={busy || !!createdOrder.current || !canManage || (isReadOnly && tab === 'pos')}
             onClick={() => setTab('pos')}
@@ -273,7 +319,11 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
           >
             pos
           </Button>
-          <Button variant="outline" disabled={isReadOnly} onClick={() => setTab('order')}>الطلب الجاري</Button>
+          <Button variant="outline" disabled={isReadOnly} onClick={() => setTab('order')} className={tab === 'order' ? 'bg-primary/10 border-primary' : ''}>الطلب الجاري</Button>
+          <Button ref={cartRef} className="mr-auto bg-amber-600 text-white hover:bg-amber-700" size="sm" onClick={() => setCartModalOpen(true)} disabled={isReadOnly}>
+            تفاصيل السلة
+            {cartCount > 0 && <span className="mr-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-white px-1 text-[11px] font-bold text-amber-700">{cartCount}</span>}
+          </Button>
         </nav>
       </div>
 
@@ -361,7 +411,6 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
           {!isReadOnly && (
             <>
               <div className="flex flex-wrap gap-2 items-start mb-4">
-                <Button variant="outline" size="sm" onClick={() => setPosModalOpen(true)} disabled={!product || busy}>تفاصيل السلة</Button>
                 <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ابحث عن صنف…" aria-label="بحث المنتجات" className="min-w-[220px]" />
                 <select value={category} onChange={(e) => setCategory(e.target.value)} className="h-10 rounded border bg-background px-3 min-w-[180px]">
                   <option value="all">كل الأقسام</option>
@@ -370,7 +419,7 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
               </div>
               <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
                 {filtered.map((candidate) => (
-                  <ProductButton key={candidate.id} candidate={candidate} selected={false} alreadyQty={0} onChoose={() => { choose(candidate); setPosModalOpen(true) }} />
+                  <ProductButton key={candidate.id} candidate={candidate} selected={false} alreadyQty={0} onChoose={(clientX, clientY) => { choose(candidate, clientX, clientY); if (candidate.variants.length) setPosModalOpen(true) }} />
                 ))}
               </div>
             </>
@@ -467,15 +516,15 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
             </div>
             <div className="p-6 overflow-y-auto space-y-4">
               <p className="text-sm text-muted-foreground">السعر المعروض تقديري، والخادم يعيد احتسابه عند الحفظ.</p>
-              {product.variants.length ? (
-                <label className="block text-sm">
-                  <span className="mb-1 block font-medium">المتغير *</span>
-                  <select value={variantId} onChange={(e) => setVariantId(e.target.value)} className="h-10 w-full rounded border bg-background px-3">
-                    <option value="">اختر المتغير</option>
+              {product.variants.length > 0 && (
+                <fieldset className="rounded-lg border border-amber-300 bg-amber-50/40 p-3">
+                  <legend className="px-1 text-sm font-semibold text-amber-900">المتغير (مطلوب) *</legend>
+                  <select value={variantId} onChange={(e) => setVariantId(e.target.value)} className="mt-1 h-10 w-full rounded border border-amber-300 bg-white px-3 text-foreground">
+                    <option value="">اختر المتغير / اللون</option>
                     {product.variants.map((item) => <option key={item.id} value={item.id}>{item.label} — {formatCurrency(Number(item.price))}</option>)}
                   </select>
-                </label>
-              ) : null}
+                </fieldset>
+              )}
               {product.modifierGroups.map((group) => (
                 <fieldset key={group.id} className="rounded-lg border p-3">
                   <legend className="px-1 text-sm font-semibold">{group.name} {group.isRequired ? '*' : ''} ({group.minSelections}–{group.maxSelections})</legend>
@@ -505,11 +554,103 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
             </div>
             <div className="p-4 border-t flex justify-end gap-2">
               <Button variant="outline" size="sm" onClick={() => { setPosModalOpen(false); setProduct(null); setSelections({}); setQty(1); setNote('') }}>إلغاء</Button>
-              <Button className="w-auto" disabled={!ready || busy || isReadOnly || !canManage || !canAppend} onClick={() => { void addDirectlyToOrder(); setPosModalOpen(false); setProduct(null); setSelections({}); setQty(1); setNote('') }}>
-                {busy ? 'جارٍ الإضافة…' : 'تأكيد الطلب'}
+              <Button className="w-auto bg-amber-600 text-white hover:bg-amber-700" disabled={!ready || busy || isReadOnly || !canManage || !canAppend} onClick={() => {
+                if (!product) return
+                addToCart({
+                  productId: product.id,
+                  productName: product.name,
+                  variantId: variantId || undefined,
+                  variantLabel: variant?.label,
+                  modifierSelections: selections,
+                  qty,
+                  note: note.trim() || undefined
+                }, 0, 0)
+                setPosModalOpen(false)
+                setProduct(null)
+                setSelections({})
+                setQty(1)
+                setNote('')
+                setNotice('تم إضافة الصنف إلى سلة الطلب')
+              }}>
+                إضافة للسلة
               </Button>
             </div>
           </div>
+        </div>
+      )}
+      {/* موديل تفاصيل السلة */}
+      {cartModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setCartModalOpen(false)} />
+          <div className="relative z-10 w-full max-w-lg max-h-[90vh] bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-border">
+            <div className="flex items-center justify-between p-4 border-b bg-amber-600 text-white">
+              <h2 className="text-lg font-bold">تفاصيل السلة ({cartCount} صنف)</h2>
+              <Button size="icon" variant="ghost" className="text-white hover:bg-amber-700" onClick={() => setCartModalOpen(false)}>
+                <Icon name="close" size={18} />
+              </Button>
+            </div>
+            <div className="p-4 overflow-y-auto space-y-2">
+              {Object.keys(cartItems).length === 0 ? (
+                <p className="text-center text-muted-foreground py-8">السلة فارغة.</p>
+              ) : Object.entries(cartItems).map(([key, line]) => (
+                <div key={key} className="flex items-center justify-between gap-3 rounded border p-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold text-sm">{line.productName}</p>
+                    {line.variantLabel && <p className="text-xs text-muted-foreground">{line.variantLabel}</p>}
+                    {line.note && <p className="text-xs text-muted-foreground">ملاحظة: {line.note}</p>}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button variant="outline" size="sm" onClick={() => setCartItems(prev => {
+                      const current = prev[key]; if (!current) return prev
+                      if (current.qty <= 1) { const { [key]: _, ...rest } = prev; return rest }
+                      return { ...prev, [key]: { ...current, qty: current.qty - 1 } }
+                    })}>−</Button>
+                    <span className="w-6 text-center font-semibold">{line.qty}</span>
+                    <Button variant="outline" size="sm" onClick={() => setCartItems(prev => {
+                      const current = prev[key]; if (!current) return prev
+                      return { ...prev, [key]: { ...current, qty: current.qty + 1 } }
+                    })}>+</Button>
+                    <Button variant="outline" size="sm" onClick={() => setCartItems(prev => { const { [key]: _, ...rest } = prev; return rest })}>حذف</Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="p-4 border-t flex items-center justify-between gap-2">
+              <Button variant="outline" size="sm" disabled={Object.keys(cartItems).length === 0 || busy} onClick={() => setCartItems({})}>تفريغ السلة</Button>
+              <Button disabled={Object.keys(cartItems).length === 0 || busy || !canManage || !canAppend || isReadOnly} onClick={async () => {
+                const items = Object.values(cartItems).map(line => ({ productId: line.productId, variantId: line.variantId, modifierSelections: Object.entries(line.modifierSelections).map(([groupId, valueIds]) => ({ groupId, valueIds })), qty: line.qty, note: line.note }))
+                const target = order?.id
+                const fingerprint = JSON.stringify({ tableId: table.id, orderId: target ?? null, items })
+                if (!attempt.current || attempt.current.fingerprint !== fingerprint) attempt.current = { fingerprint, key: crypto.randomUUID() }
+                const requestKey = attempt.current.key
+                await act(async () => {
+                  if (target) {
+                    await request(`/api/staff/orders/${target}/items/append`, { items, idempotencyKey: requestKey }, requestKey)
+                    setNotice('تم إضافة أصناف السلة للطلب')
+                  } else {
+                    const result = await request('/api/staff/pos/orders', { orderType: 'dine_in', tableId: table.id, items }, requestKey)
+                    if (typeof result.id !== 'string') throw new Error('تعذر إنشاء الطلب؛ حدّث الصفحة')
+                    createdOrder.current = result.id
+                    await request(`/api/staff/orders/${result.id}/send`)
+                    setNotice('تم إنشاء الطلب وتوزيعه على المطبخ تلقائياً')
+                    if (result.id) router.replace(`${home}/tables/${table.id}?orderId=${result.id}`)
+                    setTab('order')
+                  }
+                  setCartItems({})
+                  setCartModalOpen(false)
+                })
+              }}>
+                {busy ? 'جارٍ الإرسال…' : order ? 'إضافة السلة للطلب' : 'تأكيد الطلب وإرساله للمطبخ'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* عنصر الطيران إلى السلة */}
+      {fly && (
+        <div ref={flyRef} className="fixed pointer-events-none z-[60] bg-amber-600 text-white rounded-full flex items-center justify-center w-10 h-10 shadow-lg" style={{ left: fly.x, top: fly.y }}>
+          <Icon name="plus" size={14} />
         </div>
       )}
     </main>

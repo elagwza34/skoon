@@ -94,9 +94,13 @@ export interface PaymentResult {
   orderNumber: string
   paymentId: string
   method: PaymentMethod
+  /** Amount applied to the order/payment (outstanding settled). */
   amount: string
+  /** Amount tendered/received from customer (cash). For non-cash equals amount. */
+  receivedAmount: string
   changeAmount: string
   paymentStatus: string
+  [key: string]: string
 }
 
 /** Finalize payment for an order — cashier+ only, branch-scoped. */
@@ -172,7 +176,7 @@ export async function finalizeOrderPayment(
         branchId: order.branchId,
         shiftId: lockedOpenShift?.id ?? null,
         method,
-        amount: received.toFixed(2),
+        amount: outstanding.toFixed(2),
         amountDue: outstanding.toFixed(2),
         changeAmount: change.toFixed(2),
         status: 'completed',
@@ -199,23 +203,26 @@ export async function finalizeOrderPayment(
         userId: session.id,
         branchId: order.branchId,
         action: 'payment.finalize',
-        entityType: 'order',
-        entityId: order.id,
+        entityType: 'payment',
+        entityId: payment.id,
         newValues: {
           paymentId: payment.id.toString(),
           method,
-          amount: received.toFixed(2),
+          amount: outstanding.toFixed(2),
+          amountDue: outstanding.toFixed(2),
+          receivedAmount: received.toFixed(2),
           change: change.toFixed(2),
         },
       },
     })
 
-    const result = {
+    const result: PaymentResult = {
       orderId: order.id.toString(),
       orderNumber: order.orderNumber,
       paymentId: payment.id.toString(),
       method,
-      amount: received.toFixed(2),
+      amount: outstanding.toFixed(2),
+      receivedAmount: received.toFixed(2),
       changeAmount: change.toFixed(2),
       paymentStatus: 'paid',
     }
@@ -353,12 +360,13 @@ export async function confirmElectronicPayment(
       },
     })
 
-    const result = {
+    const result: PaymentResult = {
       orderId: order.id.toString(),
       orderNumber: order.orderNumber,
       paymentId: payment.id.toString(),
       method,
       amount: outstanding.toFixed(2),
+      receivedAmount: outstanding.toFixed(2),
       changeAmount: '0.00',
       paymentStatus: 'paid',
     }
