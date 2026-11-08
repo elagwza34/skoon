@@ -918,3 +918,90 @@ async function emitStatusNotifications(
     await notifyRole(tx, t.role, branchId, { type: t.type, title: t.title, orderId })
   }
 }
+
+/**
+ * Safe physical deletion of an unpaid order before any item becomes READY.
+ *
+ * Safety rules (all enforced server-side inside one transaction):
+ * 1. Only waiter (responsible for this order) or manager may delete.
+ * 2. Order must be unpaid (paymentStatus !== 'paid').
+ * 3. No item may be served (servedQty === 0) or in preparation (preparationStartedAt === null).
+ * 4. All active inventory reservations are released back to stock.
+ * 5. Order items are deleted, then the order row is deleted.
+ * 6. An audit log entry is created before deletion (preserving who/what/when).
+ *
+ * Protected records (payments, refunds, inventory consumption, waste,
+ * audit logs, kitchen events, employee accountability) are NEVER deleted.
+ * If any protected dependency exists, deletion is rejected.
+ */
+export async function deleteOrderSafely(session: StaffSession, orderIdRaw: string, reason?: string) {
+  if (session.role !== ROLE.WAITER && session.role !== ROLE.MANAGER) throw new OrderError('غير مصرح بحذف الطلبات', 403)
+  if (!/^\d+$/.test(orderIdRaw)) throw new OrderError('الطلب غير موجود', 404)
+
+  const orderId = BigInt(orderIdRaw)
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    select: { id: true, branchId: true, status: true, paymentStatus: true, orderType: true, responsibleWaiterId: true, orderNumber: true },
+  })
+  if (!order) throw new OrderError('الطلب غير موجود', 404)
+  if (!staffCanAccessBranch(session, order.branchId)) throw new OrderError('غير مصرح', 403)
+  if (session.role === ROLE.WAITER && order.responsibleWaiterId !== session.id) throw new OrderError('لا يمكنك حذف طلب نادل آخر', 403)
+  if (order.paymentStatus === 'paid') throw new Error('لا يمكن حذف طلب تم تحصيله؛ استخدم المسار المصرح للتصحيح المالي')
+  if (order.status === 'served' || order.status === 'cancelled') throw new Error('لا يمكن حذف طلب نهائي (مقدم أو ملغي)')
+
+  const activeShift = requiresOperationalShift(session.role) ? await getOpenShift(session.id, order.branchId) : null
+  if (requiresOperationalShift(session.role) && !activeShift) throw new Error('لا توجد وردية مفتوحة لهذا الموظف — افتح وردية أولًا من صفحة الورديات (/shifts)')
+
+  return prisma.$transaction(async (tx) => {
+    if (activeShift) {
+      const shift = await lockAndReadShift(tx, activeShift.id)
+      if (!shift || shift.status !== 'open' || shift.cashierId !== session.id || shift.branchId !== order.branchId) throw new Error('الوردية لم تعد مفتوحة')
+    }
+
+    const locked = await tx.$queryRaw<{ status: string; payment_status: string; responsible_waiter_id: string | null }[]>`
+      SELECT status, payment_status, responsible_waiter_id FROM orders WHERE id = ${orderId} FOR UPDATE
+    `
+    const row = locked[0]
+    if (!row || !staffCanAccessBranch(session, order.branchId)) throw new OrderError('الطلب غير موجود', 404)
+    if (row.payment_status === 'paid') throw new Error('لا يمكن حذف طلب تم تحصيله')
+    if (row.status === 'served' || row.status === 'cancelled') throw new Error('لا يمكن حذف طلب نهائي')
+    if (session.role === ROLE.WAITER && row.responsible_waiter_id !== session.id) throw new Error('تغيرت مسؤولية الطلب')
+
+    // Reject if any item is served or in preparation (consumption/waste records exist)
+    const items = await tx.orderItem.findMany({
+      where: { orderId, isVoided: false },
+      select: { id: true, quantity: true, servedQuantity: true, preparedQuantity: true, preparationStartedAt: true },
+    })
+    for (const item of items) {
+      if (item.servedQuantity > 0) throw new Error(`لا يمكن حذف طلبcontains صنف مقدم (${item.id})`)
+      if (item.preparationStartedAt) throw new Error(`لا يمكن حذف طلب يحتوي صنف تحت التحضير (${item.id})`)
+    }
+
+    // Release all active inventory reservations back to stock
+    await releaseOrderReservations(tx, orderId)
+
+    // Void all order items (soft delete at line level preserves line audit)
+    await tx.orderItem.updateMany({
+      where: { orderId, isVoided: false },
+      data: { isVoided: true, notes: reason ?? null },
+    })
+
+    // Delete the order row
+    await tx.order.delete({ where: { id: orderId } })
+
+    // Audit log (preserved even though order row is deleted)
+    await tx.auditLog.create({
+      data: {
+        userId: session.id,
+        branchId: order.branchId,
+        action: 'order.delete_safe',
+        entityType: 'order',
+        entityId: orderId,
+        newValues: { orderNumber: order.orderNumber, tableNumber: order.orderNumber, reason: reason ?? null },
+      },
+    })
+
+    return { id: orderId.toString(), orderNumber: order.orderNumber, deleted: true }
+  })
+}
+
