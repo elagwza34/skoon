@@ -69,6 +69,7 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
   const [deleteReason, setDeleteReason] = useState('')
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [invoiceModalOpen, setInvoiceModalOpen] = useState(false)
+  const [posModalOpen, setPosModalOpen] = useState(false)
   const inFlight = useRef(false)
   const attempt = useRef<{ fingerprint: string; key: string } | null>(null)
   const createdOrder = useRef<string | null>(null)
@@ -267,10 +268,10 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
         <nav aria-label="إجراءات الطاولة" className="flex flex-wrap gap-2">
           <Button
             disabled={busy || !!createdOrder.current || !canManage || (isReadOnly && tab === 'pos')}
-            onClick={() => setTab(tab === 'order' ? 'pos' : 'order')}
+            onClick={() => setTab('pos')}
             className={tab === 'pos' ? 'bg-primary text-primary-foreground' : ''}
           >
-            {tab === 'pos' ? 'العودة للطلب الجاري' : 'pos'}
+            pos
           </Button>
           <Button variant="outline" disabled={isReadOnly} onClick={() => setTab('order')}>الطلب الجاري</Button>
         </nav>
@@ -359,65 +360,19 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
           </div>}
           {!isReadOnly && (
             <>
-              <div className="grid gap-2 sm:grid-cols-[1fr_220px] mb-4">
-                <Input autoFocus value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ابحث عن صنف…" aria-label="بحث المنتجات" />
-                <select value={category} onChange={(e) => setCategory(e.target.value)} className="h-10 rounded border bg-background px-3">
+              <div className="flex flex-wrap gap-2 items-start mb-4">
+                <Button variant="outline" size="sm" onClick={() => setPosModalOpen(true)} disabled={!product || busy}>تفاصيل السلة</Button>
+                <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ابحث عن صنف…" aria-label="بحث المنتجات" className="min-w-[220px]" />
+                <select value={category} onChange={(e) => setCategory(e.target.value)} className="h-10 rounded border bg-background px-3 min-w-[180px]">
                   <option value="all">كل الأقسام</option>
                   {categories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
                 </select>
               </div>
               <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
                 {filtered.map((candidate) => (
-                  <ProductButton key={candidate.id} candidate={candidate} selected={false} alreadyQty={0} onChoose={() => choose(candidate)} />
+                  <ProductButton key={candidate.id} candidate={candidate} selected={false} alreadyQty={0} onChoose={() => { choose(candidate); setPosModalOpen(true) }} />
                 ))}
               </div>
-              {product && (
-                <div className="mt-4 rounded-lg border p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="font-bold text-lg">{product.name}</h3>
-                    <Button variant="ghost" size="sm" onClick={() => setProduct(null)}>رجوع</Button>
-                  </div>
-                  <p className="text-sm text-muted-foreground mb-3">السعر المعروض تقديري، والخادم يعيد احتسابه عند الحفظ.</p>
-                  {product.variants.length ? (
-                    <label className="block text-sm mb-2">
-                      <span className="mb-1 block font-medium">المتغير *</span>
-                      <select value={variantId} onChange={(e) => setVariantId(e.target.value)} className="h-10 w-full rounded border bg-background px-3">
-                        <option value="">اختر المتغير</option>
-                        {product.variants.map((item) => <option key={item.id} value={item.id}>{item.label} — {formatCurrency(Number(item.price))}</option>)}
-                      </select>
-                    </label>
-                  ) : null}
-                  {product.modifierGroups.map((group) => (
-                    <fieldset key={group.id} className="rounded-lg border p-3 mb-3">
-                      <legend className="px-1 text-sm font-semibold">{group.name} {group.isRequired ? '*' : ''} ({group.minSelections}–{group.maxSelections})</legend>
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        {group.options.map((option) => (
-                          <label key={option.id} className="flex items-center gap-2 cursor-pointer">
-                            <input type="checkbox" checked={(selections[group.id] ?? []).includes(option.id)} onChange={() => toggle(group.id, option.id, group.maxSelections)} className="rounded border-primary" />
-                            <span className="text-sm">{option.label}</span>
-                            <span className="ml-auto text-xs text-muted-foreground">{Number(option.priceAdjustment) > 0 ? '+' + formatCurrency(Number(option.priceAdjustment)) : ''}</span>
-                          </label>
-                        ))}
-                      </div>
-                    </fieldset>
-                  ))}
-                  <div className="mt-3 flex items-center justify-between gap-2">
-                    <label className="text-sm font-medium">ملاحظات المطبخ</label>
-                    <Input className="flex-1" maxLength={255} value={note} onChange={(e) => setNote(e.target.value)} placeholder="ملاحظات للمطبخ" />
-                  </div>
-                  <div className="mt-2 text-right">
-                    <label className="text-xs font-medium">الكمية</label>
-                    <div className="flex items-center gap-2">
-                      <Button variant="outline" size="sm" onClick={() => setQty((q) => Math.max(1, q - 1))}>-</Button>
-                      <span className="w-8 text-center font-semibold">{qty}</span>
-                      <Button variant="outline" size="sm" onClick={() => setQty((q) => Math.min(20, q + 1))}>+</Button>
-                    </div>
-                  </div>
-                  <Button className="w-full mt-3" disabled={!ready || busy || isReadOnly || !canManage || !canAppend} onClick={() => void addDirectlyToOrder()}>
-                    {busy ? 'جارٍ الإضافة…' : order ? 'إضافة للطلب مباشرة' : 'تأكيد الطلب وتوزيعه على المطبخ تلقائياً'}
-                  </Button>
-                </div>
-              )}
             </>
           )}
         </section>}
@@ -494,6 +449,65 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
                   <p className="font-semibold text-cafe-espresso">{formatCurrency(order.remainingAmount ?? order.total)}</p>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* موديل تفاصيل منتج نقطة البيع */}
+      {posModalOpen && product && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => { setPosModalOpen(false); setProduct(null); setSelections({}); setQty(1); setNote('') }} />
+          <div className="relative z-10 w-full max-w-lg max-h-[90vh] bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-border">
+            <div className="flex items-center justify-between p-4 border-b bg-cafe-espresso text-cafe-cream">
+              <h2 className="text-lg font-bold">تفاصيل الصنف — {product.name}</h2>
+              <Button size="icon" variant="ghost" onClick={() => { setPosModalOpen(false); setProduct(null); setSelections({}); setQty(1); setNote('') }}>
+                <Icon name="close" size={18} className="text-cafe-cream" />
+              </Button>
+            </div>
+            <div className="p-6 overflow-y-auto space-y-4">
+              <p className="text-sm text-muted-foreground">السعر المعروض تقديري، والخادم يعيد احتسابه عند الحفظ.</p>
+              {product.variants.length ? (
+                <label className="block text-sm">
+                  <span className="mb-1 block font-medium">المتغير *</span>
+                  <select value={variantId} onChange={(e) => setVariantId(e.target.value)} className="h-10 w-full rounded border bg-background px-3">
+                    <option value="">اختر المتغير</option>
+                    {product.variants.map((item) => <option key={item.id} value={item.id}>{item.label} — {formatCurrency(Number(item.price))}</option>)}
+                  </select>
+                </label>
+              ) : null}
+              {product.modifierGroups.map((group) => (
+                <fieldset key={group.id} className="rounded-lg border p-3">
+                  <legend className="px-1 text-sm font-semibold">{group.name} {group.isRequired ? '*' : ''} ({group.minSelections}–{group.maxSelections})</legend>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {group.options.map((option) => (
+                      <label key={option.id} className="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" checked={(selections[group.id] ?? []).includes(option.id)} onChange={() => toggle(group.id, option.id, group.maxSelections)} className="rounded border-primary" />
+                        <span className="text-sm">{option.label}</span>
+                        <span className="ml-auto text-xs text-muted-foreground">{Number(option.priceAdjustment) > 0 ? '+' + formatCurrency(Number(option.priceAdjustment)) : ''}</span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+              ))}
+              <div className="mt-3 flex items-center justify-between gap-2">
+                <label className="text-sm font-medium">ملاحظات المطبخ</label>
+                <Input className="flex-1" maxLength={255} value={note} onChange={(e) => setNote(e.target.value)} placeholder="ملاحظات للمطبخ" />
+              </div>
+              <div className="mt-3 text-right">
+                <label className="text-xs font-medium block mb-1">الكمية</label>
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="sm" onClick={() => setQty((q) => Math.max(1, q - 1))}>-</Button>
+                  <span className="w-8 text-center font-semibold">{qty}</span>
+                  <Button variant="outline" size="sm" onClick={() => setQty((q) => Math.min(20, q + 1))}>+</Button>
+                </div>
+              </div>
+            </div>
+            <div className="p-4 border-t flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => { setPosModalOpen(false); setProduct(null); setSelections({}); setQty(1); setNote('') }}>إلغاء</Button>
+              <Button className="w-auto" disabled={!ready || busy || isReadOnly || !canManage || !canAppend} onClick={() => { void addDirectlyToOrder(); setPosModalOpen(false); setProduct(null); setSelections({}); setQty(1); setNote('') }}>
+                {busy ? 'جارٍ الإضافة…' : 'تأكيد الطلب'}
+              </Button>
             </div>
           </div>
         </div>
