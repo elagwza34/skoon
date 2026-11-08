@@ -440,7 +440,8 @@ export async function closeShift(
     }
     const closedAt = new Date()
     const routeToSafe = crossedLocalMidnight(lockedShift.openedAt, closedAt, branch.timezone)
-    if (!routeToSafe && !recipient && cashHandling) throw new ShiftError('اختر كاشيراً مستلماً قبل منتصف الليل', 422)
+    // المستلم اختياري لأي دور — يمكن إغلاق الوردية بشكل طبيعي بدون اختيار مستلم.
+    // جرد النقد يظل مطلوبًا للأدوار التي تتعامل مع النقد فقط.
     // Guard inside the transaction: a concurrent close loses the race cleanly.
     // Shift.closedAt is the paired HR clock-out. It is written atomically with
     // reconciliation, never by login/logout/session expiry.

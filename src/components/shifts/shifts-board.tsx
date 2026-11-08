@@ -225,9 +225,9 @@ export function ShiftsBoard({ initial, actorId }: { initial: ShiftBoardData; act
                 />
               </label>
               <label className="flex flex-col gap-1.5 text-sm">
-                <span className="text-muted-foreground">الموظف المستلم (قبل منتصف الليل)</span>
+                <span className="text-muted-foreground">الموظف المستلم (اختياري)</span>
                 <select className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={handoverRecipientId} onChange={(e) => setHandoverRecipientId(e.target.value)}>
-                  <option value="">اختر موظفاً</option>
+                  <option value="">بدون مستلم</option>
                   {data.cashiers.map((cashier) => <option key={cashier.id} value={cashier.id}>{cashier.name}</option>)}
                 </select>
               </label>
