@@ -1,15 +1,22 @@
 import { NextResponse } from 'next/server'
 import { getStaffSession } from '@/lib/session'
 import { invoiceDeletionPolicy } from '@/lib/invoice-deletion-policy'
+import { editOpenInvoice, InvoiceError } from '@/lib/staff-invoices'
 import { prisma } from '@/lib/prisma'
 export const dynamic = 'force-dynamic'
-export async function PATCH(_req: Request, _context: { params: Promise<{ id: string }> }) {
+export async function PATCH(req: Request, context: { params: Promise<{ id: string }> }) {
   const session = await getStaffSession()
   if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-  return NextResponse.json(
-    { error: 'تعديل الفواتير من خلال واجهة الفواتير المفتوحة فقط.' },
-    { status: 405, headers: { Allow: 'DELETE' } },
-  )
+  const { id } = await context.params
+  try {
+    const body = await req.json().catch(() => ({}))
+    const result = await editOpenInvoice(session, id, body)
+    return NextResponse.json(result)
+  } catch (error) {
+    if (error instanceof InvoiceError) return NextResponse.json({ error: error.message }, { status: error.status })
+    console.error('invoice PATCH error', error)
+    return NextResponse.json({ error: 'تعذر حفظ الفاتورة' }, { status: 500 })
+  }
 }
 
 export async function DELETE(_req: Request, context: { params: Promise<{ id: string }> }) {
