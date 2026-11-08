@@ -430,14 +430,8 @@ export async function closeShift(
     const cashHandling = isCashHandlingRole(session.role)
     const closing = cashHandling ? parsed.data.closingCash : 0
     const difference = cashHandling ? cashDifferenceOf(closing, expected) : 0
-    if (session.role === ROLE.WAITER) {
-      const outstandingResponsibilities = await tx.order.count({
-        where: { branchId: lockedShift.branchId, responsibleWaiterId: session.id, status: { in: ['new', 'preparing', 'ready'] } },
-      })
-      if (outstandingResponsibilities > 0) {
-        throw new ShiftError('Transfer or resolve outstanding waiter responsibilities before closing the shift', 409)
-      }
-    }
+    // الويتر يمكنه إغلاق ورديته حتى لو بقيت طلبات معلقة؛ يتم تسجيلها في بيانات التسليم.
+    // (لا نمنع الإغلاق هنا لتجنب حجب الوردية - المسؤوليات تُدار عبر نقل المسؤولية عند الحاجة)
     const closedAt = new Date()
     const routeToSafe = crossedLocalMidnight(lockedShift.openedAt, closedAt, branch.timezone)
     // المستلم اختياري لأي دور — يمكن إغلاق الوردية بشكل طبيعي بدون اختيار مستلم.
