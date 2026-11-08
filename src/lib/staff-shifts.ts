@@ -384,13 +384,12 @@ export async function closeShift(
   if (!branch) throw new ShiftError('الفرع غير موجود', 404)
   let recipient: { id: string; name: string } | null = null
   if (parsed.data.handoverRecipientId) {
-    if (!isCashHandlingRole(session.role) || !session.permissions.includes('orders.payment')) throw new ShiftError('غير مصرح بتسليم النقد', 403)
-    if (parsed.data.handoverRecipientId === session.id) throw new ShiftError('لا يمكنك تسليم النقد لنفسك', 422)
+    if (parsed.data.handoverRecipientId === session.id) throw new ShiftError('لا يمكنك تسليم الوردية لنفسك', 422)
     recipient = await prisma.user.findFirst({
-      where: { id: parsed.data.handoverRecipientId, branchId: shift.branchId, isActive: true, deletedAt: null, role: { is: { slug: ROLE.CASHIER } } },
+      where: { id: parsed.data.handoverRecipientId, branchId: shift.branchId, isActive: true, deletedAt: null },
       select: { id: true, name: true },
     })
-    if (!recipient) throw new ShiftError('المستلم يجب أن يكون كاشيراً نشطاً في نفس الفرع', 422)
+    if (!recipient) throw new ShiftError('الموظف المستلم غير موجود أو غير نشط في نفس الفرع', 422)
   }
 
   // Financial totals are calculated after the common shift lock below.
@@ -416,8 +415,8 @@ export async function closeShift(
     if (isCashHandlingRole(session.role)) {
       await assertCashierAdvancesSettled(tx, session.id, lockedShift.branchId)
       if (recipient) {
-        const eligible = await tx.user.findFirst({ where: { id: recipient.id, branchId: lockedShift.branchId, isActive: true, deletedAt: null, role: { is: { slug: ROLE.CASHIER } } }, select: { id: true } })
-        if (!eligible) throw new ShiftError('المستلم لم يعد كاشيرًا نشطًا في نفس الفرع', 422)
+        const eligible = await tx.user.findFirst({ where: { id: recipient.id, branchId: lockedShift.branchId, isActive: true, deletedAt: null }, select: { id: true } })
+        if (!eligible) throw new ShiftError('المستلم لم يعد نشطًا في نفس الفرع', 422)
       }
     }
     const [cashState, outstandingOrders] = await Promise.all([
@@ -861,7 +860,7 @@ export async function getShiftsBoard(
         })
       : Promise.resolve([]),
     prisma.user.findMany({
-      where: { branchId, isActive: true, deletedAt: null, role: { is: { slug: ROLE.CASHIER } } },
+      where: { branchId, isActive: true, deletedAt: null },
       orderBy: { name: 'asc' }, select: { id: true, name: true },
     }),
   ])

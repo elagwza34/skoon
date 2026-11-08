@@ -126,6 +126,15 @@ export function ShiftsBoard({ initial, actorId }: { initial: ShiftBoardData; act
 
   return (
     <div className="flex flex-col gap-4" dir="rtl">
+      <div className="flex items-center justify-between gap-2">
+        <Button variant="outline" size="sm" onClick={() => router.back()} className="hidden sm:block">
+          <Icon name="chevronLeft" size={16} />
+          رجوع
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => router.back()} className="sm:hidden">
+          <Icon name="chevronLeft" size={16} />
+        </Button>
+      </div>
       <CashHandoverPanel actorId={actorId} role={data.userRole} branchId={data.branchId} />
       {error ? (
         <Card className="border-destructive/40">
@@ -216,9 +225,9 @@ export function ShiftsBoard({ initial, actorId }: { initial: ShiftBoardData; act
                 />
               </label>
               <label className="flex flex-col gap-1.5 text-sm">
-                <span className="text-muted-foreground">الكاشير المستلم (قبل منتصف الليل)</span>
+                <span className="text-muted-foreground">الموظف المستلم (قبل منتصف الليل)</span>
                 <select className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={handoverRecipientId} onChange={(e) => setHandoverRecipientId(e.target.value)}>
-                  <option value="">اختر كاشيراً</option>
+                  <option value="">اختر موظفاً</option>
                   {data.cashiers.map((cashier) => <option key={cashier.id} value={cashier.id}>{cashier.name}</option>)}
                 </select>
               </label>
