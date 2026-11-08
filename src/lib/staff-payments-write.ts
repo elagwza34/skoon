@@ -172,7 +172,7 @@ export async function finalizeOrderPayment(
         branchId: order.branchId,
         shiftId: lockedOpenShift?.id ?? null,
         method,
-        amount: outstanding.toFixed(2),
+        amount: received.toFixed(2),
         amountDue: outstanding.toFixed(2),
         changeAmount: change.toFixed(2),
         status: 'completed',
@@ -204,7 +204,7 @@ export async function finalizeOrderPayment(
         newValues: {
           paymentId: payment.id.toString(),
           method,
-          amount: outstanding.toFixed(2),
+          amount: received.toFixed(2),
           change: change.toFixed(2),
         },
       },
@@ -215,7 +215,7 @@ export async function finalizeOrderPayment(
       orderNumber: order.orderNumber,
       paymentId: payment.id.toString(),
       method,
-      amount: outstanding.toFixed(2),
+      amount: received.toFixed(2),
       changeAmount: change.toFixed(2),
       paymentStatus: 'paid',
     }
