@@ -79,6 +79,7 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
   const [reassignBusy, setReassignBusy] = useState(false)
   const [deleteReason, setDeleteReason] = useState('')
   const [deleteBusy, setDeleteBusy] = useState(false)
+  const [orderDetailsOpen, setOrderDetailsOpen] = useState(false)
   const inFlight = useRef(false)
   const attempt = useRef<{ fingerprint: string; key: string } | null>(null)
   const createdOrder = useRef<string | null>(null)
@@ -250,9 +251,17 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
     <main dir="rtl" className="min-h-dvh bg-background p-3 sm:p-5">
       <div className="mx-auto max-w-7xl space-y-4">
         <header className="rounded-xl border p-4 space-y-3">
-          <Button variant="outline" onClick={() => { if (!pending.length || window.confirm('مغادرة المسودة غير المحفوظة؟')) router.push(home) }}>الطاولات</Button>
-          <div className="flex flex-wrap justify-between gap-2">
-            <h1 className="text-2xl font-bold">طاولة {table.number} {table.name}</h1>
+          <div className="flex items-start gap-4">
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={() => setOrderDetailsOpen(true)} disabled={!order || isReadOnly}>
+                  <Icon name="orders" size={16} />
+                  تفاصيل الطلب
+                </Button>
+                <Button variant="outline" onClick={() => { if (!pending.length || window.confirm('مغادرة المسودة غير المحفوظة؟')) router.push(home) }}>الطاولات</Button>
+              </div>
+              <h1 className="text-2xl font-bold">طاولة {table.number} {table.name}</h1>
+            </div>
             <Badge tone={table.openOrders ? 'warning' : 'success'}>{table.openOrders ? 'مشغولة' : 'متاحة'}</Badge>
           </div>
           {order ? (
@@ -290,9 +299,14 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
             {tab === 'pos' ? 'العودة للطلب الجاري' : 'نقطة البيع'}
           </Button>
           <Button variant="outline" disabled={isReadOnly} onClick={() => setTab('order')}>الطلب الجاري</Button>
-          <Button variant="outline" disabled={isReadOnly || busy || !canManage || !canAppend} onClick={() => setShowAddPanel(!showAddPanel)}>
-            {showAddPanel ? 'إغلاق إضافة الأصناف' : order ? 'إضافة أصناف للطاولة' : 'بدء طلب جديد'}
-          </Button>
+          {order ? (
+            <Button variant="outline" size="sm" disabled={isReadOnly || busy || !canManage || !canAppend} onClick={() => setShowAddPanel(!showAddPanel)}>
+              {showAddPanel ? 'إغلاق إضافة الأصناف' : 'إضافة أصناف للطاولة'}
+            </Button>
+          ) : null}
+          {role === 'waiter' && (
+            <Button variant="outline" size="sm" onClick={() => setTab('order')}>طلبات ال QR</Button>
+          )}
         </nav>
 
         {showAddPanel && <AddItemsPanel
@@ -503,6 +517,79 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
           )}
         </section>}
       </div>
+
+      {/* تفاصيل الطلب في بوب أب */}
+      {orderDetailsOpen && order && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setOrderDetailsOpen(false)} />
+          <div className="relative z-10 w-full max-w-2xl max-h-[90vh] bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between p-6 border-b bg-cafe-espresso text-cafe-cream">
+              <h2 className="text-xl font-bold">تفاصيل الطلب #{order.number}</h2>
+              <Button size="icon" variant="ghost" onClick={() => setOrderDetailsOpen(false)}>
+                <Icon name="close" size={18} className="text-cafe-cream" />
+              </Button>
+            </div>
+            <div className="p-6 overflow-y-auto">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">رقم الطاوله</p>
+                  <p className="font-semibold">طاولة {table.number} {table.name}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">حالة الطلب</p>
+                  <span className={`px-2 py-1 rounded text-xs font-medium ${order.sentToKitchen ? 'bg-blue/10 text-blue' : 'bg-primary/10 text-primary'}`}>
+                    {statusLabel(order.status)}
+                  </span>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">النادل المسؤول</p>
+                  <p className="font-semibold">{order.creatorName ?? 'غير محدد'}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">تاريخ الإنشاء</p>
+                  <p className="font-semibold">{new Date(order.createdAt).toLocaleString('ar-EG')}</p>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <h3 className="text-lg font-bold mb-4">الأصناف ({order.items.reduce((sum, i) => sum + i.qty, 0)} صنف)</h3>
+                <div className="space-y-2">
+                  {order.items.map((item) => (
+                    <div key={item.id} className="flex items-center justify-between gap-4 p-3 rounded border">
+                      <div className="flex-1">
+                        <p className="font-semibold">{item.name}</p>
+                        {item.variantLabel && <p className="text-sm text-muted-foreground">{item.variantLabel}</p>}
+                        {item.note && <p className="text-sm text-muted-foreground">ملاحظة: {item.note}</p>}
+                      </div>
+                      <div className="text-right">
+                        <p className="font-semibold">{item.qty} × {formatCurrency(item.unitPrice)}</p>
+                        <p className="text-sm">{formatCurrency(item.lineTotal ?? item.unitPrice * item.qty)}</p>
+                        <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${item.servedQty >= item.qty ? 'bg-green/10 text-green' : item.preparedQty >= item.qty ? 'bg-blue/10 text-blue' : item.preparationStartedAt ? 'bg-amber/10 text-amber' : 'bg-primary/10 text-primary'}`}>
+                          {itemStatus(item)}
+                        </span>
+                        <p className="text-xs text-muted-foreground mt-1">جاهز {item.preparedQty}/{item.qty} · مقدم {item.servedQty}/{item.qty}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="mt-6 pt-6 border-t flex items-center justify-between">
+                <p className="font-bold text-lg">الإجمالي</p>
+                <p className="font-bold text-lg text-cafe-espresso">{formatCurrency(order.total)}</p>
+              </div>
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-muted-foreground">المدفوع</p>
+                <p className="font-semibold">{formatCurrency(order.paidAmount ?? 0)}</p>
+              </div>
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-muted-foreground">المتبقي</p>
+                <p className="font-semibold text-cafe-espresso">{formatCurrency(order.remainingAmount ?? order.total)}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   )
 }
