@@ -9,7 +9,6 @@ import { Icon } from '@/components/ui/icon'
 import { Input } from '@/components/ui/input'
 import { formatCurrency } from '@/lib/format'
 import type { WaiterWorkspace } from '@/lib/staff-waiter'
-import { TableQrRequests } from '@/components/waiter/table-qr-requests'
 import { isActiveTableOrder, canManageTableOrder, mayAppendToOrder } from '@/lib/table-order-policy'
 import type { InvoiceRow } from '@/lib/staff-invoices'
 import { parseOrderItemQuantity } from '@/lib/order-item-quantity'
@@ -17,14 +16,6 @@ import { parseOrderItemQuantity } from '@/lib/order-item-quantity'
 type Product = WaiterWorkspace['products'][number]
 type Order = WaiterWorkspace['openOrders'][number]
 type Table = WaiterWorkspace['tables'][number]
-type PendingLine = {
-  key: string
-  productId: string
-  variantId?: string
-  modifierSelections: Record<string, string[]>
-  qty: number
-  note: string
-}
 
 function statusLabel(status: string) {
   return ({ new: 'جديد', preparing: 'قيد التحضير', ready: 'جاهز', served: 'تم التقديم', cancelled: 'ملغي' } as Record<string, string>)[status] ?? status
@@ -67,8 +58,6 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
   const canManage = order ? canManageTableOrder(role, workspace.currentUserId, order.responsibleWaiterId) : table.openOrders === 0
   const canAppend = order ? mayAppendToOrder(order.status, order.paymentStatus) : true
   const isReadOnly = role === 'cashier'
-  const [pending, setPending] = useState<PendingLine[]>([])
-  const [showAddPanel, setShowAddPanel] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -79,7 +68,6 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
   const [reassignBusy, setReassignBusy] = useState(false)
   const [deleteReason, setDeleteReason] = useState('')
   const [deleteBusy, setDeleteBusy] = useState(false)
-  const [orderDetailsOpen, setOrderDetailsOpen] = useState(false)
   const inFlight = useRef(false)
   const attempt = useRef<{ fingerprint: string; key: string } | null>(null)
   const createdOrder = useRef<string | null>(null)
@@ -106,15 +94,7 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
       }
     })
   }, [order, role, readyAlertPlayed])
-  useEffect(() => {
-    const timer = window.setInterval(() => { if (!pending.length && !showAddPanel && !inFlight.current && !document.hidden && navigator.onLine) router.refresh() }, 15000)
-    return () => window.clearInterval(timer)
-  }, [router, pending.length, showAddPanel])
-  useEffect(() => {
-    const warn = (event: BeforeUnloadEvent) => { if (pending.length) event.preventDefault() }
-    window.addEventListener('beforeunload', warn)
-    return () => window.removeEventListener('beforeunload', warn)
-  }, [pending.length])
+
   async function request(url: string, payload?: unknown, key?: string, method: 'POST' | 'DELETE' = 'POST') {
     const response = await fetch(url, { method, headers: { 'content-type': 'application/json', ...(key ? { 'idempotency-key': key } : {}) }, ...(payload === undefined || method === 'DELETE' ? {} : { body: JSON.stringify(payload) }) })
     const data = await response.json().catch(() => ({}))
@@ -127,30 +107,6 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
     try { await work(); router.refresh() }
     catch (e) { setError(e instanceof Error ? e.message : 'تعذر تنفيذ العملية'); router.refresh() }
     finally { inFlight.current = false; setBusy(false) }
-  }
-  async function save() {
-    if (!pending.length || !canManage || !canAppend || isReadOnly) return
-    await act(async () => {
-      const items = pending.map((line) => ({ productId: line.productId, variantId: line.variantId, modifierSelections: Object.entries(line.modifierSelections).map(([groupId, valueIds]) => ({ groupId, valueIds })), qty: line.qty, note: line.note.trim() || undefined }))
-      const target = createdOrder.current ?? order?.id
-      const fingerprint = JSON.stringify({ tableId: table.id, orderId: target ?? null, items })
-      if (!attempt.current || attempt.current.fingerprint !== fingerprint) attempt.current = { fingerprint, key: crypto.randomUUID() }
-      if (createdOrder.current) {
-        await request(`/api/staff/orders/${createdOrder.current}/send`)
-      } else if (target) {
-        await request(`/api/staff/orders/${target}/items/append`, { items, idempotencyKey: attempt.current.key }, attempt.current.key)
-      } else {
-        const result = await request('/api/staff/pos/orders', { orderType: 'dine_in', tableId: table.id, items }, attempt.current.key)
-        if (typeof result.id !== 'string') throw new Error('تعذر التحقق من رقم الطلب؛ حدّث الصفحة قبل المحاولة')
-        createdOrder.current = result.id
-        await request(`/api/staff/orders/${result.id}/send`)
-      }
-      const saved = createdOrder.current ?? target
-      setPending([]); attempt.current = null; createdOrder.current = null
-      setNotice('تم حفظ الأصناف في نفس الطلب وتوزيعها على المطبخ تلقائياً')
-      if (saved) router.replace(`${home}/tables/${table.id}?orderId=${saved}`)
-      setTab('order')
-    })
   }
   async function edit(item: Order['items'][number], cancel: boolean) {
     if (inFlight.current || !order || !canManage || item.servedQty > 0 || order.paymentStatus === 'paid' || isReadOnly) return
@@ -210,7 +166,6 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
     })
   }
 
-  const pendingQtyByProduct = useMemo(() => pending.reduce((acc, line) => { acc[line.productId] = (acc[line.productId] ?? 0) + line.qty; return acc }, {} as Record<string, number>), [pending])
   const categories = workspace.categories
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('all')
@@ -226,11 +181,6 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
   const ready = !!product && (!product.variants.length || !!variantId) && product.modifierGroups.every((group) => { const count = (selections[group.id] ?? []).length; return count >= (group.isRequired ? Math.max(1, group.minSelections) : group.minSelections) && count <= group.maxSelections })
 
   function choose(candidate: Product) {
-    const existingQty = pendingQtyByProduct[candidate.id] ?? 0
-    if (existingQty > 0) {
-      setPending((current) => current.map((line) => line.productId === candidate.id ? { ...line, qty: line.qty + 1 } : line))
-      return
-    }
     setProduct(candidate)
     setVariantId('')
     setSelections({})
@@ -238,10 +188,38 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
     setNote('')
   }
   function toggle(groupId: string, optionId: string, max: number) { setSelections((current) => { const values = current[groupId] ?? []; const next = values.includes(optionId) ? values.filter((id) => id !== optionId) : max === 1 ? [optionId] : values.length < max ? [...values, optionId] : values; return { ...current, [groupId]: next } }) }
-  function addSelectedToPending() {
-    if (!product || isReadOnly) return
-    setPending((current) => [...current, { key: crypto.randomUUID(), productId: product.id, variantId: variantId || undefined, modifierSelections: selections, qty, note }])
-    setProduct(null)
+
+  async function addDirectlyToOrder() {
+    if (!product || !canManage || !canAppend || isReadOnly) return
+    const items = [{ productId: product.id, variantId: variantId || undefined, modifierSelections: Object.entries(selections).map(([groupId, valueIds]) => ({ groupId, valueIds })), qty, note: note.trim() || undefined }]
+    const target = order?.id
+    const fingerprint = JSON.stringify({ tableId: table.id, orderId: target ?? null, items })
+    if (!attempt.current || attempt.current.fingerprint !== fingerprint) attempt.current = { fingerprint, key: crypto.randomUUID() }
+    const requestKey = attempt.current.key
+    if (target) {
+      await act(async () => {
+        await request(`/api/staff/orders/${target}/items/append`, { items, idempotencyKey: requestKey }, requestKey)
+        setProduct(null)
+        setSelections({})
+        setQty(1)
+        setNote('')
+        setNotice('تم إضافة الصنف للطلب مباشرة')
+      })
+    } else {
+      await act(async () => {
+        const result = await request('/api/staff/pos/orders', { orderType: 'dine_in', tableId: table.id, items }, requestKey)
+        if (typeof result.id !== 'string') throw new Error('تعذر إنشاء الطلب؛ حدّث الصفحة')
+        createdOrder.current = result.id
+        await request(`/api/staff/orders/${result.id}/send`)
+        setProduct(null)
+        setSelections({})
+        setQty(1)
+        setNote('')
+        setNotice('تم إنشاء الطلب وتوزيعه على المطبخ تلقائياً')
+        if (result.id) router.replace(`${home}/tables/${table.id}?orderId=${result.id}`)
+        setTab('order')
+      })
+    }
   }
   function productsFilter(products: Product[], s: string, cat: string) {
     return products.filter((candidate) => candidate.isAvailable && (cat === 'all' || candidate.categoryId === cat) && candidate.name.toLowerCase().includes(s.trim().toLowerCase()))
@@ -254,11 +232,7 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
           <div className="flex items-start gap-4">
             <div className="flex flex-col gap-2">
               <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" onClick={() => setOrderDetailsOpen(true)} disabled={!order || isReadOnly}>
-                  <Icon name="orders" size={16} />
-                  تفاصيل الطلب
-                </Button>
-                <Button variant="outline" onClick={() => { if (!pending.length || window.confirm('مغادرة المسودة غير المحفوظة؟')) router.push(home) }}>الطاولات</Button>
+                <Button variant="outline" size="sm" onClick={() => router.push(home)}>الطاولات</Button>
               </div>
               <h1 className="text-2xl font-bold">طاولة {table.number} {table.name}</h1>
             </div>
@@ -267,11 +241,6 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
           {order ? (
             <>
               <p className="text-sm text-muted-foreground">طلب {order.number} · {statusLabel(order.status)} · أنشأه {order.creatorName ?? 'غير محدد'} · {new Date(order.createdAt).toLocaleString('ar-EG')}</p>
-              <div className="flex flex-wrap gap-5 text-sm">
-                <span>الإجمالي: {formatCurrency(order.total)}</span>
-                <span>المدفوع: {formatCurrency(order.paidAmount ?? 0)}</span>
-                <span>المتبقي: {formatCurrency(order.remainingAmount ?? order.total)}</span>
-              </div>
               <div className="flex flex-wrap gap-2 mt-3">
                 {!order.sentToKitchen && canManage && !isReadOnly && <Button size="sm" disabled={busy} onClick={sendToKitchen}>إرسال للمطبخ</Button>}
                 {role === 'cashier' && !isReadOnly && <Button variant="outline" size="sm" onClick={() => setTab('order')}>الانتقال للدفع</Button>}
@@ -281,14 +250,12 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
               </div>
             </>
           ) : (
-            <p>{table.openOrders ? 'الطاولة مشغولة بطلب لا تملك صلاحية إدارته؛ لا يمكن إنشاء طلب آخر.' : 'لا يوجد طلب على الطاولة. أضف أصناف أدناه لبدء طلب جديد.'}</p>
+            <p>{table.openOrders ? 'الطاولة مشغولة بطلب لا تملك صلاحية إدارته؛ لا يمكن إنشاء طلب آخر.' : 'لا يوجد طلب على الطاولة. استخدم نقطة البيع لبدء طلب جديد.'}</p>
           )}
         </header>
 
         {error && <p role="alert" className="rounded border border-destructive p-3">{error}</p>}
         {notice && <p role="status" className="rounded border border-success bg-success/10 p-3">{notice}</p>}
-
-        {role === 'waiter' && <TableQrRequests tableId={table.id} />}
 
         <nav aria-label="إجراءات الطاولة" className="flex flex-wrap gap-2">
           <Button
@@ -300,54 +267,16 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
           </Button>
           <Button variant="outline" disabled={isReadOnly} onClick={() => setTab('order')}>الطلب الجاري</Button>
           {order ? (
-            <Button variant="outline" size="sm" disabled={isReadOnly || busy || !canManage || !canAppend} onClick={() => setShowAddPanel(!showAddPanel)}>
-              {showAddPanel ? 'إغلاق إضافة الأصناف' : 'إضافة أصناف للطاولة'}
+            <Button variant="outline" size="sm" disabled={isReadOnly || busy || !canManage || !canAppend} onClick={() => setTab('pos')}>
+              إضافة أصناف
             </Button>
           ) : null}
-          {role === 'waiter' && (
-            <Button variant="outline" size="sm" onClick={() => setTab('order')}>طلبات ال QR</Button>
-          )}
         </nav>
+      </div>
 
-        {showAddPanel && <AddItemsPanel
-          products={workspace.products}
-          categories={categories}
-          pending={pending}
-          setPending={setPending}
-          search={search}
-          setSearch={setSearch}
-          category={category}
-          setCategory={setCategory}
-          product={product}
-          setProduct={setProduct}
-          variantId={variantId}
-          setVariantId={setVariantId}
-          selections={selections}
-          setSelections={setSelections}
-          qty={qty}
-          setQty={setQty}
-          note={note}
-          setNote={setNote}
-          choose={choose}
-          toggle={toggle}
-          addSelectedToPending={addSelectedToPending}
-          filtered={filtered}
-          variant={variant}
-          modifierPrice={modifierPrice}
-          ready={ready}
-          pendingQtyByProduct={pendingQtyByProduct}
-          mode={mode}
-          order={order}
-          table={table}
-          busy={busy}
-          canManage={canManage}
-          canAppend={canAppend}
-          save={save}
-          createdOrder={!!createdOrder.current}
-          isReadOnly={isReadOnly}
-        />}
-
-        {tab === 'order' && order && <section className="space-y-3">
+      <div className="flex gap-4">
+        <div className="flex-1 min-w-0 order-1">
+          {tab === 'order' && order && <section className="space-y-3">
           <h2 className="font-bold">الأصناف في الطلب {order.number}</h2>
           {order.items.length === 0 && <p className="text-muted-foreground">لا توجد أصناف بعد.</p>}
           {order.items.map((item) => (
@@ -379,7 +308,7 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
 
         {tab === 'order' && !order && <div className="rounded-xl border p-8 text-center">
           <p className="text-muted-foreground">لا يوجد طلب نشط على هذه الطاولة.</p>
-          <Button disabled={isReadOnly || !canManage || !canAppend} onClick={() => setShowAddPanel(true)}>بدء طلب جديد</Button>
+          <Button disabled={isReadOnly || !canManage || !canAppend} onClick={() => setTab('pos')}>بدء طلب جديد عبر نقطة البيع</Button>
         </div>}
 
         {tab === 'order' && <section className="rounded border p-4 space-y-2">
@@ -440,13 +369,9 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
                 </select>
               </div>
               <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-                {filtered.map((candidate) => {
-                  const alreadyQty = pendingQtyByProduct[candidate.id] ?? 0
-                  const selected = alreadyQty > 0
-                  return (
-                    <ProductButton key={candidate.id} candidate={candidate} selected={selected} alreadyQty={alreadyQty} onChoose={() => choose(candidate)} />
-                  )
-                })}
+                {filtered.map((candidate) => (
+                  <ProductButton key={candidate.id} candidate={candidate} selected={false} alreadyQty={0} onChoose={() => choose(candidate)} />
+                ))}
               </div>
               {product && (
                 <div className="mt-4 rounded-lg border p-4">
@@ -490,49 +415,25 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
                       <Button variant="outline" size="sm" onClick={() => setQty((q) => Math.min(20, q + 1))}>+</Button>
                     </div>
                   </div>
-                  <Button className="w-full mt-3" disabled={!ready || busy || isReadOnly} onClick={addSelectedToPending}>إضافة للمسودة ومتابعة الاختيار</Button>
-                </div>
-              )}
-              {pending.length > 0 && (
-                <div className="mt-4 rounded border p-3 space-y-2">
-                  <h3 className="text-sm font-bold">المنتجات المختارة للإضافة</h3>
-                  <div className="space-y-1 max-h-40 overflow-y-auto pr-1">
-                    {pending.map((line) => {
-                      const p = workspace.products.find((p) => p.id === line.productId)
-                      return (
-                        <div key={line.key} className="flex flex-wrap items-center gap-2 rounded border p-1.5">
-                          <span className="text-sm">{p?.name} × {line.qty}</span>
-                          {line.note && <span className="text-xs text-muted-foreground">({line.note})</span>}
-                          <Button size="sm" variant="outline" onClick={() => setPending((lines) => lines.filter((l) => l.key !== line.key))}>إزالة</Button>
-                        </div>
-                      )
-                    })}
-                  </div>
-                  <Button disabled={busy || !canManage || !canAppend || isReadOnly} onClick={() => void save()} className="w-full">
-                    {busy ? 'جارٍ الحفظ…' : createdOrder ? 'إعادة إرسال الطلب المحفوظ' : order ? 'تأكيد إضافة الأصناف لنفس الطلب' : 'تأكيد الطلب وتوزيعه على المطبخ تلقائياً'}
+                  <Button className="w-full mt-3" disabled={!ready || busy || isReadOnly || !canManage || !canAppend} onClick={() => void addDirectlyToOrder()}>
+                    {busy ? 'جارٍ الإضافة…' : order ? 'إضافة للطلب مباشرة' : 'تأكيد الطلب وتوزيعه على المطبخ تلقائياً'}
                   </Button>
                 </div>
               )}
             </>
           )}
         </section>}
-      </div>
+        </div>
 
-      {/* تفاصيل الطلب في بوب أب */}
-      {orderDetailsOpen && order && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setOrderDetailsOpen(false)} />
-          <div className="relative z-10 w-full max-w-2xl max-h-[90vh] bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col">
-            <div className="flex items-center justify-between p-6 border-b bg-cafe-espresso text-cafe-cream">
-              <h2 className="text-xl font-bold">تفاصيل الطلب #{order.number}</h2>
-              <Button size="icon" variant="ghost" onClick={() => setOrderDetailsOpen(false)}>
-                <Icon name="close" size={18} className="text-cafe-cream" />
-              </Button>
+        {order && (
+          <aside className="w-[360px] shrink-0 order-2 rounded-xl border bg-background p-4 space-y-4">
+            <div className="flex items-center justify-between p-3 border-b bg-cafe-espresso text-cafe-cream rounded-lg">
+              <h2 className="text-lg font-bold">تفاصيل الطلب #{order.number}</h2>
             </div>
-            <div className="p-6 overflow-y-auto">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground">رقم الطاوله</p>
+                  <p className="text-xs text-muted-foreground">رقم الطاولة</p>
                   <p className="font-semibold">طاولة {table.number} {table.name}</p>
                 </div>
                 <div className="space-y-1">
@@ -552,18 +453,18 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
               </div>
 
               <div className="space-y-1">
-                <h3 className="text-lg font-bold mb-4">الأصناف ({order.items.reduce((sum, i) => sum + i.qty, 0)} صنف)</h3>
-                <div className="space-y-2">
+                <h3 className="text-sm font-bold mb-2">الأصناف ({order.items.reduce((sum, i) => sum + i.qty, 0)} صنف)</h3>
+                <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
                   {order.items.map((item) => (
-                    <div key={item.id} className="flex items-center justify-between gap-4 p-3 rounded border">
-                      <div className="flex-1">
-                        <p className="font-semibold">{item.name}</p>
-                        {item.variantLabel && <p className="text-sm text-muted-foreground">{item.variantLabel}</p>}
-                        {item.note && <p className="text-sm text-muted-foreground">ملاحظة: {item.note}</p>}
+                    <div key={item.id} className="flex items-center justify-between gap-3 p-2 rounded border">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-semibold text-sm">{item.name}</p>
+                        {item.variantLabel && <p className="text-xs text-muted-foreground">{item.variantLabel}</p>}
+                        {item.note && <p className="text-xs text-muted-foreground">ملاحظة: {item.note}</p>}
                       </div>
                       <div className="text-right">
-                        <p className="font-semibold">{item.qty} × {formatCurrency(item.unitPrice)}</p>
-                        <p className="text-sm">{formatCurrency(item.lineTotal ?? item.unitPrice * item.qty)}</p>
+                        <p className="font-semibold text-sm">{item.qty} × {formatCurrency(item.unitPrice)}</p>
+                        <p className="text-xs">{formatCurrency(item.lineTotal ?? item.unitPrice * item.qty)}</p>
                         <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${item.servedQty >= item.qty ? 'bg-green/10 text-green' : item.preparedQty >= item.qty ? 'bg-blue/10 text-blue' : item.preparationStartedAt ? 'bg-amber/10 text-amber' : 'bg-primary/10 text-primary'}`}>
                           {itemStatus(item)}
                         </span>
@@ -574,160 +475,24 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
                 </div>
               </div>
 
-              <div className="mt-6 pt-6 border-t flex items-center justify-between">
-                <p className="font-bold text-lg">الإجمالي</p>
-                <p className="font-bold text-lg text-cafe-espresso">{formatCurrency(order.total)}</p>
-              </div>
-              <div className="flex items-center justify-between">
-                <p className="text-sm text-muted-foreground">المدفوع</p>
-                <p className="font-semibold">{formatCurrency(order.paidAmount ?? 0)}</p>
-              </div>
-              <div className="flex items-center justify-between">
-                <p className="text-sm text-muted-foreground">المتبقي</p>
-                <p className="font-semibold text-cafe-espresso">{formatCurrency(order.remainingAmount ?? order.total)}</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-    </main>
-  )
-}
-
-function AddItemsPanel({ products, categories, pending, setPending, search, setSearch, category, setCategory, product, setProduct, variantId, setVariantId, selections, setSelections, qty, setQty, note, setNote, choose, toggle, addSelectedToPending, filtered, variant, modifierPrice, ready, pendingQtyByProduct, mode, order, table, busy, canManage, canAppend, save, createdOrder, isReadOnly }: {
-  products: Product[]
-  categories: WaiterWorkspace['categories']
-  pending: PendingLine[]
-  setPending: React.Dispatch<React.SetStateAction<PendingLine[]>>
-  search: string
-  setSearch: React.Dispatch<React.SetStateAction<string>>
-  category: string
-  setCategory: React.Dispatch<React.SetStateAction<string>>
-  product: Product | null
-  setProduct: React.Dispatch<React.SetStateAction<Product | null>>
-  variantId: string
-  setVariantId: React.Dispatch<React.SetStateAction<string>>
-  selections: Record<string, string[]>
-  setSelections: React.Dispatch<React.SetStateAction<Record<string, string[]>>>
-  qty: number
-  setQty: React.Dispatch<React.SetStateAction<number>>
-  note: string
-  setNote: React.Dispatch<React.SetStateAction<string>>
-  choose: (candidate: Product) => void
-  toggle: (groupId: string, optionId: string, max: number) => void
-  addSelectedToPending: () => void
-  filtered: Product[]
-  variant: Product['variants'][number] | undefined
-  modifierPrice: number
-  ready: boolean
-  pendingQtyByProduct: Record<string, number>
-  mode: 'ADD_ITEMS' | 'CREATE_ORDER'
-  order: Order | null
-  table: Table
-  busy: boolean
-  canManage: boolean
-  canAppend: boolean
-  save: () => void
-  createdOrder: boolean
-  isReadOnly: boolean
-}) {
-  return (
-    <Card className="space-y-3">
-      <CardHeader className="flex-row items-center justify-between border-b">
-        <CardTitle>إضافة أصناف — طاولة {table.number}</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {!product ? (
-          <>
-            <div className="grid gap-2 sm:grid-cols-[1fr_220px]">
-              <Input autoFocus value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ابحث عن صنف…" aria-label="بحث المنتجات" />
-              <select value={category} onChange={(e) => setCategory(e.target.value)} className="h-10 rounded border bg-background px-3">
-                <option value="all">كل الأقسام</option>
-                {categories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-              </select>
-            </div>
-            <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-              {filtered.map((candidate) => {
-                const alreadyQty = pendingQtyByProduct[candidate.id] ?? 0
-                const selected = alreadyQty > 0
-                return (
-                  <ProductButton key={candidate.id} candidate={candidate} selected={selected} alreadyQty={alreadyQty} onChoose={() => choose(candidate)} />
-                )
-              })}
-            </div>
-          </>
-        ) : (
-          <div className="space-y-4">
-            <Button variant="ghost" size="sm" onClick={() => setProduct(null)}>رجوع للمنتجات</Button>
-            <div>
-              <h3 className="text-lg font-bold">{product.name}</h3>
-              <p className="text-sm text-muted-foreground">السعر المعروض تقديري، والخادم يعيد احتسابه عند الحفظ.</p>
-            </div>
-            {product.variants.length ? (
-              <label className="block text-sm">
-                <span className="mb-1 block font-medium">المتغير *</span>
-                <select value={variantId} onChange={(e) => setVariantId(e.target.value)} className="h-10 w-full rounded border bg-background px-3">
-                  <option value="">اختر المتغير</option>
-                  {product.variants.map((item) => <option key={item.id} value={item.id}>{item.label} — {formatCurrency(Number(item.price))}</option>)}
-                </select>
-              </label>
-            ) : null}
-            {product.modifierGroups.map((group) => (
-              <fieldset key={group.id} className="rounded-lg border p-3">
-                <legend className="px-1 text-sm font-semibold">{group.name} {group.isRequired ? '*' : ''} ({group.minSelections}–{group.maxSelections})</legend>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {group.options.map((option) => (
-                    <label key={option.id} className="flex items-center gap-2 cursor-pointer">
-                      <input type="checkbox" checked={(selections[group.id] ?? []).includes(option.id)} onChange={() => toggle(group.id, option.id, group.maxSelections)} className="rounded border-primary" />
-                      <span className="text-sm">{option.label}</span>
-                      <span className="ml-auto text-xs text-muted-foreground">{Number(option.priceAdjustment) > 0 ? '+' + formatCurrency(Number(option.priceAdjustment)) : ''}</span>
-                    </label>
-                  ))}
+              <div className="mt-4 pt-3 border-t space-y-1">
+                <div className="flex items-center justify-between">
+                  <p className="font-bold text-lg">الإجمالي</p>
+                  <p className="font-bold text-lg text-cafe-espresso">{formatCurrency(order.total)}</p>
                 </div>
-              </fieldset>
-            ))}
-            <div className="mt-3 flex items-center justify-between gap-2">
-              <label className="text-sm font-medium">ملاحظات المطبخ</label>
-              <Input className="flex-1" maxLength={255} value={note} onChange={(e) => setNote(e.target.value)} placeholder="ملاحظات للمطبخ" />
-            </div>
-            <div className="mt-2 text-right">
-              <label className="text-xs font-medium">الكمية</label>
-              <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" onClick={() => setQty((q) => Math.max(1, q - 1))}>-</Button>
-                <span className="w-8 text-center font-semibold">{qty}</span>
-                <Button variant="outline" size="sm" onClick={() => setQty((q) => Math.min(20, q + 1))}>+</Button>
+                <div className="flex items-center justify-between">
+                  <p className="text-sm text-muted-foreground">المدفوع</p>
+                  <p className="font-semibold">{formatCurrency(order.paidAmount ?? 0)}</p>
+                </div>
+                <div className="flex items-center justify-between">
+                  <p className="text-sm text-muted-foreground">المتبقي</p>
+                  <p className="font-semibold text-cafe-espresso">{formatCurrency(order.remainingAmount ?? order.total)}</p>
+                </div>
               </div>
             </div>
-            <Button className="w-full" disabled={!ready || busy || isReadOnly} onClick={addSelectedToPending}>إضافة للمسودة ومتابعة الاختيار</Button>
-          </div>
-        )}
-      </CardContent>
-      <div className="shrink-0 border-t bg-background p-3">
-        <div className="mb-2 flex items-center justify-between text-sm">
-          <span>مسودة الإضافة: {pending.reduce((sum, line) => sum + line.qty, 0)} أصناف</span>
-          <Button variant="outline" size="sm" onClick={() => setProduct(null)}>مراجعة السلة</Button>
-        </div>
-        {pending.length > 0 && (
-          <div className="mt-3 rounded border p-3 space-y-2">
-            <h3 className="text-sm font-bold">المنتجات المختارة للإضافة</h3>
-            <div className="space-y-1 max-h-40 overflow-y-auto pr-1">
-              {pending.map((line) => {
-                const p = products.find((p) => p.id === line.productId)
-                return (
-                  <div key={line.key} className="flex flex-wrap items-center gap-2 rounded border p-1.5">
-                    <span className="text-sm">{p?.name} × {line.qty}</span>
-                    {line.note && <span className="text-xs text-muted-foreground">({line.note})</span>}
-                    <Button size="sm" variant="outline" onClick={() => setPending((lines) => lines.filter((l) => l.key !== line.key))}>إزالة</Button>
-                  </div>
-                )
-              })}
-            </div>
-            <Button disabled={busy || !canManage || !canAppend || isReadOnly} onClick={() => void save()} className="w-full">
-              {busy ? 'جارٍ الحفظ…' : createdOrder ? 'إعادة إرسال الطلب المحفوظ' : order ? 'تأكيد إضافة الأصناف لنفس الطلب' : 'تأكيد الطلب وتوزيعه على المطبخ تلقائياً'}
-            </Button>
-          </div>
+          </aside>
         )}
       </div>
-    </Card>
+    </main>
   )
 }
