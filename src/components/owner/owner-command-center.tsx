@@ -54,10 +54,10 @@ export function OwnerCommandCenter({ stats, managerOperations, waiterReadiness, 
   ]
 
   return (
-    <main dir="rtl" className="min-h-dvh bg-background p-2 sm:p-3">
-      <div className="grid gap-2 sm:grid-cols-3 md:grid-cols-6">
+    <main dir="rtl" className="min-h-dvh bg-background p-2 sm:p-3 overflow-x-hidden">
+      <div className="grid gap-2 sm:grid-cols-3 md:grid-cols-6 max-w-full">
         {kpis.map((kpi) => (
-          <Card key={kpi.label} className="p-3 sm:p-4">
+          <Card key={kpi.label} className="min-w-0 p-3 sm:p-4">
             <div className="flex items-start justify-between gap-2">
               <div className="flex flex-col gap-0.5">
                 <span className="text-xs text-muted-foreground">{kpi.label}</span>
@@ -72,29 +72,29 @@ export function OwnerCommandCenter({ stats, managerOperations, waiterReadiness, 
         ))}
       </div>
 
-      <div className="grid gap-2 mt-2 sm:grid-cols-12">
-        <div className="col-span-12 lg:col-span-8">
+      <div className="grid gap-2 mt-2 sm:grid-cols-12 max-w-full overflow-x-auto">
+        <div className="col-span-12 lg:col-span-8 min-w-0">
           {managerOperations ? <ManagerOperationsCenterCompact data={managerOperations} /> : null}
         </div>
-        <div className="col-span-12 lg:col-span-4 space-y-2">
+        <div className="col-span-12 lg:col-span-4 space-y-2 min-w-0">
           {waiterReadiness ? <ResponsibilityPanel data={waiterReadiness} /> : null}
         </div>
-        <div className="col-span-12 lg:col-span-7">
+        <div className="col-span-12 lg:col-span-7 min-w-0">
           <SalesCardCompact seriesByRange={stats.salesSeriesByRange} />
         </div>
-        <div className="col-span-12 lg:col-span-5">
+        <div className="col-span-12 lg:col-span-5 min-w-0">
           <OrderStatusDistribution data={stats.statusDistribution} total={stats.ordersToday} />
         </div>
-        <div className="col-span-12 lg:col-span-8">
+        <div className="col-span-12 lg:col-span-8 min-w-0">
           <RecentOrdersCompact orders={filteredOrders} statusFilter={statusFilter} setStatusFilter={setStatusFilter} search={search} setSearch={setSearch} statusCounts={statusCounts} />
         </div>
-        <div className="col-span-12 lg:col-span-4">
+        <div className="col-span-12 lg:col-span-4 min-w-0">
           <TopProductsCompact products={stats.topProducts} />
         </div>
-        <div className="col-span-12 lg:col-span-8">
+        <div className="col-span-12 lg:col-span-8 min-w-0">
           <TablesStatusCompact tables={stats.tables} tableCounts={stats.tableCounts} />
         </div>
-        <div className="col-span-12 lg:col-span-4">
+        <div className="col-span-12 lg:col-span-4 min-w-0">
           <QuickActionsCompact user={session} />
           <Link href="/staff" className="flex min-h-10 items-center justify-center rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90">إدارة الموظفين وإضافة موظف</Link>
         </div>
@@ -184,7 +184,7 @@ function SalesCardCompact({ seriesByRange }: { seriesByRange: Record<string, { l
         </div>
       </CardHeader>
       <CardContent className="p-3 sm:p-4 h-48 sm:h-56">
-        <div className="h-full w-full flex items-end gap-1">
+        <div className="overflow-x-auto h-full w-full flex items-end gap-1">
           {series.map((d, i) => (
             <div key={i} className="flex flex-col items-center gap-1 h-full">
               <div className={`w-full bg-primary rounded-t-sm ${(d.value / Math.max(1, ...series.map((s) => s.value))) * 100}%`} />
@@ -266,7 +266,8 @@ function RecentOrdersCompact({
         {orders.length === 0 ? (
           <p className="text-xs text-muted-foreground">لا توجد طلبات بهذه الحالة.</p>
         ) : (
-          <table className="w-full text-xs sm:text-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs sm:text-sm">
             <thead>
               <tr className="border-b border-border text-[10px] sm:text-xs text-muted-foreground">
                 <th className="px-1 py-1.5 text-start">رقم الطلب</th>
@@ -295,6 +296,7 @@ function RecentOrdersCompact({
               })}
             </tbody>
           </table>
+        </div>
         )}
       </CardContent>
     </Card>
