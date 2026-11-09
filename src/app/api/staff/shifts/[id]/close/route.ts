@@ -23,6 +23,7 @@ export async function POST(req: Request, { params }: Params) {
   closingCash?: unknown
   handoverNotes?: unknown
   handoverRecipientId?: unknown
+  tableHandoffRecipientId?: unknown
 }
 
 let body: CloseBody = {}
@@ -37,6 +38,7 @@ try {
       closingCash: body.closingCash,
       handoverNotes: body.handoverNotes ?? null,
       handoverRecipientId: body.handoverRecipientId ?? null,
+      tableHandoffRecipientId: body.tableHandoffRecipientId ?? null,
     }))
   } catch (e) {
     if (e instanceof ShiftError) return NextResponse.json({ error: e.message }, { status: e.status })
