@@ -355,12 +355,12 @@ export function ProductsBoard({
       ) : null}
 
       {canEdit && showForm ? (
-        <div role="dialog" aria-modal="true" aria-label={draft.id ? 'Edit product' : 'Add product'} className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-3 pt-8 sm:items-center sm:p-6">
-        <Card className="w-full max-w-2xl border-primary/40">
-          <CardHeader>
+        <div role="dialog" aria-modal="true" aria-label={draft.id ? 'Edit product' : 'Add product'} className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4">
+        <Card className="flex w-full max-w-3xl flex-col border-primary/40 max-h-[92dvh] rounded-b-none sm:rounded-b-xl overflow-hidden">
+          <CardHeader className="sticky top-0 z-10 border-b bg-card/95 backdrop-blur px-4 py-3">
             <CardTitle>{draft.id ? 'تعديل منتج' : 'منتج جديد'}</CardTitle>
           </CardHeader>
-          <CardContent className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <CardContent className="grid grid-cols-1 gap-3 sm:grid-cols-2 overflow-y-auto px-4 py-4 pb-24">
             <label className="flex flex-col gap-1 text-sm">
               <span className="text-muted-foreground">الاسم</span>
               <Input
@@ -583,7 +583,7 @@ export function ProductsBoard({
                 </div>
               ) : null}
             </div>
-            <div className="flex items-center gap-2 sm:col-span-2">
+            <div className="sticky bottom-0 z-10 -mx-4 mt-2 flex items-center justify-end gap-2 border-t bg-card/95 px-4 py-3 backdrop-blur sm:col-span-2">
               <Button size="sm" disabled={saving} onClick={saveProduct}>
                 <Icon name="check" size={16} /> {saving ? 'جاري الحفظ…' : 'حفظ'}
               </Button>
