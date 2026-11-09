@@ -412,9 +412,9 @@ export async function closeShift(
     if (locked.branchId !== shift.branchId || !staffCanAccessBranch(session, locked.branchId)) throw new ShiftError('غير مصرح — الفرع غير متطابق', 403)
     const lockedShift = await tx.shift.findUnique({ where: { id: shiftId } })
     if (!lockedShift) throw new ShiftError('الوردية غير موجودة', 404)
-    if (isCashHandlingRole(session.role)) {
-      await assertCashierAdvancesSettled(tx, session.id, lockedShift.branchId)
-      if (recipient) {
+      if (isCashHandlingRole(session.role)) {
+        // سلفة الكاشير تبقى مسجلة عليه وتُستكمل لاحقًا؛ لا تُمنع إغلاق الوردية بسببها (per spec E2).
+        if (recipient) {
         const eligible = await tx.user.findFirst({ where: { id: recipient.id, branchId: lockedShift.branchId, isActive: true, deletedAt: null }, select: { id: true } })
         if (!eligible) throw new ShiftError('المستلم لم يعد نشطًا في نفس الفرع', 422)
       }

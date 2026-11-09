@@ -1047,7 +1047,7 @@ test('route-access: fixed float requires settings management', () => {
 })
 
 test('invoices: authoritative totals recalculate discount and tax', () => {
-  assert.deepEqual(recalculateInvoiceTotals(100, 'percentage', 10, 14), { discount: 10, tax: 12.6, total: 102.6 })
+  assert.deepEqual(recalculateInvoiceTotals(100, 'percentage', 10, 14), { discount: '10.00', tax: '12.60', total: '102.60' })
 })
 
 test('pos order input ignores client prices while preserving the authoritative order type', () => {

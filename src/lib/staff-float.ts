@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { createHash } from 'node:crypto'
 import { prisma } from '@/lib/prisma'
-import { ROLE, hasAtLeast } from '@/lib/authz'
+import { ROLE, hasAtLeast, isOwner } from '@/lib/authz'
 import { staffCanAccessBranch, type StaffSession } from '@/lib/session'
 import { getOpenShift } from '@/lib/staff-shifts'
 import { FinancialShiftLockError, type FinancialTransaction, lockAndReadShift } from '@/lib/financial-shift-lock'
@@ -132,7 +132,7 @@ export async function settleSharedFloatAdvance(session: StaffSession, advanceIdR
 }
 
 export async function establishFixedFloatBaseline(session: StaffSession, input: unknown) {
-  if (!hasAtLeast(session.role, ROLE.MANAGER)) throw new FloatError('Forbidden', 403)
+  if (!isOwner(session.role)) throw new FloatError('只有 المالك يمكنه تأسيس حد الرصيد الثابت', 403)
   const parsed = z.object({ amount: z.coerce.number().min(0).max(9_999_999), reason: z.string().trim().min(3).max(255), confirmed: z.literal(true), idempotencyKey: z.string().trim().min(8).max(100).optional(), branchId: z.coerce.number().int().positive().optional() }).safeParse(input)
   if (!parsed.success) throw new FloatError('Opening baseline, reason, and receipt confirmation are required')
   const branchId = session.branchId ? BigInt(session.branchId) : BigInt(parsed.data.branchId ?? 0); if (!branchId || !staffCanAccessBranch(session, branchId)) throw new FloatError('Forbidden', 403)

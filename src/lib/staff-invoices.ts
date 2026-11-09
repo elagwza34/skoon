@@ -35,10 +35,23 @@ export function isInvoiceSettled(total: number, paid: number) { return paid >= t
 /** Compatibility helper for non-itemized call sites. Invoice editing itself uses
  * the integer-cent calculator below so discount persistence never uses floats. */
 export function recalculateInvoiceTotals(subtotal: number, discountType: string | null, discountValue: number, taxRate: number) {
-  const discount = discountType === 'percentage' ? subtotal * discountValue / 100 : Math.min(subtotal, discountValue)
-  const tax = (subtotal - discount) * taxRate / 100
-  return { discount: Math.round((discount + Number.EPSILON) * 100) / 100, tax: Math.round((tax + Number.EPSILON) * 100) / 100, total: Math.round((subtotal - discount + tax + Number.EPSILON) * 100) / 100 }
-}
+  const subtotalCents = cents(subtotal)
+  let discountCents: bigint
+  if (discountType === 'percentage') {
+    const pct = percentage(discountValue)
+    discountCents = (subtotalCents * pct) / 100n
+  } else if (discountType === 'amount') {
+    discountCents = cents(discountValue)
+    if (discountCents > subtotalCents) discountCents = subtotalCents
+  } else {
+    discountCents = 0n
+  }
+  const taxableCents = subtotalCents - discountCents
+  const taxRateCents = BigInt(Math.round(taxRate * 100))
+  const taxCents = (taxableCents * taxRateCents) / 10000n
+  const totalCents = taxableCents + taxCents
+  return { discount: centsText(discountCents), tax: centsText(taxCents), total: centsText(totalCents) }
+  }
 function cents(value: unknown): bigint {
   const match = /^(\d+)(?:\.(\d{1,2}))?$/.exec(String(value).trim())
   if (!match) throw new InvoiceError('Invalid monetary value', 422)

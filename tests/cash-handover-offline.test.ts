@@ -54,17 +54,23 @@ function fixture() {
       findFirst: async () => ['PENDING', 'DISPUTED'].includes(state.h.status) ? { id: state.h.id } : null,
       findMany: async ({ where }: any) => { assert.equal(where.toCashierId, recipientId); return [] },
       updateMany: async ({ where, data }: any) => { if (!matches(state.h, where)) return { count: 0 }; Object.assign(state.h, data); return { count: 1 } },
+      create: async ({ data }: any) => { state.h = { ...state.h, ...data, id: state.h.id ?? 99n }; return state.h },
     },
     financialMovement: {
       create: async ({ data }: any) => { const row = { ...data, id: BigInt(state.movements.length + 1), amount: new Prisma.Decimal(data.amount) }; state.movements.push(row); return row },
       findMany: async ({ where }: any) => where.type === 'cashier_handover' ? state.movements.filter((m: any) => m.type === 'cashier_handover' && !m.consumedAt) : where.type === 'fixed_float_advance' ? state.advances : state.repayments,
       updateMany: async ({ where, data }: any) => { const rows = state.movements.filter((m: any) => where.id.in.includes(m.id) && !m.consumedAt); rows.forEach((m: any) => Object.assign(m, data)); return { count: rows.length } },
+      aggregate: async () => ({ _sum: { amount: null } }),
     },
+    payment: { findMany: async () => [] },
+    order: { findMany: async () => [] },
     auditLog: { create: async ({ data }: any) => { if (state.failAudit) throw new Error('audit unavailable'); state.audits.push(data); return data } },
     shift: {
       findFirst: async ({ where }: any) => where.cashierId === recipientId ? state.recipientOpen ? { id: 20n } : null : state.shift.status === 'open' ? state.shift : null,
       findUnique: async () => state.shift,
       create: async ({ data }: any) => { state.recipientOpen = true; return { ...state.shift, ...data, id: 20n } },
+      update: async ({ data }: any) => { Object.assign(state.shift, data); return state.shift },
+      updateMany: async ({ where, data }: any) => { if (matches(state.shift, where)) { Object.assign(state.shift, data); return { count: 1 } } return { count: 0 } },
     },
     cafeBranch: { findUnique: async () => ({ timezone: 'Africa/Cairo' }) },
   }
@@ -159,10 +165,13 @@ test('handover: audit failure rolls back both status and financial movement (tes
   assert.equal(s.h.status, 'PENDING'); assert.equal(s.movements.length, 1); assert.equal(s.audits.length, 1)
 })
 
-test('handover: cashier close cannot transfer outstanding personal float advances', async () => {
+test('handover: cashier close succeeds with outstanding personal float advances (advances remain)', async () => {
   const s = fixture(); s.shift.status = 'open'; s.advances = [{ id: 9n, amount: decimal(20) }]; s.repayments = [{ advanceId: 9n, amount: decimal(5) }]
-  await assert.rejects(closeShift(session(senderId), '10', { closingCash: 100, handoverRecipientId: recipientId }), /سلف العهدة/)
-  assert.equal(s.shift.status, 'open'); assert.equal(s.movements.length, 1); assert.equal(s.audits.length, 1)
+  const result = await closeShift(session(senderId), '10', { closingCash: 100, handoverRecipientId: recipientId })
+  assert.equal(result.status, 'closed')
+  // Advances remain on the original cashier (not transferred)
+  assert.equal(s.advances.length, 1)
+  assert.equal(s.repayments.length, 1)
 })
 
 test('handover: pending receipt blocks manual opening and active recipient till blocks posting', async () => {
