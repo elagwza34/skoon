@@ -63,6 +63,9 @@ export function ProductsBoard({
   const [saving, setSaving] = useState(false)
   const [archivingId, setArchivingId] = useState<string | null>(null)
   const [variantAttributes, setVariantAttributes] = useState<VariantAttribute[]>([])
+  const [newAttrName, setNewAttrName] = useState('')
+  const [newValueLabel, setNewValueLabel] = useState<Record<string, string>>({})
+  const [variantBusy, setVariantBusy] = useState(false)
 
   // Category management state (owner/manager)
   const [newCategory, setNewCategory] = useState('')
@@ -94,7 +97,51 @@ export function ProductsBoard({
     const response = await fetch(`/api/staff/product-configuration?branchId=${encodeURIComponent(branchId)}`, { cache: 'no-store' })
     if (!response.ok) { setVariantAttributes([]); return }
     const body = await response.json()
-    setVariantAttributes(body.attributes ?? [])
+    const attrs = (body.attributes ?? []) as VariantAttribute[]
+    setVariantAttributes(attrs)
+    return attrs
+  }
+
+  function syncDraftVariants(attrs: VariantAttribute[], current: ProductDraft): ProductDraft {
+    const validAttrIds = current.attributeIds.filter((id) => attrs.some((attr) => attr.id === id))
+    const variants = current.variants.map((variant) => ({
+      ...variant,
+      valueIds: validAttrIds.map((attrId, index) => {
+        const attr = attrs.find((item) => item.id === attrId)
+        const existing = variant.valueIds[index]
+        return attr?.values.some((value) => value.id === existing) ? existing : (attr?.values[0]?.id ?? '')
+      }),
+    })).filter((variant) => variant.valueIds.length === validAttrIds.length && variant.valueIds.every(Boolean))
+    return { ...current, attributeIds: validAttrIds, variants }
+  }
+
+  async function createAttributeInline() {
+    const branchId = draft.id ? catalog.products.find((item) => item.id === draft.id)?.branchId : createBranchId
+    if (!branchId || !newAttrName.trim() || variantBusy) return
+    setVariantBusy(true); setError(null)
+    try {
+      const res = await fetch('/api/staff/product-configuration', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'attribute', branchId, name: newAttrName.trim() }) })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error ?? 'تعذر إضافة الخاصية')
+      setNewAttrName('')
+      await loadVariantAttributes(branchId)
+      setSuccess('تمت إضافة الخاصية')
+    } catch (e) { setError(e instanceof Error ? e.message : 'تعذر إضافة الخاصية') } finally { setVariantBusy(false) }
+  }
+
+  async function createValueInline(attributeId: string) {
+    const branchId = draft.id ? catalog.products.find((item) => item.id === draft.id)?.branchId : createBranchId
+    const label = (newValueLabel[attributeId] ?? '').trim()
+    if (!branchId || !label || variantBusy) return
+    setVariantBusy(true); setError(null)
+    try {
+      const res = await fetch('/api/staff/product-configuration', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'value', attributeId, label }) })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error ?? 'تعذر إضافة القيمة')
+      setNewValueLabel((current) => ({ ...current, [attributeId]: '' }))
+      await loadVariantAttributes(branchId)
+      setSuccess('تمت إضافة القيمة')
+    } catch (e) { setError(e instanceof Error ? e.message : 'تعذر إضافة القيمة') } finally { setVariantBusy(false) }
   }
 
   async function toggle(id: string) {
@@ -123,7 +170,7 @@ export function ProductsBoard({
     setCreateBranchId(initialBranchId)
     setDraft({ ...EMPTY_DRAFT, categoryId: initialCategory?.id ?? '' })
     setShowForm(true)
-    void loadVariantAttributes(initialBranchId).catch(() => undefined)
+    void loadVariantAttributes(initialBranchId).then((attrs) => { if (attrs) setDraft((current) => syncDraftVariants(attrs, current)) }).catch(() => undefined)
   }
 
   function openEdit(p: StaffCatalog['products'][number]) {
@@ -141,7 +188,7 @@ export function ProductsBoard({
       attributeIds: [], variants: [],
     })
     setShowForm(true)
-    void loadVariantAttributes(p.branchId).catch(() => undefined)
+    void loadVariantAttributes(p.branchId).then((attrs) => { if (attrs) setDraft((current) => syncDraftVariants(attrs, current)) }).catch(() => undefined)
   }
 
   async function saveProduct() {
@@ -155,6 +202,10 @@ export function ProductsBoard({
     }
     if (hasVariantPrices && draft.variants.some((variant) => !Number.isFinite(Number(variant.price)) || Number(variant.price) <= 0)) {
       setError('سعر كل متغير مطلوب ويجب أن يكون موجباً')
+      return
+    }
+    if (hasVariantPrices && draft.variants.some((variant) => variant.valueIds.length !== draft.attributeIds.length || variant.valueIds.some((id) => !id))) {
+      setError('اختر قيمة لكل خاصية داخل كل متغير')
       return
     }
     if (!Number.isFinite(taxRate) || taxRate < 0 || taxRate > 100) {
@@ -338,7 +389,7 @@ export function ProductsBoard({
                     const firstCategory = catalog.categories.find((item) => item.branchId === branchId)
                     setCreateBranchId(branchId)
                     setDraft((current) => ({ ...current, categoryId: firstCategory?.id ?? '', inventoryItemId: '' }))
-                    void loadVariantAttributes(branchId)
+                    void loadVariantAttributes(branchId).then((attrs) => { if (attrs) setDraft((current) => syncDraftVariants(attrs, { ...current, attributeIds: [], variants: [] })) })
                   }}
                   aria-label="فرع المنتج"
                   className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
@@ -384,11 +435,87 @@ export function ProductsBoard({
                 placeholder="وصف مختصر" aria-label="وصف المنتج" maxLength={500}
               />
             </label>
-            <div className="space-y-3 rounded-lg border border-primary/25 p-3 sm:col-span-2">
-              <div><p className="font-medium">متغيرات المنتج (اختياري)</p><p className="text-xs text-muted-foreground">اختر الخصائص ثم أضف كل تكوين بسعره المستقل. المنتج البسيط يبقى كما هو عند ترك هذا القسم فارغًا.</p></div>
-              {variantAttributes.length === 0 ? <p className="text-sm text-muted-foreground">أضف خصائص وقيمًا أولًا من قسم «خصائص ومتغيرات المنتجات» أسفل الصفحة.</p> : <div className="flex flex-wrap gap-2">{variantAttributes.map((attribute) => <label key={attribute.id} className="flex items-center gap-2 rounded border px-2 py-1 text-sm"><input type="checkbox" checked={draft.attributeIds.includes(attribute.id)} onChange={(event) => setDraft((current) => ({ ...current, attributeIds: event.target.checked ? [...current.attributeIds, attribute.id] : current.attributeIds.filter((id) => id !== attribute.id), variants: [] }))} />{attribute.name}</label>)}</div>}
-              {draft.attributeIds.length ? <Button size="sm" variant="outline" disabled={draft.attributeIds.some((id) => !(variantAttributes.find((attribute) => attribute.id === id)?.values.length))} onClick={() => setDraft((current) => ({ ...current, variants: [...current.variants, { valueIds: current.attributeIds.map((id) => variantAttributes.find((attribute) => attribute.id === id)?.values[0]?.id ?? ''), price: current.price, inventoryItemId: '' }] }))}><Icon name="plus" size={14} /> إضافة تكوين</Button> : null}
-              {draft.variants.map((variant, index) => <div key={index} className="grid gap-2 rounded border p-2 sm:grid-cols-[1fr_9rem_auto]"> <div className="grid gap-2 sm:grid-cols-2">{draft.attributeIds.map((attributeId) => { const attribute = variantAttributes.find((item) => item.id === attributeId); const valueIndex = draft.attributeIds.indexOf(attributeId); return <select key={attributeId} value={variant.valueIds[valueIndex] ?? ''} onChange={(event) => setDraft((current) => ({ ...current, variants: current.variants.map((item, itemIndex) => itemIndex !== index ? item : { ...item, valueIds: item.valueIds.map((value, currentIndex) => currentIndex === valueIndex ? event.target.value : value) }) }))} className="h-10 rounded border bg-background px-2 text-sm"><option value="">{attribute?.name}</option>{attribute?.values.map((value) => <option key={value.id} value={value.id}>{attribute.name}: {value.label}</option>)}</select> })}</div><Input type="number" min="0.01" step="0.01" value={variant.price} onChange={(event) => setDraft((current) => ({ ...current, variants: current.variants.map((item, itemIndex) => itemIndex === index ? { ...item, price: event.target.value } : item) }))} aria-label="سعر المتغير" /><Button size="sm" variant="ghost" onClick={() => setDraft((current) => ({ ...current, variants: current.variants.filter((_, itemIndex) => itemIndex !== index) }))}>حذف</Button></div>)}
+            <div className="space-y-4 rounded-xl border border-primary/25 bg-primary/[0.02] p-4 sm:col-span-2">
+              <div className="space-y-1">
+                <p className="font-semibold">المتغيرات (داخل المنتج)</p>
+                <p className="text-xs text-muted-foreground">كل إعدادات المتغيرات تتم هنا أثناء إضافة/تعديل المنتج: أنشئ الخاصية وقيمها، اختر الخصائص المستخدمة، ثم أضف سعر كل متغير. اترك القسم فارغًا إذا كان المنتج بسيطًا بدون متغيرات.</p>
+              </div>
+              <div className="rounded-lg border bg-background p-3 space-y-2">
+                <p className="text-sm font-medium">إضافة خاصية جديدة للفرع</p>
+                <div className="flex flex-wrap gap-2">
+                  <Input value={newAttrName} onChange={(e) => setNewAttrName(e.target.value)} placeholder="مثال: الحجم / اللون / النوع" className="max-w-xs" disabled={variantBusy || (!draft.id && !createBranchId)} />
+                  <Button type="button" size="sm" variant="outline" disabled={variantBusy || !newAttrName.trim() || (!draft.id && !createBranchId)} onClick={() => void createAttributeInline()}>إضافة خاصية</Button>
+                </div>
+              </div>
+              {variantAttributes.length === 0 ? (
+                <p className="text-sm text-muted-foreground">لا توجد خصائص لهذا الفرع بعد. أضف خاصية وقيمها من الأعلى، ثم ستظهر هنا.</p>
+              ) : (
+                <div className="space-y-3">
+                  <p className="text-sm font-medium">اختر الخصائص المستخدمة لهذا المنتج</p>
+                  <div className="flex flex-wrap gap-2">
+                    {variantAttributes.map((attribute) => (
+                      <label key={attribute.id} className="flex items-center gap-2 rounded border bg-background px-3 py-2 text-sm">
+                        <input type="checkbox" checked={draft.attributeIds.includes(attribute.id)} onChange={(event) => setDraft((current) => {
+                          const attributeIds = event.target.checked ? [...current.attributeIds, attribute.id] : current.attributeIds.filter((id) => id !== attribute.id)
+                          return syncDraftVariants(variantAttributes, { ...current, attributeIds, variants: [] })
+                        })} />
+                        <span>{attribute.name}</span>
+                        <span className="text-xs text-muted-foreground">({attribute.values.length} قيمة)</span>
+                      </label>
+                    ))}
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {draft.attributeIds.map((attributeId) => {
+                      const attribute = variantAttributes.find((item) => item.id === attributeId)
+                      if (!attribute) return null
+                      return (
+                        <div key={attributeId} className="rounded-lg border bg-background p-3 space-y-2">
+                          <p className="text-sm font-medium">قيم «{attribute.name}»</p>
+                          <p className="text-xs text-muted-foreground">{attribute.values.length ? attribute.values.map((value) => value.label).join('، ') : 'لا توجد قيم بعد.'}</p>
+                          <div className="flex gap-2">
+                            <Input value={newValueLabel[attributeId] ?? ''} onChange={(e) => setNewValueLabel((current) => ({ ...current, [attributeId]: e.target.value }))} placeholder={`قيمة جديدة لـ ${attribute.name}`} className="h-9" disabled={variantBusy} />
+                            <Button type="button" size="sm" variant="outline" disabled={variantBusy || !(newValueLabel[attributeId] ?? '').trim()} onClick={() => void createValueInline(attributeId)}>إضافة</Button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+              {draft.attributeIds.length > 0 ? (
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button type="button" size="sm" variant="outline" disabled={draft.attributeIds.some((id) => !(variantAttributes.find((attribute) => attribute.id === id)?.values.length))} onClick={() => setDraft((current) => ({ ...current, variants: [...current.variants, { valueIds: current.attributeIds.map((id) => variantAttributes.find((attribute) => attribute.id === id)?.values[0]?.id ?? ''), price: current.price, inventoryItemId: '' }] }))}><Icon name="plus" size={14} /> إضافة متغير</Button>
+                    <p className="text-xs text-muted-foreground">كل صف يمثل متغيرًا (توليفة قيم) بسعر مستقل. السعر الأساسي يُستخدم كمرجع فقط عند وجود متغيرات.</p>
+                  </div>
+                  {draft.variants.map((variant, index) => (
+                    <div key={index} className="grid gap-2 rounded-lg border bg-background p-3 md:grid-cols-[1fr_10rem_auto]">
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {draft.attributeIds.map((attributeId, valueIndex) => {
+                          const attribute = variantAttributes.find((item) => item.id === attributeId)
+                          return (
+                            <label key={attributeId} className="flex flex-col gap-1 text-sm">
+                              <span className="text-muted-foreground">{attribute?.name}</span>
+                              <select value={variant.valueIds[valueIndex] ?? ''} onChange={(event) => setDraft((current) => ({ ...current, variants: current.variants.map((item, itemIndex) => itemIndex !== index ? item : { ...item, valueIds: item.valueIds.map((value, currentIndex) => currentIndex === valueIndex ? event.target.value : value) }) }))} className="h-10 rounded border bg-background px-2 text-sm">
+                                <option value="">اختر {attribute?.name}</option>
+                                {attribute?.values.map((value) => <option key={value.id} value={value.id}>{value.label}</option>)}
+                              </select>
+                            </label>
+                          )
+                        })}
+                      </div>
+                      <label className="flex flex-col gap-1 text-sm">
+                        <span className="text-muted-foreground">سعر المتغير</span>
+                        <Input type="number" min="0.01" step="0.01" value={variant.price} onChange={(event) => setDraft((current) => ({ ...current, variants: current.variants.map((item, itemIndex) => itemIndex === index ? { ...item, price: event.target.value } : item) }))} aria-label="سعر المتغير" />
+                      </label>
+                      <div className="flex items-end">
+                        <Button type="button" size="sm" variant="ghost" className="text-destructive" onClick={() => setDraft((current) => ({ ...current, variants: current.variants.filter((_, itemIndex) => itemIndex !== index) }))}>حذف</Button>
+                      </div>
+                    </div>
+                  ))}
+                  {draft.variants.length === 0 ? <p className="text-sm text-muted-foreground">لم تضف متغيرات بعد. المنتج سيُحفظ كمنتج بسيط ما لم تضف متغيرًا واحدًا على الأقل بسعر.</p> : null}
+                </div>
+              ) : null}
             </div>
             <div className="flex items-center gap-2 sm:col-span-2">
               <Button size="sm" disabled={saving} onClick={saveProduct}>

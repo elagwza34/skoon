@@ -1,17 +1,19 @@
 'use client'
 
-import { useState, type ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import { Segmented } from '@/components/ui/segmented'
+import { useState } from 'react'
 
-/** Owner-only presentation grouping; product data and writers remain unchanged. */
-export function OwnerProductsTabs({ products, configuration, modifiers }: { products: ReactNode; configuration: ReactNode; modifiers: ReactNode }) {
-  const [tab, setTab] = useState<'products' | 'configuration' | 'modifiers'>('products')
+/** Owner products: variants/attributes are managed inside product add/edit. */
+export function OwnerProductsTabs({ products, configuration, modifiers }: { products: ReactNode; configuration?: ReactNode; modifiers: ReactNode }) {
+  const [tab, setTab] = useState<'products' | 'modifiers'>('products')
   return <section dir="rtl" className="space-y-4">
-    <Segmented value={tab} onChange={setTab} ariaLabel="أقسام المنتجات والقائمة" options={[
-      { value: 'products', label: 'المنتجات' },
-      { value: 'configuration', label: 'خصائص المنتجات والمتغيرات' },
+    <Segmented value={tab} onChange={setTab} ariaLabel="أقسام المنتجات" options={[
+      { value: 'products', label: 'المنتجات والمتغيرات' },
       { value: 'modifiers', label: 'مجموعات الإضافات' },
     ]} />
-    {tab === 'products' ? products : tab === 'configuration' ? configuration : modifiers}
+    {tab === 'products' ? products : modifiers}
+    {/* configuration retained for compatibility but variants workflow moved into product form */}
+    {configuration ? <div className="hidden">{configuration}</div> : null}
   </section>
 }
