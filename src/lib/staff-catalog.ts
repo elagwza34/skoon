@@ -34,19 +34,24 @@ export interface CatalogProduct {
   isVariable: boolean
   variantCount: number
   variantIds: string[]
+  modifierGroupIds: string[]
 }
+
+export interface ModifierGroupOption { id: string; label: string; priceAdjustment: string; isActive: boolean }
+export interface ModifierGroup { id: string; branchId: string; name: string; type: 'single' | 'multi'; isRequired: boolean; minSelections: number; maxSelections: number; isActive: boolean; options: ModifierGroupOption[] }
 
 export interface StaffCatalog {
   categories: CatalogCategory[]
   products: CatalogProduct[]
   inventoryItems: { id: string; branchId: string; name: string }[]
+  modifierGroups: ModifierGroup[]
 }
 
 export async function getStaffCatalog(session: StaffSession): Promise<StaffCatalog> {
   const branchScope =
     session.role === ROLE.OWNER ? {} : { branchId: BigInt(session.branchId as string) }
 
-  const [categories, products, inventoryItems] = await Promise.all([
+  const [categories, products, inventoryItems, modifierGroups] = await Promise.all([
     prisma.category.findMany({
       where: { ...branchScope, deletedAt: null },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
@@ -62,6 +67,7 @@ export async function getStaffCatalog(session: StaffSession): Promise<StaffCatal
         id: true, branchId: true, name: true, description: true, price: true, imagePath: true,
         categoryId: true, isActive: true, isAvailable: true, taxRate: true, inventoryItemId: true, sortOrder: true,
         category: { select: { name: true } },
+        optionAssignments: { select: { productOptionId: true } },
       },
     }),
     prisma.inventoryItem.findMany({
@@ -69,6 +75,14 @@ export async function getStaffCatalog(session: StaffSession): Promise<StaffCatal
       orderBy: { name: 'asc' },
       take: 500,
       select: { id: true, branchId: true, name: true },
+    }),
+    prisma.productOption.findMany({
+      where: { ...branchScope },
+      orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+      select: {
+        id: true, branchId: true, name: true, type: true, isRequired: true, minSelections: true, maxSelections: true, isActive: true,
+        values: { where: { deletedAt: null }, orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }], select: { id: true, value: true, priceAdjustment: true, isActive: true } },
+      },
     }),
   ])
 
@@ -119,9 +133,15 @@ export async function getStaffCatalog(session: StaffSession): Promise<StaffCatal
         isVariable: agg.count > 0,
         variantCount: agg.count,
         variantIds: agg.ids,
+        modifierGroupIds: (p as { optionAssignments?: { productOptionId: bigint }[] }).optionAssignments?.map((a) => a.productOptionId.toString()) ?? [],
       }
     }),
     inventoryItems: inventoryItems.map((item) => ({ id: item.id.toString(), branchId: item.branchId.toString(), name: item.name })),
+    modifierGroups: modifierGroups.map((group) => ({
+      id: group.id.toString(), branchId: group.branchId.toString(), name: group.name,
+      type: group.type as 'single' | 'multi', isRequired: group.isRequired, minSelections: group.minSelections, maxSelections: group.maxSelections, isActive: group.isActive,
+      options: group.values.map((value) => ({ id: value.id.toString(), label: value.value, priceAdjustment: value.priceAdjustment.toFixed(2), isActive: value.isActive })),
+    })),
   }
 }
 

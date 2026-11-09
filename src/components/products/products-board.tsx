@@ -28,9 +28,12 @@ interface ProductDraft {
   inventoryItemId: string
   attributeIds: string[]
   variants: { valueIds: string[]; price: string; inventoryItemId: string }[]
+  modifierGroupIds: string[]
+  __newModGroupName?: string
+  __newModOpt?: Record<string, { label: string; price: string }>
 }
 
-const EMPTY_DRAFT: ProductDraft = { name: '', description: '', price: '', categoryId: '', isAvailable: true, taxRate: '0', inventoryItemId: '', attributeIds: [], variants: [] }
+const EMPTY_DRAFT: ProductDraft = { name: '', description: '', price: '', categoryId: '', isAvailable: true, taxRate: '0', inventoryItemId: '', attributeIds: [], variants: [], modifierGroupIds: [] }
 type VariantAttribute = { id: string; name: string; values: { id: string; label: string }[] }
 
 export function ProductsBoard({
@@ -168,7 +171,7 @@ export function ProductsBoard({
       ? catalog.categories.find((item) => item.branchId === initialBranchId)
       : catalog.categories[0]
     setCreateBranchId(initialBranchId)
-    setDraft({ ...EMPTY_DRAFT, categoryId: initialCategory?.id ?? '' })
+    setDraft({ ...EMPTY_DRAFT, categoryId: initialCategory?.id ?? '', modifierGroupIds: [] })
     setShowForm(true)
     void loadVariantAttributes(initialBranchId).then((attrs) => { if (attrs) setDraft((current) => syncDraftVariants(attrs, current)) }).catch(() => undefined)
   }
@@ -185,7 +188,7 @@ export function ProductsBoard({
       isAvailable: p.isAvailable,
       taxRate: p.taxRate,
       inventoryItemId: p.inventoryItemId ?? '',
-      attributeIds: [], variants: [],
+      attributeIds: [], variants: [], modifierGroupIds: p.modifierGroupIds ?? [],
     })
     setShowForm(true)
     void loadVariantAttributes(p.branchId).then((attrs) => { if (attrs) setDraft((current) => syncDraftVariants(attrs, current)) }).catch(() => undefined)
@@ -237,6 +240,7 @@ export function ProductsBoard({
         isAvailable: draft.isAvailable,
         taxRate,
         inventoryItemId: draft.inventoryItemId || null,
+        ...(draft.modifierGroupIds?.length ? { modifierGroupIds: draft.modifierGroupIds } : { modifierGroupIds: [] }),
         ...(draft.attributeIds.length ? {
           attributes: draft.attributeIds.map((attributeId) => ({ attributeId, isRequired: true, minSelections: 1, maxSelections: 1 })),
           variants: draft.variants.map((variant) => ({ valueIds: variant.valueIds.map((valueId) => ({ valueId })), price: Number(variant.price), inventoryItemId: variant.inventoryItemId || null })),
@@ -435,6 +439,68 @@ export function ProductsBoard({
                 placeholder="وصف مختصر" aria-label="وصف المنتج" maxLength={500}
               />
             </label>
+            {/* MODIFIERS_SECTION */}
+            <div className="space-y-3 rounded-xl border border-amber-300/30 bg-amber-500/[0.03] p-4 sm:col-span-2">
+              <div className="space-y-1">
+                <p className="font-semibold">الإضافات (داخل المنتج)</p>
+                <p className="text-xs text-muted-foreground">اختر مجموعات الإضافات التي تظهر لهذا المنتج أثناء الطلب (مثل: درجة السكر، نوع الحليب، إضافات). يمكنك إنشاء مجموعة وخياراتها من هنا ثم تفعيلها للمنتج.</p>
+              </div>
+              {(() => {
+                const branch = draft.id ? (catalog.products.find((item) => item.id === draft.id)?.branchId ?? '') : createBranchId
+                const groups = (catalog.modifierGroups ?? []).filter((g) => !branch || g.branchId === branch)
+                return (
+                  <>
+                    <div className="rounded-lg border bg-background p-3 space-y-2">
+                      <p className="text-sm font-medium">إنشاء مجموعة إضافات جديدة</p>
+                      <div className="flex flex-wrap gap-2">
+                        <Input value={draft.__newModGroupName ?? ''} onChange={(e) => setDraft((c)=>({...c,__newModGroupName:e.target.value}))} placeholder="مثال: درجة السكر" className="max-w-xs" disabled={variantBusy || !branch} />
+                        <Button type="button" size="sm" variant="outline" disabled={variantBusy || !branch || !(draft.__newModGroupName ?? '').trim()} onClick={async () => {
+                          const gname=(draft.__newModGroupName??'').trim(); if(!gname||!branch) return;
+                          setVariantBusy(true); setError(null);
+                          try{
+                            const res=await fetch('/api/staff/product-modifiers',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'group.create',branchId:branch,name:gname,type:'single',isRequired:false,minSelections:0,maxSelections:1})});
+                            const data=await res.json().catch(()=>({})); if(!res.ok) throw new Error(data?.error??'تعذر إنشاء المجموعة');
+                            setDraft((c)=>({...c,__newModGroupName:''})); setSuccess('تم إنشاء مجموعة الإضافات'); refresh();
+                          }catch(e){setError(e instanceof Error?e.message:'تعذر إنشاء المجموعة')}finally{setVariantBusy(false)}
+                        }}>إضافة مجموعة</Button>
+                      </div>
+                    </div>
+                    {groups.length === 0 ? <p className="text-sm text-muted-foreground">لا توجد مجموعات إضافات لهذا الفرع بعد. أنشئ مجموعة من الأعلى.</p> : (
+                      <div className="space-y-3">
+                        {groups.map((group) => {
+                          const checked = (draft.modifierGroupIds ?? []).includes(group.id)
+                          return (
+                            <div key={group.id} className={`rounded-lg border bg-background p-3 space-y-2 ${checked ? 'border-primary/50' : ''}`}>
+                              <label className="flex items-center gap-2 font-medium text-sm cursor-pointer">
+                                <input type="checkbox" checked={checked} onChange={() => setDraft((current) => ({ ...current, modifierGroupIds: checked ? (current.modifierGroupIds ?? []).filter((id) => id !== group.id) : [...(current.modifierGroupIds ?? []), group.id] }))} />
+                                <span>{group.name}</span>
+                                <span className="text-xs text-muted-foreground font-normal">({group.type === 'single' ? 'اختيار واحد' : 'متعدد'}{group.isRequired ? ' · إلزامية' : ''})</span>
+                              </label>
+                              <div className="flex flex-wrap gap-2">
+                                {group.options.length ? group.options.map((opt) => <span key={opt.id} className="rounded border px-2 py-1 text-xs">{opt.label}{Number(opt.priceAdjustment) ? ` (${opt.priceAdjustment})` : ''}</span>) : <span className="text-xs text-muted-foreground">لا توجد خيارات بعد.</span>}
+                              </div>
+                              <div className="flex flex-wrap gap-2 items-center">
+                                <Input value={(draft.__newModOpt?.[group.id]?.label) ?? ''} onChange={(e)=>setDraft((c)=>({...c,__newModOpt:{...(c.__newModOpt??{}),[group.id]:{...((c.__newModOpt??{})[group.id]??{label:'',price:'0'}),label:e.target.value}}}))} placeholder="خيار جديد لهذه المجموعة" className="h-8 max-w-xs" />
+                                <Input type="number" step="0.01" value={(draft.__newModOpt?.[group.id]?.price) ?? '0'} onChange={(e)=>setDraft((c)=>({...c,__newModOpt:{...(c.__newModOpt??{}),[group.id]:{...((c.__newModOpt??{})[group.id]??{label:'',price:'0'}),price:e.target.value}}}))} className="h-8 w-28" aria-label="تعديل السعر" />
+                                <Button type="button" size="sm" variant="outline" disabled={variantBusy || !((draft.__newModOpt?.[group.id]?.label) ?? '').trim()} onClick={async ()=>{
+                                  const od=(draft.__newModOpt?.[group.id])??{label:'',price:'0'}; const label=(od.label||'').trim(); if(!label) return;
+                                  setVariantBusy(true); setError(null);
+                                  try{
+                                    const res=await fetch('/api/staff/product-modifiers',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'option.create',groupId:group.id,label,priceAdjustment:Number(od.price||0),sortOrder:group.options.length})});
+                                    const data=await res.json().catch(()=>({})); if(!res.ok) throw new Error(data?.error??'تعذر إضافة الخيار');
+                                    setDraft((c)=>({...c,__newModOpt:{...(c.__newModOpt??{}),[group.id]:{label:'',price:'0'}}})); setSuccess('تمت إضافة الخيار'); refresh();
+                                  }catch(e){setError(e instanceof Error?e.message:'تعذر إضافة الخيار')}finally{setVariantBusy(false)}
+                                }}>إضافة خيار</Button>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </>
+                )
+              })()}
+            </div>
             <div className="space-y-4 rounded-xl border border-primary/25 bg-primary/[0.02] p-4 sm:col-span-2">
               <div className="space-y-1">
                 <p className="font-semibold">المتغيرات (داخل المنتج)</p>

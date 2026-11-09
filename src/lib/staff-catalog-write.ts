@@ -38,6 +38,7 @@ const productSchema = z.object({
   isVariable: z.boolean().optional(),
   attributes: z.array(attributeAssignmentSchema).optional(),
   variants: z.array(variantSchema).optional(),
+  modifierGroupIds: z.array(z.string().regex(/^\d+$/)).max(30).optional(),
 })
 
 /** Resolve the branch a product write targets (owner passes branchId; staff = own). */
@@ -221,6 +222,19 @@ export async function createVariantsForProduct(
   })
   return created.map((v) => v.id.toString())
 }
+
+async function setProductModifierAssignments(branchId: bigint, productId: bigint, groupIds: string[] | undefined) {
+  if (groupIds === undefined) return
+  const unique = [...new Set(groupIds)]
+  if (unique.length) {
+    const count = await prisma.productOption.count({ where: { id: { in: unique.map(BigInt) }, branchId } })
+    if (count !== unique.length) throw new CatalogError('إحدى مجموعات الإضافات لا تتبع فرع المنتج.', 422)
+  }
+  await prisma.$transaction(async (tx) => {
+    await tx.productOptionAssignment.deleteMany({ where: { productId } })
+    if (unique.length) await tx.productOptionAssignment.createMany({ data: unique.map((id, index) => ({ productId, productOptionId: BigInt(id), sortOrder: index })) })
+  })
+}
 export async function createStaffProduct(session: StaffSession, branchIdRaw: string | undefined, input: unknown) {
   requireProductManager(session)
   const parsed = productSchema.safeParse(input)
@@ -309,6 +323,7 @@ export async function createStaffProduct(session: StaffSession, branchIdRaw: str
       })),
     })
 
+    await setProductModifierAssignments(branchId, product.id, parsed.data.modifierGroupIds)
     return { id: product.id.toString(), variantCount: variantIds.length }
   }
 
@@ -316,6 +331,7 @@ export async function createStaffProduct(session: StaffSession, branchIdRaw: str
     data: baseData as any,
     select: { id: true },
   })
+  await setProductModifierAssignments(branchId, product.id, parsed.data.modifierGroupIds)
   return { id: product.id.toString() }
 }
 
@@ -349,6 +365,8 @@ export async function updateStaffProduct(session: StaffSession, id: string, inpu
   }
 
   await prisma.product.update({ where: { id: row.id }, data })
+
+  await setProductModifierAssignments(row.branchId, row.id, parsed.data.modifierGroupIds)
 
   // Replace attributes if provided
   if (parsed.data.attributes !== undefined) {
