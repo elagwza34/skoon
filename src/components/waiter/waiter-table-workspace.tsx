@@ -58,7 +58,8 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
   const order = workspace.openOrders.find((candidate) => candidate.tableId === table.id && isActiveTableOrder(candidate)) ?? null
   const canManage = order ? canManageTableOrder(role, workspace.currentUserId, order.responsibleWaiterId) : table.openOrders === 0
   const canAppend = order ? mayAppendToOrder(order.status, order.paymentStatus) : true
-  const isReadOnly = role === 'cashier'
+  // Cashier gets full table control (add/edit/delete) like waiter in workspace; payment settlement remains on cashier flows.
+  const isReadOnly = false
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -297,7 +298,7 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
               <p className="text-sm text-muted-foreground">طلب {order.number} · {statusLabel(order.status)} · أنشأه {order.creatorName ?? 'غير محدد'} · {new Date(order.createdAt).toLocaleString('ar-EG')}</p>
               <div className="flex flex-wrap gap-2 mt-3">
                 {!order.sentToKitchen && canManage && !isReadOnly && <Button size="sm" disabled={busy} onClick={sendToKitchen}>إرسال للمطبخ</Button>}
-                {role === 'cashier' && !isReadOnly && <Button variant="outline" size="sm" onClick={() => setTab('order')}>الانتقال للدفع</Button>}
+                {role === 'cashier' && <Button variant="outline" size="sm" onClick={() => setTab('order')}>الانتقال للدفع</Button>}
                 <Button variant="outline" size="sm" disabled={isReadOnly} onClick={() => setTab('order')}>سجل الطلب</Button>
                 <Button variant="outline" size="sm" disabled={isReadOnly} onClick={() => setTab('order')}>تقدم المطبخ</Button>
                 <Button variant="outline" size="sm" disabled={isReadOnly} onClick={() => setInvoiceModalOpen(true)}>عرض الفاتورة</Button>
@@ -405,10 +406,7 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
 
         {tab === 'pos' && <section className="space-y-4">
           <h2 className="font-bold">نقطة البيع — طاولة {table.number}</h2>
-          {isReadOnly && <div className="rounded border border-muted p-3 bg-muted/50">
-            <p className="text-sm text-muted-foreground">عرض فقط — الكاشير لا يمكنه إضافة أو تعديل الأصناف من مساحة الطاولة.</p>
-          </div>}
-          {!isReadOnly && (
+          {(
             <>
               <div className="flex flex-wrap gap-2 items-start mb-4">
                 <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ابحث عن صنف…" aria-label="بحث المنتجات" className="min-w-[220px]" />
@@ -428,74 +426,73 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
         </div>
       </div>
 
-      {/* موديل تفاصيل الفاتورة */}
       {invoiceModalOpen && order && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setInvoiceModalOpen(false)} />
-          <div className="relative z-10 w-full max-w-md max-h-[90vh] bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-border">
-            <div className="flex items-center justify-between p-4 border-b bg-cafe-espresso text-cafe-cream">
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setInvoiceModalOpen(false)} />
+          <div className="relative z-10 w-full max-w-md max-h-[90vh] bg-[#17120F] text-[#F6EFE5] rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-[#35251D]">
+            <div className="flex items-center justify-between p-4 border-b border-[#35251D] bg-[#35251D] text-[#F6EFE5]">
               <h2 className="text-lg font-bold">تفاصيل الفاتورة #{order.number}</h2>
-              <Button size="icon" variant="ghost" onClick={() => setInvoiceModalOpen(false)}>
-                <Icon name="close" size={18} className="text-cafe-cream" />
+              <Button size="icon" variant="ghost" className="text-[#F6EFE5] hover:bg-[#17120F]/40" onClick={() => setInvoiceModalOpen(false)}>
+                <Icon name="close" size={18} className="text-[#F6EFE5]" />
               </Button>
             </div>
             <div className="p-6 overflow-y-auto">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
                 <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground">رقم الطاولة</p>
-                  <p className="font-semibold">طاولة {table.number} {table.name}</p>
+                  <p className="text-xs text-[#C99B68]">رقم الطاولة</p>
+                  <p className="font-semibold text-[#F6EFE5]">طاولة {table.number} {table.name}</p>
                 </div>
                 <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground">حالة الطلب</p>
-                  <span className={`px-2 py-1 rounded text-xs font-medium ${order.sentToKitchen ? 'bg-blue/10 text-blue' : 'bg-primary/10 text-primary'}`}>
+                  <p className="text-xs text-[#C99B68]">حالة الطلب</p>
+                  <span className="px-2 py-1 rounded text-xs font-medium bg-[#35251D] text-[#F6EFE5] border border-[#C99B68]/30">
                     {statusLabel(order.status)}
                   </span>
                 </div>
                 <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground">النادل المسؤول</p>
-                  <p className="font-semibold">{order.creatorName ?? 'غير محدد'}</p>
+                  <p className="text-xs text-[#C99B68]">النادل المسؤول</p>
+                  <p className="font-semibold text-[#F6EFE5]">{order.creatorName ?? 'غير محدد'}</p>
                 </div>
                 <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground">تاريخ الإنشاء</p>
-                  <p className="font-semibold">{new Date(order.createdAt).toLocaleString('ar-EG')}</p>
+                  <p className="text-xs text-[#C99B68]">تاريخ الإنشاء</p>
+                  <p className="font-semibold text-[#F6EFE5]">{new Date(order.createdAt).toLocaleString('ar-EG')}</p>
                 </div>
               </div>
 
               <div className="space-y-1">
-                <h3 className="text-sm font-bold mb-2">الأصناف ({order.items.reduce((sum, i) => sum + i.qty, 0)} صنف)</h3>
+                <h3 className="text-sm font-bold mb-2 text-[#F6EFE5]">الأصناف ({order.items.reduce((sum, i) => sum + i.qty, 0)} صنف)</h3>
                 <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
                   {order.items.map((item) => (
-                    <div key={item.id} className="flex items-center justify-between gap-3 p-2 rounded border">
+                    <div key={item.id} className="flex items-center justify-between gap-3 p-2 rounded border border-[#35251D] bg-[#35251D]/40">
                       <div className="min-w-0 flex-1">
-                        <p className="font-semibold text-sm">{item.name}</p>
-                        {item.variantLabel && <p className="text-xs text-muted-foreground">{item.variantLabel}</p>}
-                        {item.note && <p className="text-xs text-muted-foreground">ملاحظة: {item.note}</p>}
+                        <p className="font-semibold text-sm text-[#F6EFE5]">{item.name}</p>
+                        {item.variantLabel && <p className="text-xs text-[#F6EFE5]/70">{item.variantLabel}</p>}
+                        {item.note && <p className="text-xs text-[#F6EFE5]/70">ملاحظة: {item.note}</p>}
                       </div>
                       <div className="text-right">
-                        <p className="font-semibold text-sm">{item.qty} × {formatCurrency(item.unitPrice)}</p>
-                        <p className="text-xs">{formatCurrency(item.lineTotal ?? item.unitPrice * item.qty)}</p>
-                        <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${item.servedQty >= item.qty ? 'bg-green/10 text-green' : item.preparedQty >= item.qty ? 'bg-blue/10 text-blue' : item.preparationStartedAt ? 'bg-amber/10 text-amber' : 'bg-primary/10 text-primary'}`}>
+                        <p className="font-semibold text-sm text-[#F6EFE5]">{item.qty} × {formatCurrency(item.unitPrice)}</p>
+                        <p className="text-xs text-[#C99B68]">{formatCurrency(item.lineTotal ?? item.unitPrice * item.qty)}</p>
+                        <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-[#17120F] text-[#F6EFE5] border border-[#C99B68]/30">
                           {itemStatus(item)}
                         </span>
-                        <p className="text-xs text-muted-foreground mt-1">جاهز {item.preparedQty}/{item.qty} · مقدم {item.servedQty}/{item.qty}</p>
+                        <p className="text-xs text-[#F6EFE5]/60 mt-1">جاهز {item.preparedQty}/{item.qty} · مقدم {item.servedQty}/{item.qty}</p>
                       </div>
                     </div>
                   ))}
                 </div>
               </div>
 
-              <div className="mt-4 pt-3 border-t space-y-1">
+              <div className="mt-4 pt-3 border-t border-[#35251D] space-y-1">
                 <div className="flex items-center justify-between">
-                  <p className="font-bold text-lg">الإجمالي</p>
-                  <p className="font-bold text-lg text-cafe-espresso">{formatCurrency(order.total)}</p>
+                  <p className="font-bold text-lg text-[#F6EFE5]">الإجمالي</p>
+                  <p className="font-bold text-lg text-[#C99B68]">{formatCurrency(order.total)}</p>
                 </div>
                 <div className="flex items-center justify-between">
-                  <p className="text-sm text-muted-foreground">المدفوع</p>
-                  <p className="font-semibold">{formatCurrency(order.paidAmount ?? 0)}</p>
+                  <p className="text-sm text-[#F6EFE5]/70">المدفوع</p>
+                  <p className="font-semibold text-[#F6EFE5]">{formatCurrency(order.paidAmount ?? 0)}</p>
                 </div>
                 <div className="flex items-center justify-between">
-                  <p className="text-sm text-muted-foreground">المتبقي</p>
-                  <p className="font-semibold text-cafe-espresso">{formatCurrency(order.remainingAmount ?? order.total)}</p>
+                  <p className="text-sm text-[#F6EFE5]/70">المتبقي</p>
+                  <p className="font-semibold text-[#C99B68]">{formatCurrency(order.remainingAmount ?? order.total)}</p>
                 </div>
               </div>
             </div>
@@ -506,55 +503,55 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
       {/* موديل تفاصيل منتج نقطة البيع */}
       {posModalOpen && product && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => { setPosModalOpen(false); setProduct(null); setSelections({}); setQty(1); setNote('') }} />
-          <div className="relative z-10 w-full max-w-lg max-h-[90vh] bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-border">
-            <div className="flex items-center justify-between p-4 border-b bg-cafe-espresso text-cafe-cream">
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => { setPosModalOpen(false); setProduct(null); setSelections({}); setQty(1); setNote('') }} />
+          <div className="relative z-10 w-full max-w-lg max-h-[90vh] bg-[#17120F] text-[#F6EFE5] rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-[#35251D]">
+            <div className="flex items-center justify-between p-4 border-b border-[#35251D] bg-[#35251D] text-[#F6EFE5]">
               <h2 className="text-lg font-bold">تفاصيل الصنف — {product.name}</h2>
-              <Button size="icon" variant="ghost" onClick={() => { setPosModalOpen(false); setProduct(null); setSelections({}); setQty(1); setNote('') }}>
-                <Icon name="close" size={18} className="text-cafe-cream" />
+              <Button size="icon" variant="ghost" className="text-[#F6EFE5] hover:bg-[#17120F]/40" onClick={() => { setPosModalOpen(false); setProduct(null); setSelections({}); setQty(1); setNote('') }}>
+                <Icon name="close" size={18} className="text-[#F6EFE5]" />
               </Button>
             </div>
             <div className="p-6 overflow-y-auto space-y-4">
-              <p className="text-sm text-muted-foreground">السعر المعروض تقديري، والخادم يعيد احتسابه عند الحفظ.</p>
+              <p className="text-sm text-[#F6EFE5]/70">السعر المعروض تقديري، والخادم يعيد احتسابه عند الحفظ.</p>
               {product.variants.length > 0 && (
-                <fieldset className="rounded-lg border border-amber-300 bg-amber-50/40 p-3">
-                  <legend className="px-1 text-sm font-semibold text-amber-900">المتغير (مطلوب) *</legend>
-                  <select value={variantId} onChange={(e) => setVariantId(e.target.value)} className="mt-1 h-10 w-full rounded border border-amber-300 bg-white px-3 text-foreground">
-                    <option value="">اختر المتغير / اللون</option>
-                    {product.variants.map((item) => <option key={item.id} value={item.id}>{item.label} — {formatCurrency(Number(item.price))}</option>)}
+                <fieldset className="rounded-lg border border-[#C99B68]/40 bg-[#35251D]/50 p-3">
+                  <legend className="px-1 text-sm font-semibold text-[#C99B68]">المتغير (مطلوب) *</legend>
+                  <select value={variantId} onChange={(e) => setVariantId(e.target.value)} className="mt-1 h-10 w-full rounded border border-[#35251D] bg-[#17120F] px-3 text-[#F6EFE5] focus:border-[#C99B68] focus:outline-none">
+                    <option value="" className="bg-[#17120F] text-[#F6EFE5]">اختر المتغير / اللون</option>
+                    {product.variants.map((item) => <option key={item.id} value={item.id} className="bg-[#17120F] text-[#F6EFE5]">{item.label} — {formatCurrency(Number(item.price))}</option>)}
                   </select>
                 </fieldset>
               )}
               {product.modifierGroups.map((group) => (
-                <fieldset key={group.id} className="rounded-lg border p-3">
-                  <legend className="px-1 text-sm font-semibold">{group.name} {group.isRequired ? '*' : ''} ({group.minSelections}–{group.maxSelections})</legend>
+                <fieldset key={group.id} className="rounded-lg border border-[#35251D] bg-[#35251D]/20 p-3">
+                  <legend className="px-1 text-sm font-semibold text-[#F6EFE5]">{group.name} {group.isRequired ? '*' : ''} ({group.minSelections}–{group.maxSelections})</legend>
                   <div className="grid gap-2 sm:grid-cols-2">
                     {group.options.map((option) => (
-                      <label key={option.id} className="flex items-center gap-2 cursor-pointer">
-                        <input type="checkbox" checked={(selections[group.id] ?? []).includes(option.id)} onChange={() => toggle(group.id, option.id, group.maxSelections)} className="rounded border-primary" />
+                      <label key={option.id} className="flex items-center gap-2 cursor-pointer text-[#F6EFE5]">
+                        <input type="checkbox" checked={(selections[group.id] ?? []).includes(option.id)} onChange={() => toggle(group.id, option.id, group.maxSelections)} className="rounded border-[#C99B68] bg-[#17120F] text-[#C99B68] accent-[#C99B68]" />
                         <span className="text-sm">{option.label}</span>
-                        <span className="ml-auto text-xs text-muted-foreground">{Number(option.priceAdjustment) > 0 ? '+' + formatCurrency(Number(option.priceAdjustment)) : ''}</span>
+                        <span className="ml-auto text-xs text-[#C99B68]">{Number(option.priceAdjustment) > 0 ? '+' + formatCurrency(Number(option.priceAdjustment)) : ''}</span>
                       </label>
                     ))}
                   </div>
                 </fieldset>
               ))}
               <div className="mt-3 flex items-center justify-between gap-2">
-                <label className="text-sm font-medium">ملاحظات المطبخ</label>
-                <Input className="flex-1" maxLength={255} value={note} onChange={(e) => setNote(e.target.value)} placeholder="ملاحظات للمطبخ" />
+                <label className="text-sm font-medium text-[#F6EFE5]">ملاحظات المطبخ</label>
+                <Input className="flex-1 border-[#35251D] bg-[#35251D]/40 text-[#F6EFE5] placeholder:text-[#F6EFE5]/40" maxLength={255} value={note} onChange={(e) => setNote(e.target.value)} placeholder="ملاحظات للمطبخ" />
               </div>
               <div className="mt-3 text-right">
-                <label className="text-xs font-medium block mb-1">الكمية</label>
+                <label className="text-xs font-medium block mb-1 text-[#F6EFE5]/80">الكمية</label>
                 <div className="flex items-center gap-2">
-                  <Button variant="outline" size="sm" onClick={() => setQty((q) => Math.max(1, q - 1))}>-</Button>
-                  <span className="w-8 text-center font-semibold">{qty}</span>
-                  <Button variant="outline" size="sm" onClick={() => setQty((q) => Math.min(20, q + 1))}>+</Button>
+                  <Button variant="outline" size="sm" className="border-[#35251D] bg-[#35251D]/40 text-[#F6EFE5] hover:bg-[#35251D]" onClick={() => setQty((q) => Math.max(1, q - 1))}>-</Button>
+                  <span className="w-8 text-center font-semibold text-[#F6EFE5]">{qty}</span>
+                  <Button variant="outline" size="sm" className="border-[#35251D] bg-[#35251D]/40 text-[#F6EFE5] hover:bg-[#35251D]" onClick={() => setQty((q) => Math.min(20, q + 1))}>+</Button>
                 </div>
               </div>
             </div>
-            <div className="p-4 border-t flex justify-end gap-2">
-              <Button variant="outline" size="sm" onClick={() => { setPosModalOpen(false); setProduct(null); setSelections({}); setQty(1); setNote('') }}>إلغاء</Button>
-              <Button className="w-auto bg-amber-600 text-white hover:bg-amber-700" disabled={!ready || busy || isReadOnly || !canManage || !canAppend} onClick={() => {
+            <div className="p-4 border-t border-[#35251D] flex justify-end gap-2">
+              <Button variant="outline" size="sm" className="border-[#35251D] text-[#F6EFE5] hover:bg-[#35251D]/60" onClick={() => { setPosModalOpen(false); setProduct(null); setSelections({}); setQty(1); setNote('') }}>إلغاء</Button>
+              <Button className="w-auto bg-[#C99B68] text-[#17120F] hover:bg-[#d4a976]" disabled={!ready || busy || !canManage || !canAppend} onClick={() => {
                 if (!product) return
                 addToCart({
                   productId: product.id,
@@ -581,43 +578,43 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
       {/* موديل تفاصيل السلة */}
       {cartModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setCartModalOpen(false)} />
-          <div className="relative z-10 w-full max-w-lg max-h-[90vh] bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-border">
-            <div className="flex items-center justify-between p-4 border-b bg-amber-600 text-white">
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setCartModalOpen(false)} />
+          <div className="relative z-10 w-full max-w-lg max-h-[90vh] bg-[#17120F] text-[#F6EFE5] rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-[#35251D]">
+            <div className="flex items-center justify-between p-4 border-b border-[#35251D] bg-[#35251D] text-[#F6EFE5]">
               <h2 className="text-lg font-bold">تفاصيل السلة ({cartCount} صنف)</h2>
-              <Button size="icon" variant="ghost" className="text-white hover:bg-amber-700" onClick={() => setCartModalOpen(false)}>
+              <Button size="icon" variant="ghost" className="text-[#F6EFE5] hover:bg-[#17120F]/40" onClick={() => setCartModalOpen(false)}>
                 <Icon name="close" size={18} />
               </Button>
             </div>
             <div className="p-4 overflow-y-auto space-y-2">
               {Object.keys(cartItems).length === 0 ? (
-                <p className="text-center text-muted-foreground py-8">السلة فارغة.</p>
+                <p className="text-center text-[#F6EFE5]/60 py-8">السلة فارغة.</p>
               ) : Object.entries(cartItems).map(([key, line]) => (
-                <div key={key} className="flex items-center justify-between gap-3 rounded border p-3">
+                <div key={key} className="flex items-center justify-between gap-3 rounded border border-[#35251D] bg-[#35251D]/30 p-3">
                   <div className="min-w-0 flex-1">
-                    <p className="font-semibold text-sm">{line.productName}</p>
-                    {line.variantLabel && <p className="text-xs text-muted-foreground">{line.variantLabel}</p>}
-                    {line.note && <p className="text-xs text-muted-foreground">ملاحظة: {line.note}</p>}
+                    <p className="font-semibold text-sm text-[#F6EFE5]">{line.productName}</p>
+                    {line.variantLabel && <p className="text-xs text-[#C99B68]">{line.variantLabel}</p>}
+                    {line.note && <p className="text-xs text-[#F6EFE5]/60">ملاحظة: {line.note}</p>}
                   </div>
                   <div className="flex items-center gap-2">
-                    <Button variant="outline" size="sm" onClick={() => setCartItems(prev => {
+                    <Button variant="outline" size="sm" className="border-[#35251D] bg-[#35251D]/40 text-[#F6EFE5] hover:bg-[#35251D]" onClick={() => setCartItems(prev => {
                       const current = prev[key]; if (!current) return prev
                       if (current.qty <= 1) { const { [key]: _, ...rest } = prev; return rest }
                       return { ...prev, [key]: { ...current, qty: current.qty - 1 } }
                     })}>−</Button>
-                    <span className="w-6 text-center font-semibold">{line.qty}</span>
-                    <Button variant="outline" size="sm" onClick={() => setCartItems(prev => {
+                    <span className="w-6 text-center font-semibold text-[#F6EFE5]">{line.qty}</span>
+                    <Button variant="outline" size="sm" className="border-[#35251D] bg-[#35251D]/40 text-[#F6EFE5] hover:bg-[#35251D]" onClick={() => setCartItems(prev => {
                       const current = prev[key]; if (!current) return prev
                       return { ...prev, [key]: { ...current, qty: current.qty + 1 } }
                     })}>+</Button>
-                    <Button variant="outline" size="sm" onClick={() => setCartItems(prev => { const { [key]: _, ...rest } = prev; return rest })}>حذف</Button>
+                    <Button variant="outline" size="sm" className="border-[#35251D] text-[#F6EFE5] hover:bg-[#35251D]" onClick={() => setCartItems(prev => { const { [key]: _, ...rest } = prev; return rest })}>حذف</Button>
                   </div>
                 </div>
               ))}
             </div>
-            <div className="p-4 border-t flex items-center justify-between gap-2">
-              <Button variant="outline" size="sm" disabled={Object.keys(cartItems).length === 0 || busy} onClick={() => setCartItems({})}>تفريغ السلة</Button>
-              <Button disabled={Object.keys(cartItems).length === 0 || busy || !canManage || !canAppend || isReadOnly} onClick={async () => {
+            <div className="p-4 border-t border-[#35251D] flex items-center justify-between gap-2">
+              <Button variant="outline" size="sm" className="border-[#35251D] text-[#F6EFE5] hover:bg-[#35251D]/60" disabled={Object.keys(cartItems).length === 0 || busy} onClick={() => setCartItems({})}>تفريغ السلة</Button>
+              <Button className="bg-[#C99B68] text-[#17120F] hover:bg-[#d4a976]" disabled={Object.keys(cartItems).length === 0 || busy || !canManage || !canAppend} onClick={async () => {
                 const items = Object.values(cartItems).map(line => ({ productId: line.productId, variantId: line.variantId, modifierSelections: Object.entries(line.modifierSelections).map(([groupId, valueIds]) => ({ groupId, valueIds })), qty: line.qty, note: line.note }))
                 const target = order?.id
                 const fingerprint = JSON.stringify({ tableId: table.id, orderId: target ?? null, items })
