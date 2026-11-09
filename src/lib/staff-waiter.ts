@@ -63,6 +63,8 @@ export interface WaiterWorkspace {
   openOrders: WaiterOrderRow[]
   categories: { id: string; name: string }[]
   products: Omit<PosCatalogProduct, 'categoryName'>[]
+  /** Active branch waiters for cashier assignment on table open. */
+  waiters?: { id: string; name: string }[]
   incomingHandovers: IncomingWaiterHandover[]
   incomingTableTransfers: IncomingTableTransfer[]
   outgoingTableTransfers: OutgoingTableTransfer[]
@@ -161,7 +163,7 @@ export async function getWaiterWorkspace(session: StaffSession): Promise<WaiterW
     if (isMissingWaiterHandoverTableError(error)) throw new WaiterSchemaError()
     throw error
   }
-  const [branch, tables, orders, categories, products, incomingHandovers, incomingTableTransfers, outgoingTableTransfers] = loaded
+  const [branch, tables, orders, categories, products, incomingHandovers, incomingTableTransfers, outgoingTableTransfers, waiters] = loaded
 
   const openByTable = new Map<string, number>()
     for (const o of orders) {
@@ -245,6 +247,7 @@ export async function getWaiterWorkspace(session: StaffSession): Promise<WaiterW
       status: t.status, requestedAt: t.createdAt.toISOString(),
       acceptedAt: t.acceptedAt?.toISOString() ?? null, notes: t.notes,
     })),
+    waiters: (waiters ?? []).map((w) => ({ id: w.id, name: w.name })),
   }
 }
 
@@ -324,6 +327,11 @@ function loadWaiterWorkspaceData(session: StaffSession, branchScope: { branchId:
         recipientWaiter: { select: { name: true } },
         table: { select: { number: true, id: true } },
       },
+    }),
+    prisma.user.findMany({
+      where: { branchId, isActive: true, deletedAt: null, role: { slug: ROLE.WAITER } },
+      orderBy: { name: 'asc' },
+      select: { id: true, name: true },
     }),
   ])
 }

@@ -70,6 +70,7 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
   const [reassignBusy, setReassignBusy] = useState(false)
   const [deleteReason, setDeleteReason] = useState('')
   const [deleteBusy, setDeleteBusy] = useState(false)
+  const [assignedWaiterId, setAssignedWaiterId] = useState('')
   const [invoiceModalOpen, setInvoiceModalOpen] = useState(false)
   const [posModalOpen, setPosModalOpen] = useState(false)
   const inFlight = useRef(false)
@@ -78,6 +79,8 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
   const mode = order ? 'ADD_ITEMS' : 'CREATE_ORDER'
   const home = role === 'cashier' ? '/cashier' : '/waiter'
   const identity = order?.id ?? 'new'
+  const availableWaiters = workspace.waiters ?? []
+  const requiresWaiterAssignment = !order && role === 'cashier' && availableWaiters.length > 0
   const audioRef = useRef<HTMLAudioElement | null>(null)
 
   useEffect(() => {
@@ -612,12 +615,30 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
                 </div>
               ))}
             </div>
-            <div className="p-4 border-t border-[#35251D] flex items-center justify-between gap-2">
+            <div className="p-4 border-t border-[#35251D] space-y-3">
+              {!order && (role === 'cashier' || role === 'manager' || role === 'owner') && (
+                <label className="block space-y-1">
+                  <span className="text-sm text-[#F6EFE5]/80">النادل المسؤول عن الطاولة</span>
+                  <select
+                    value={assignedWaiterId}
+                    onChange={(e) => setAssignedWaiterId(e.target.value)}
+                    className="w-full rounded border border-[#35251D] bg-[#35251D]/40 px-3 py-2 text-sm text-[#F6EFE5]"
+                    disabled={busy || availableWaiters.length === 0}
+                  >
+                    <option value="">{availableWaiters.length ? 'اختر النادل المسؤول' : 'لا يوجد نوادل متاحون في الفرع'}</option>
+                    {availableWaiters.map((w) => (
+                      <option key={w.id} value={w.id}>{w.name}</option>
+                    ))}
+                  </select>
+                  {requiresWaiterAssignment && !assignedWaiterId && <p className="text-xs text-[#C99B68]">اختيار النادل مطلوب قبل فتح الطلب.</p>}
+                </label>
+              )}
+              <div className="flex items-center justify-between gap-2">
               <Button variant="outline" size="sm" className="border-[#35251D] text-[#F6EFE5] hover:bg-[#35251D]/60" disabled={Object.keys(cartItems).length === 0 || busy} onClick={() => setCartItems({})}>تفريغ السلة</Button>
-              <Button className="bg-[#C99B68] text-[#17120F] hover:bg-[#d4a976]" disabled={Object.keys(cartItems).length === 0 || busy || !canManage || !canAppend} onClick={async () => {
+              <Button className="bg-[#C99B68] text-[#17120F] hover:bg-[#d4a976]" disabled={Object.keys(cartItems).length === 0 || busy || !canManage || !canAppend || (requiresWaiterAssignment && !assignedWaiterId)} onClick={async () => {
                 const items = Object.values(cartItems).map(line => ({ productId: line.productId, variantId: line.variantId, modifierSelections: Object.entries(line.modifierSelections).map(([groupId, valueIds]) => ({ groupId, valueIds })), qty: line.qty, note: line.note }))
                 const target = order?.id
-                const fingerprint = JSON.stringify({ tableId: table.id, orderId: target ?? null, items })
+                const fingerprint = JSON.stringify({ tableId: table.id, orderId: target ?? null, items, responsibleWaiterId: target ? null : (assignedWaiterId || null) })
                 if (!attempt.current || attempt.current.fingerprint !== fingerprint) attempt.current = { fingerprint, key: crypto.randomUUID() }
                 const requestKey = attempt.current.key
                 await act(async () => {
@@ -625,20 +646,22 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
                     await request(`/api/staff/orders/${target}/items/append`, { items, idempotencyKey: requestKey }, requestKey)
                     setNotice('تم إضافة أصناف السلة للطلب')
                   } else {
-                    const result = await request('/api/staff/pos/orders', { orderType: 'dine_in', tableId: table.id, items }, requestKey)
+                    const result = await request('/api/staff/pos/orders', { orderType: 'dine_in', tableId: table.id, items, ...(assignedWaiterId ? { responsibleWaiterId: assignedWaiterId } : {}) }, requestKey)
                     if (typeof result.id !== 'string') throw new Error('تعذر إنشاء الطلب؛ حدّث الصفحة')
                     createdOrder.current = result.id
                     await request(`/api/staff/orders/${result.id}/send`)
-                    setNotice('تم إنشاء الطلب وتوزيعه على المطبخ تلقائياً')
+                    setNotice(assignedWaiterId ? 'تم إنشاء الطلب وتعيين النادل المسؤول وإرساله للمطبخ تلقائياً' : 'تم إنشاء الطلب وتوزيعه على المطبخ تلقائياً')
                     if (result.id) router.replace(`${home}/tables/${table.id}?orderId=${result.id}`)
                     setTab('order')
                   }
                   setCartItems({})
                   setCartModalOpen(false)
+                  setAssignedWaiterId('')
                 })
               }}>
                 {busy ? 'جارٍ الإرسال…' : order ? 'إضافة السلة للطلب' : 'تأكيد الطلب وإرساله للمطبخ'}
               </Button>
+              </div>
             </div>
           </div>
         </div>

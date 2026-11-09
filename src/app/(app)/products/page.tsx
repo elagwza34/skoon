@@ -3,9 +3,7 @@ import { getStaffCatalog } from '@/lib/staff-catalog'
 import { ROLE } from '@/lib/authz'
 import { canManageProducts } from '@/lib/staff-catalog-write'
 import { ProductsBoard } from '@/components/products/products-board'
-import { ProductConfigurationBoard } from '@/components/products/product-configuration-board'
 import { OwnerProductsTabs } from '@/components/products/owner-products-tabs'
-import { ProductModifiersBoard } from '@/components/products/product-modifiers-board'
 import { prisma } from '@/lib/prisma'
 
 export const dynamic = 'force-dynamic'
@@ -34,9 +32,8 @@ export default async function ProductsPage() {
       canManageCategories={session.role === ROLE.OWNER || session.role === ROLE.MANAGER}
       branches={branches.map((branch) => ({ id: branch.id.toString(), name: branch.name }))}
     />
-  const configuration = <ProductConfigurationBoard branches={branches.map((branch) => ({ id: branch.id.toString(), name: branch.name }))} />
-  const modifiers = <ProductModifiersBoard branches={branches.map((branch) => ({ id: branch.id.toString(), name: branch.name }))} />
   return session.role === ROLE.OWNER
-    ? <OwnerProductsTabs products={products} configuration={configuration} modifiers={modifiers} />
+    ? <OwnerProductsTabs products={products} />
     : <div className="space-y-5">{products}</div>
 }
+

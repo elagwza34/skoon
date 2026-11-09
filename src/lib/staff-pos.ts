@@ -168,6 +168,8 @@ export const posItemSchema = z.object({
 export const posOrderSchema = z.object({
   orderType: z.enum(['dine_in', 'takeaway']).default('dine_in'),
   tableId: z.string().regex(/^\d+$/, 'اختر الطاولة').optional(),
+  /** Cashier/manager/owner may assign an eligible branch waiter as responsible for a dine-in table order. */
+  responsibleWaiterId: z.string().uuid().optional(),
   customerName: z.string().trim().max(60).optional(),
   customerPhone: z.string().trim().regex(/^[0-9+()\-\s]{6,30}$/).optional(),
   notes: z.string().trim().max(2_000).optional(),

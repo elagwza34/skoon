@@ -32,7 +32,7 @@ const tabs: { value: Tab; label: string }[] = [
 
 export function CashierWorkspace({ session, board, branchName, invoices, products, catalog, sharedFloat, openOrders = [] }: {
   session: StaffSession; board: ShiftBoardData; branchName: string | null; invoices: InvoiceRow[]
-  products: { id: string; name: string; price: string; variants?: { id: string; label: string; price: string }[] }[]; catalog: PosCatalog; sharedFloat: SharedFloatSummary
+  products: { id: string; name: string; price: string; categoryId?: string; isAvailable?: boolean; categoryName?: string; variants?: { id: string; label: string; price: string }[]; modifierGroups?: { id: string; name: string; isRequired: boolean; minSelections: number; maxSelections: number; options: { id: string; label: string; priceAdjustment: string }[] }[] }[]; catalog: PosCatalog; sharedFloat: SharedFloatSummary
   openOrders?: WaiterWorkspace['openOrders']
 }) {
   const router = useRouter(); const [refreshPending, startTransition] = useTransition()

@@ -25,10 +25,19 @@ function centsText(value: bigint) { return `${value / 100n}.${(value % 100n).toS
  * Staff POS order creation — server-side pricing, one transaction.
  * Cashier+ and waiter (own branch). Kitchen is forbidden.
  */
+export async function eligibleBranchWaiter(waiterId: string, branchId: bigint) {
+  const user = await prisma.user.findFirst({ where: { id: waiterId, branchId, isActive: true, deletedAt: null, role: { slug: ROLE.WAITER } }, select: { id: true } })
+  if (!user) throw new PosError('النادل المحدد غير متاح في هذا الفرع', 422)
+}
+
 export async function createPosOrder(session: StaffSession, input: unknown, idempotencyKey?: string | null, reservationId?: string | null) {
   if (session.role === ROLE.KITCHEN) throw new PosError('Forbidden', 403)
   const parsed = posOrderSchema.safeParse(input)
   if (!parsed.success) throw new PosError(parsed.error.issues[0]?.message ?? 'بيانات غير صالحة', 400)
+  if (parsed.data.responsibleWaiterId) {
+    if (session.role === ROLE.WAITER) throw new PosError('Waiter cannot assign responsible waiter', 403)
+    if (parsed.data.orderType !== 'dine_in') throw new PosError('Responsible waiter is only for dine-in orders', 400)
+  }
 
   // Waiter restrictions: no takeaway, no discounts
   if (session.role === ROLE.WAITER) {
@@ -53,6 +62,9 @@ export async function createPosOrder(session: StaffSession, input: unknown, idem
   if (requiresOperationalShift(session.role) && !openShift) {
     throw new PosError('لا توجد وردية مفتوحة لهذا الموظف — افتح وردية أولًا من صفحة الورديات (/shifts)', 409)
   }
+
+  const assignedResponsibleWaiterId = session.role !== ROLE.WAITER ? (parsed.data.responsibleWaiterId ?? null) : null
+  if (assignedResponsibleWaiterId) await eligibleBranchWaiter(assignedResponsibleWaiterId, branchId)
 
   let tableId: bigint
   if (session.role === ROLE.WAITER) {
@@ -203,7 +215,7 @@ export async function createPosOrder(session: StaffSession, input: unknown, idem
         createdById: session.id,
         // A waiter-created ticket is immediately their responsibility. The
         // immutable creator remains separate for audit and historical reports.
-        responsibleWaiterId: session.role === ROLE.WAITER ? session.id : null,
+        responsibleWaiterId: session.role === ROLE.WAITER ? session.id : assignedResponsibleWaiterId,
         shiftId: openShift?.id ?? null,
         itemsSubtotal: subtotal,
         itemDiscountAmount: centsText(calculated.itemDiscountCents),
@@ -230,7 +242,7 @@ export async function createPosOrder(session: StaffSession, input: unknown, idem
     })
     if (session.role === ROLE.WAITER) {
       await tx.orderResponsibilityHistory.create({
-        data: { orderId: order.id, branchId, assignedToId: session.id, assignedById: session.id, source: 'manual_create', reason: 'Manual waiter order creation' },
+        data: { orderId: order.id, branchId, assignedToId: (session.role === ROLE.WAITER ? session.id : assignedResponsibleWaiterId)!, assignedById: session.id, source: session.role === ROLE.WAITER ? 'manual_create' : 'cashier_create', reason: 'Manual waiter order creation' },
       })
     }
     if (session.role === ROLE.WAITER && reservationId) {

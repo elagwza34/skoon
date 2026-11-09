@@ -57,7 +57,7 @@ export default async function CashierPage() {
     branchName={branchName}
     invoices={invoices}
     catalog={catalog}
-    products={catalog.products.map(({ id, name, price, variants, categoryId, isAvailable, categoryName }) => ({ id, name, price, categoryId, isAvailable, categoryName, variants: variants?.map(v => ({ id: v.id, label: v.label, price: v.price })) }))}
+    products={catalog.products.map(({ id, name, price, variants, modifierGroups, categoryId, isAvailable, categoryName }) => ({ id, name, price, categoryId, isAvailable, categoryName, variants: variants?.map(v => ({ id: v.id, label: v.label, price: v.price })), modifierGroups: modifierGroups?.map(g => ({ id: g.id, name: g.name, isRequired: g.isRequired, minSelections: g.minSelections, maxSelections: g.maxSelections, options: g.options.map(o => ({ id: o.id, label: o.label, priceAdjustment: o.priceAdjustment })) })) }))}
     sharedFloat={sharedFloat}
     openOrders={waiterWorkspace.openOrders}
   />

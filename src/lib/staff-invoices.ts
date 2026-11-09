@@ -9,7 +9,7 @@ import { recalculateOpenOrderInvoice } from '@/lib/invoice-recalculation'
 import { modifierSnapshotLabels } from '@/lib/order-item-options'
 import { adjustOrderItem, OrderItemAdjustmentError } from '@/lib/staff-order-item-adjustment'
 import { lockAndReadShift } from '@/lib/financial-shift-lock'
-import { reserveOrderItemInventory, StockError } from '@/lib/staff-inventory-engine'
+import { releaseOrderItemReservations, reserveOrderItemInventory, StockError } from '@/lib/staff-inventory-engine'
 import { validateModifierSelections } from '@/lib/staff-pos-write'
 import { notifyRole } from '@/lib/notifications'
 import { createHash } from 'node:crypto'
@@ -20,13 +20,14 @@ export type InvoiceRow = {
   id: string; number: string; createdAt: string; branch: string; table: string; creator: string | null; cashier: string | null
   status: string; paymentStatus: string; orderType?: string; notes?: string | null; discountType?: 'percentage' | 'amount' | null; discountValue?: string; subtotal: string; itemDiscount?: string; discountEligibleBase?: string; discount: string; tax: string; total: string; paid: string; remaining: string
   cancelledAt: string | null; cancelReason: string | null; isArchived: boolean
-  items: { id: string; productId: string; name: string; quantity: number; unitPrice: string; lineTotal: string; discountType: 'percentage' | 'amount' | null; discountValue: string; discountAmount: string; eligibleForInvoiceDiscount: boolean; variantId: string | null; variantLabel: string | null; notes?: string | null; details?: string[]; updatedAt: string }[]
+  items: { id: string; productId: string; name: string; quantity: number; unitPrice: string; lineTotal: string; discountType: 'percentage' | 'amount' | null; discountValue: string; discountAmount: string; eligibleForInvoiceDiscount: boolean; variantId: string | null; variantLabel: string | null; notes?: string | null; details?: string[]; updatedAt: string; preparedQuantity?: number; servedQuantity?: number; optionsSnapshot?: unknown }[]
   payments: { id: string; method: string; amount: string; createdAt: string; collector: string | null }[]
 }
 
 export const editSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('add'), productId: z.string().regex(/^\d+$/), variantId: z.string().regex(/^\d+$/).optional(), quantity: z.coerce.number().int().min(1).max(99), idempotencyKey: z.string().trim().min(8).max(100), expectedUpdatedAt: z.string().datetime().optional(), modifierSelections: z.array(z.object({ groupId: z.string(), valueIds: z.array(z.string()).min(1) })).optional() }),
   z.object({ action: z.literal('quantity'), orderItemId: z.string().regex(/^\d+$/), quantity: z.coerce.number().int().min(1).max(99), expectedUpdatedAt: z.string().datetime(), idempotencyKey: z.string().trim().min(8).max(100), reason: z.string().trim().min(3).max(255) }),
+  z.object({ action: z.literal('item_config'), orderItemId: z.string().regex(/^\d+$/), variantId: z.string().regex(/^\d+$/).nullable().optional(), modifierSelections: z.array(z.object({ groupId: z.string(), valueIds: z.array(z.string()).min(1) })).optional(), expectedUpdatedAt: z.string().datetime(), idempotencyKey: z.string().trim().min(8).max(100), reason: z.string().trim().min(3).max(255) }),
   z.object({ action: z.literal('line_discount'), orderItemId: z.string().regex(/^\d+$/), discountType: z.enum(['percentage', 'amount', 'none']), discountValue: z.union([z.string().trim().min(1).max(32), z.number().finite()]), eligibleForInvoiceDiscount: z.boolean() }),
   z.object({ action: z.literal('financials'), discountType: z.enum(['percentage', 'amount', 'none']), discountValue: z.union([z.string().trim().min(1).max(32), z.number().finite()]), notes: z.string().trim().max(2_000).nullable().optional() }),
 ])
@@ -75,7 +76,7 @@ export async function getCashierInvoices(session: StaffSession, range: { from?: 
       select: { id: true, orderNumber: true, createdAt: true, cancelledAt: true, cancelReason: true, status: true, paymentStatus: true, orderType: true, notes: true, discountType: true, discountValue: true, itemsSubtotal: true, itemDiscountAmount: true, discountEligibleBase: true, discountAmount: true, taxAmount: true, total: true,
         branch: { select: { name: true } }, cafeTable: { select: { number: true } }, createdBy: { select: { name: true } },
         isArchived: true,
-        items: { where: { isVoided: false }, orderBy: { id: 'asc' }, select: { id: true, productId: true, productVariantId: true, productName: true, quantity: true, unitPrice: true, lineTotal: true, discountType: true, discountValue: true, discountAmount: true, eligibleForInvoiceDiscount: true, notes: true, updatedAt: true, optionsSnapshot: true, productVariantSnapshot: true, productVariant: { select: { values: { select: { value: { select: { label: true, attribute: { select: { sortOrder: true } } } } } } } } } },
+        items: { where: { isVoided: false }, orderBy: { id: 'asc' }, select: { id: true, productId: true, productVariantId: true, productName: true, quantity: true, unitPrice: true, lineTotal: true, discountType: true, discountValue: true, discountAmount: true, eligibleForInvoiceDiscount: true, notes: true, updatedAt: true, preparedQuantity: true, servedQuantity: true, optionsSnapshot: true, productVariantSnapshot: true, productVariant: { select: { values: { select: { value: { select: { label: true, attribute: { select: { sortOrder: true } } } } } } } } } },
       payments: { where: { status: 'completed' }, select: { id: true, method: true, amount: true, createdAt: true, paidBy: { select: { name: true } } } },
     },
   })
@@ -88,7 +89,7 @@ export async function getCashierInvoices(session: StaffSession, range: { from?: 
         const variantLabels = i.productVariantId || i.productVariantSnapshot ? resolveVariantLabels(relationLabels, i.productVariantSnapshot) : []
         const persistedModifierLabels = modifierSnapshotLabels(i.optionsSnapshot)
         const details = persistedModifierLabels.length ? persistedModifierLabels : snapshotLabels(i.optionsSnapshot)
-        return { id: i.id.toString(), productId: i.productId.toString(), variantId: i.productVariantId?.toString() ?? null, variantLabel: variantLabels.length ? variantLabels.join(' · ') : null, name: i.productName, quantity: i.quantity, unitPrice: Number(i.unitPrice).toFixed(2), lineTotal: Number(i.lineTotal).toFixed(2), discountType: i.discountType === 'percentage' || i.discountType === 'amount' ? i.discountType : null, discountValue: Number(i.discountValue).toFixed(2), discountAmount: Number(i.discountAmount).toFixed(2), eligibleForInvoiceDiscount: i.eligibleForInvoiceDiscount, notes: i.notes, details, updatedAt: i.updatedAt.toISOString() }
+        return { id: i.id.toString(), productId: i.productId.toString(), variantId: i.productVariantId?.toString() ?? null, variantLabel: variantLabels.length ? variantLabels.join(' · ') : null, name: i.productName, quantity: i.quantity, unitPrice: Number(i.unitPrice).toFixed(2), lineTotal: Number(i.lineTotal).toFixed(2), discountType: i.discountType === 'percentage' || i.discountType === 'amount' ? i.discountType : null, discountValue: Number(i.discountValue).toFixed(2), discountAmount: Number(i.discountAmount).toFixed(2), eligibleForInvoiceDiscount: i.eligibleForInvoiceDiscount, notes: i.notes, details, updatedAt: i.updatedAt.toISOString(), preparedQuantity: i.preparedQuantity, servedQuantity: i.servedQuantity, optionsSnapshot: i.optionsSnapshot }
       }),
       payments: o.payments.map((p) => ({ id: p.id.toString(), method: p.method, amount: Number(p.amount).toFixed(2), createdAt: p.createdAt.toISOString(), collector: p.paidBy?.name ?? null })),
     }
@@ -207,6 +208,55 @@ export async function editOpenInvoice(session: StaffSession, orderIdRaw: string,
         const created = await tx.orderItem.create({ data: { orderId, productId: product.id, productName: product.name, unitPrice: product.price, quantity: parsed.data.quantity, lineTotal: (Number(product.price) * parsed.data.quantity).toFixed(2), optionsSnapshot: modifierSnapshot } })
         try { await reserveOrderItemInventory(tx, orderId, created.id) } catch (error) { if (error instanceof StockError) throw new InvoiceError(error.message, error.status); throw error }
       }
+    } else if (parsed.data.action === 'item_config') {
+      const d = parsed.data
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('order-item-adjustment:' || ${orderIdRaw}))`
+      const operationType = 'invoice_item_config'
+      const fingerprint = createHash('sha256').update(JSON.stringify({ orderId: orderIdRaw, action: d.action, orderItemId: d.orderItemId, variantId: d.variantId, modifierSelections: d.modifierSelections, expectedUpdatedAt: d.expectedUpdatedAt, reason: d.reason, idempotencyKey: d.idempotencyKey })).digest('hex')
+      const operationKey = { branchId_actorId_operationType_idempotencyKey: { branchId: order.branchId, actorId: session.id, operationType, idempotencyKey: d.idempotencyKey } }
+      const repeated = await tx.financialOperation.findUnique({ where: operationKey })
+      if (repeated) { if (repeated.fingerprint !== fingerprint) throw new InvoiceError('مفتاح العملية مستخدم لتعديل مختلف', 409); return repeated.result }
+      const itemId = BigInt(d.orderItemId)
+      await tx.$queryRaw`SELECT id FROM order_items WHERE id = ${itemId} AND order_id = ${orderId} FOR UPDATE`
+      const item = await tx.orderItem.findFirst({ where: { id: itemId, orderId, isVoided: false }, select: { id: true, productId: true, productVariantId: true, productName: true, quantity: true, preparedQuantity: true, servedQuantity: true, updatedAt: true } })
+      if (!item) throw new InvoiceError('صنف الفاتورة غير موجود', 404)
+      if (item.updatedAt.toISOString() !== d.expectedUpdatedAt) throw new InvoiceError('تغيّر الصنف؛ حدّث الصفحة قبل التعديل', 409)
+      if ((item.servedQuantity ?? 0) > 0 || (item.preparedQuantity ?? 0) > 0) throw new InvoiceError('لا يمكن تعديل المتغير/الإضافات لصنف بدأ تحضيره أو قُدّم. عدّل الكمية أو أزل الصنف حسب الحالة.', 409)
+      if (locked.status === 'served') throw new InvoiceError('الطلب مقدّم ولا يمكن تعديل تكوين الأصناف', 409)
+      const product = await tx.product.findFirst({ where: { id: item.productId, branchId: order.branchId, isActive: true, deletedAt: null }, select: { id: true, name: true, price: true, variants: { where: { isActive: true, isAvailable: true, archivedAt: null }, select: { id: true } }, optionAssignments: { select: { productOption: { select: { id: true, name: true, isRequired: true, minSelections: true, maxSelections: true, type: true, isActive: true, values: { where: { isActive: true, deletedAt: null }, select: { id: true, value: true, priceAdjustment: true } } } } } } } })
+      if (!product) throw new InvoiceError('المنتج غير متاح', 422)
+      const modifierInput = d.modifierSelections ?? []
+      if (modifierInput.length || product.optionAssignments.length) {
+        const productWithModifiers = { optionAssignments: product.optionAssignments.map((a: any) => ({ productOption: { id: a.productOption.id, name: a.productOption.name, isRequired: a.productOption.isRequired, minSelections: a.productOption.minSelections, maxSelections: a.productOption.maxSelections, type: a.productOption.type, isActive: a.productOption.isActive, values: (a.productOption.values ?? []).map((v: any) => ({ id: v.id, value: v.value, priceAdjustment: v.priceAdjustment })) } })) }
+        validateModifierSelections(productWithModifiers as any, modifierInput)
+      }
+      const groups = new Map<string, any>(product.optionAssignments.map((a: any) => [a.productOption.id.toString(), a.productOption]))
+      const groupsOut = modifierInput.flatMap((sel: { groupId: string; valueIds: string[] }) => { const group = groups.get(sel.groupId) as any; if (!group) return [] as any[]; const values = new Map<string, any>((group.values ?? []).map((v: any) => [v.id.toString(), v])); return sel.valueIds.map((id: string) => values.get(id)).filter(Boolean).map((opt: any) => ({ groupId: sel.groupId, groupName: String(group.name ?? ''), optionId: opt.id.toString(), optionLabel: String(opt.value ?? opt.label ?? ''), priceAdjustment: String(opt.priceAdjustment ?? '0.00') })) })
+      const priceAdjCents = groupsOut.reduce((sum: bigint, v: any) => sum + BigInt(Math.round(Number(v.priceAdjustment) * 100)), 0n)
+      const optionsSnapshot = groupsOut.length ? { version: 1 as const, groups: groupsOut.map((g: any) => ({ groupId: g.groupId, groupName: g.groupName, optionId: g.optionId, optionLabel: g.optionLabel, priceAdjustment: g.priceAdjustment })) } : undefined
+      const optionRows = groupsOut.map((g: any) => ({ productOptionId: BigInt(g.groupId), optionValueId: BigInt(g.optionId), optionName: g.groupName, valueLabel: g.optionLabel, priceAdjustment: g.priceAdjustment }))
+      let variantId: bigint | null = item.productVariantId; let productVariantSnapshot: any = undefined; let baseCents = 0n
+      if (product.variants.length > 0) {
+        const vid = d.variantId ?? item.productVariantId?.toString() ?? null
+        if (!vid) throw new InvoiceError('هذا المنتج يتطلب اختيار متغير', 422)
+        const variant = await tx.productVariant.findFirst({ where: { id: BigInt(vid), productId: product.id, isActive: true, isAvailable: true, archivedAt: null }, select: { id: true, price: true, combinationKey: true, values: { select: { value: { select: { label: true, attribute: { select: { name: true, sortOrder: true } } } } } } } })
+        if (!variant) throw new InvoiceError('المتغير غير متاح', 422)
+        variantId = variant.id; baseCents = BigInt(Math.round(Number(variant.price) * 100)); productVariantSnapshot = createOrderItemVariantSnapshot(variant.combinationKey, variant.values.map((entry: any) => entry.value))
+      } else {
+        if (d.variantId) throw new InvoiceError('هذا المنتج لا يدعم المتغيرات', 422)
+        variantId = null; baseCents = BigInt(Math.round(Number(product.price) * 100)); productVariantSnapshot = null
+      }
+      const unitCents = baseCents + priceAdjCents
+      if (unitCents < 0n) throw new InvoiceError('سعر الصنف غير صالح', 422)
+      const unitPrice = centsText(unitCents)
+      const variantChanged = (item.productVariantId?.toString() ?? null) !== (variantId?.toString() ?? null)
+      if (variantChanged) { try { await releaseOrderItemReservations(tx, orderId, item.id); await reserveOrderItemInventory(tx, orderId, item.id) } catch (error) { if (error instanceof StockError) throw new InvoiceError(error.message, error.status); throw error } }
+      await tx.orderItemOption.deleteMany({ where: { orderItemId: item.id } })
+      await tx.orderItem.update({ where: { id: item.id }, data: { productVariantId: variantId, productVariantSnapshot, unitPrice, lineTotal: centsText(unitCents * BigInt(item.quantity)), optionsSnapshot, ...(optionRows.length ? { options: { create: optionRows } } : {}) } })
+      if (locked.status === 'ready') { await tx.order.update({ where: { id: orderId }, data: { status: 'preparing', readyAt: null } }); await tx.orderStatusHistory.create({ data: { orderId, fromStatus: 'ready', toStatus: 'preparing', changedById: session.id, note: 'تعديل متغير/إضافات صنف في طلب جاهز — عاد الطلب لقيد التحضير' } }) }
+      await tx.auditLog.create({ data: { userId: session.id, branchId: order.branchId, action: 'order.item_config_adjusted', entityType: 'order_item', entityId: item.id, oldValues: { variantId: item.productVariantId?.toString() ?? null }, newValues: { variantId: variantId?.toString() ?? null, unitPrice, reason: d.reason } } })
+      await tx.financialOperation.create({ data: { branchId: order.branchId, actorId: session.id, operationType, idempotencyKey: d.idempotencyKey, fingerprint, result: { orderId: orderIdRaw, orderItemId: d.orderItemId, action: 'item_config' } } })
+
     } else if (parsed.data.action === 'line_discount') {
       const item = await tx.orderItem.findFirst({ where: { id: BigInt(parsed.data.orderItemId), orderId, isVoided: false }, select: { id: true } })
       if (!item) throw new InvoiceError('Invoice item not found', 404)
