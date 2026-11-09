@@ -48,6 +48,7 @@ export function ShiftsBoard({ initial, actorId }: { initial: ShiftBoardData; act
   const [closingCash, setClosingCash] = useState('')
   const [handoverNotes, setHandoverNotes] = useState('')
   const [handoverRecipientId, setHandoverRecipientId] = useState('')
+  const [tableHandoffRecipientId, setTableHandoffRecipientId] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
@@ -101,6 +102,7 @@ export function ShiftsBoard({ initial, actorId }: { initial: ShiftBoardData; act
           closingCash: cash,
           handoverNotes: handoverNotes.trim() || null,
           handoverRecipientId: handoverRecipientId || null,
+          tableHandoffRecipientId: tableHandoffRecipientId || null,
         }),
       })
       const payload = await res.json().catch(() => ({}))
@@ -224,13 +226,23 @@ export function ShiftsBoard({ initial, actorId }: { initial: ShiftBoardData; act
                   onChange={(e) => setHandoverNotes(e.target.value)}
                 />
               </label>
+              {data.userRole === 'waiter' && (data.waiterOpenTables?.length ?? 0) > 0 ? (
+                <div className="rounded-lg border border-warning/40 bg-warning/5 p-3 sm:col-span-2">
+                  <p className="text-sm font-medium text-foreground">لديك طاولات/طلبات مفتوحة — اختر النادل الذي سيستلمها قبل إغلاق الوردية</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{(data.waiterOpenTables ?? []).map((x)=>`طاولة ${x.tableNumber} (${x.ordersCount})`).join('، ')}</p>
+                  <select className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={tableHandoffRecipientId} onChange={(e)=>setTableHandoffRecipientId(e.target.value)}>
+                    <option value="">اختر النادل المستلم للطاولات</option>
+                    {(data.handoffRecipients ?? data.cashiers).filter((u)=>u.id!==actorId).map((u)=><option key={u.id} value={u.id}>{u.name}</option>)}
+                  </select>
+                </div>
+              ) : (
               <label className="flex flex-col gap-1.5 text-sm">
                 <span className="text-muted-foreground">الموظف المستلم (اختياري)</span>
                 <select className="h-10 rounded-md border border-input bg-background px-3 text-sm" value={handoverRecipientId} onChange={(e) => setHandoverRecipientId(e.target.value)}>
                   <option value="">بدون مستلم</option>
                   {data.cashiers.map((cashier) => <option key={cashier.id} value={cashier.id}>{cashier.name}</option>)}
                 </select>
-              </label>
+              </label>)}
               <Button variant="destructive" onClick={close} disabled={busy}>
                 {busy ? 'جارٍ الإغلاق…' : 'إغلاق الوردية وتسجيل التسليم'}
               </Button>

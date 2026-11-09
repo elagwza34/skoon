@@ -106,6 +106,8 @@ export interface ShiftBoardData {
   current: ShiftView | null
   currentOrders: ShiftOrderRow[]
   recent: ShiftView[]
+  waiterOpenTables?: { tableId: string; tableNumber: string; ordersCount: number }[]
+  handoffRecipients?: { id: string; name: string; role: string }[]
 }
 
 // ---------------------------------------------------------------------------
@@ -173,6 +175,8 @@ export const closeShiftSchema = z.object({
   handoverNotes: z.string().trim().max(1000).optional().nullable(),
   // Recipient identity, never a client-supplied role or display name.
   handoverRecipientId: z.string().uuid().optional().nullable(),
+  /** When waiter closes with open tables/orders, transfer them to this eligible branch waiter. */
+  tableHandoffRecipientId: z.string().uuid().optional().nullable(),
 })
 
 /** A close crossed midnight only when its branch-local calendar day changed. */
@@ -383,6 +387,7 @@ export async function closeShift(
   const branch = await prisma.cafeBranch.findUnique({ where: { id: shift.branchId }, select: { timezone: true } })
   if (!branch) throw new ShiftError('الفرع غير موجود', 404)
   let recipient: { id: string; name: string } | null = null
+  let tableHandoffRecipient: { id: string; name: string } | null = null
   if (parsed.data.handoverRecipientId) {
     if (parsed.data.handoverRecipientId === session.id) throw new ShiftError('لا يمكنك تسليم الوردية لنفسك', 422)
     recipient = await prisma.user.findFirst({
@@ -419,19 +424,32 @@ export async function closeShift(
         if (!eligible) throw new ShiftError('المستلم لم يعد نشطًا في نفس الفرع', 422)
       }
     }
-    const [cashState, outstandingOrders] = await Promise.all([
+    const [cashState, outstandingOrders, waiterResponsibleOrders] = await Promise.all([
       readShiftCashState(tx, lockedShift),
       tx.order.findMany({
         where: { shiftId, status: { in: ['new', 'preparing', 'ready'] } },
         select: { orderNumber: true, status: true, total: true }, orderBy: { createdAt: 'asc' },
       }),
+      session.role === ROLE.WAITER
+        ? tx.order.findMany({ where: { branchId: lockedShift.branchId, responsibleWaiterId: session.id, status: { in: ['new','preparing','ready'] }, paymentStatus: { not: 'paid' } }, select: { id: true, cafeTableId: true } })
+        : Promise.resolve([] as Array<{id:bigint;cafeTableId:bigint}>),
     ])
     const expected = cashState.expectedCash
     const cashHandling = isCashHandlingRole(session.role)
     const closing = cashHandling ? parsed.data.closingCash : 0
     const difference = cashHandling ? cashDifferenceOf(closing, expected) : 0
     // الويتر يمكنه إغلاق ورديته حتى لو بقيت طلبات معلقة؛ يتم تسجيلها في بيانات التسليم.
-    // (لا نمنع الإغلاق هنا لتجنب حجب الوردية - المسؤوليات تُدار عبر نقل المسؤولية عند الحاجة)
+    if (session.role === ROLE.WAITER && (waiterResponsibleOrders?.length ?? 0) > 0 && !tableHandoffRecipient) throw new ShiftError('لديك طاولات/طلبات مفتوحة. اختر النادل الذي سيستلم الطاولات قبل إغلاق الوردية.', 409)
+    if (session.role === ROLE.WAITER && (waiterResponsibleOrders?.length ?? 0) > 0 && tableHandoffRecipient) { const thr = tableHandoffRecipient as { id: string; name: string };
+      const recvShift = await tx.shift.findFirst({ where: { cashierId: thr.id, branchId: lockedShift.branchId, status: 'open' }, select: { id: true } })
+      if (!recvShift) throw new ShiftError('النادل المستلم للطاولات يجب أن تكون ورديته مفتوحة', 409)
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('waiter-table-handoff:' || ${lockedShift.id.toString()}))`
+      for (const order of (waiterResponsibleOrders ?? []) as Array<{id: bigint; cafeTableId: bigint}>) {
+        await tx.order.update({ where: { id: order.id }, data: { responsibleWaiterId: thr.id } })
+        await tx.orderResponsibilityHistory.create({ data: { orderId: order.id, branchId: lockedShift.branchId, assignedToId: thr.id, assignedById: session.id, source: 'shift_close_handoff', reason: `Shift close handoff to ${thr.name}` } })
+      }
+      await tx.auditLog.create({ data: { userId: session.id, branchId: lockedShift.branchId, action: 'shift.close.table_handoff', entityType: 'shift', entityId: shiftId, newValues: { recipientId: thr.id, recipientName: thr.name, transferredOrders: (waiterResponsibleOrders?.length ?? 0) } } })
+    }
     const closedAt = new Date()
     const routeToSafe = crossedLocalMidnight(lockedShift.openedAt, closedAt, branch.timezone)
     // المستلم اختياري لأي دور — يمكن إغلاق الوردية بشكل طبيعي بدون اختيار مستلم.
@@ -937,5 +955,7 @@ export async function getShiftsBoard(
     current: current ? viewOf(current) : null,
     currentOrders,
     recent: recent.map(viewOf),
+    waiterOpenTables: session.role === ROLE.WAITER && current ? await (async ()=>{ const rows=await prisma.order.findMany({ where: { branchId, responsibleWaiterId: session.id, status: { in: ['new','preparing','ready'] }, paymentStatus: { not: 'paid' } }, select: { cafeTableId: true } }); const ids=[...new Set(rows.map(r=>r.cafeTableId.toString()))]; const tables=ids.length?await prisma.cafeTable.findMany({where:{id:{in:ids.map(id=>BigInt(id))},branchId},select:{id:true,number:true}}):[]; const nameById=new Map(tables.map(x=>[x.id.toString(),x.number])); return rows.reduce((acc:Array<{tableId:string;tableNumber:string;ordersCount:number}>,o)=>{const tid=o.cafeTableId.toString();const row=acc.find(x=>x.tableId===tid);const tn=nameById.get(tid)??tid; if(row) row.ordersCount++; else acc.push({tableId:tid,tableNumber:tn,ordersCount:1}); return acc},[]).sort((a,b)=>a.tableNumber.localeCompare(b.tableNumber,'ar',{numeric:true})) })() : [],
+    handoffRecipients: cashiers.filter((u)=>u.id!==session.id).map((u)=>({id:u.id,name:u.name,role:'staff'})),
   }
 }
