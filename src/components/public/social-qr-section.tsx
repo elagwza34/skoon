@@ -19,8 +19,9 @@ export default function SocialQRSection() {
       name: 'تيك توك',
       icon: 'music_video',
       desc: 'شاهد فيديوهاتنا ولحظات التحضير',
-      link: '#',
-      qrNote: 'سيتم إضافة الكود قريبًا',
+      link: 'https://www.tiktok.com/@sokoon.caf?_r=1&_t=ZS-9BH9P668Tpd',
+      qrNote: 'امسح الكود لمتابعتنا على تيك توك',
+      qrImage: 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=https://www.tiktok.com/@sokoon.caf?_r=1&_t=ZS-9BH9P668Tpd',
     },
     {
       name: 'واتساب',
