@@ -63,11 +63,11 @@ export default function MenuSection() {
           {filtered.map((item) => (
             <div
               key={item.id}
-              className="menu-card group rounded-[0.5rem] bg-[#FFFCF8] p-[1rem] shadow-md flex flex-col justify-between transition-all duration-300 hover:-translate-y-1 hover:shadow-xl h-[64px] lg:h-auto"
+              className="menu-card group rounded-[0.5rem] bg-[#FFFCF8] p-[1rem] shadow-md flex flex-col justify-between transition-all duration-300 hover:-translate-y-1 hover:shadow-xl lg:h-auto"
               data-category={item.category}
             >
               <div>
-                <div className="relative w-full h-[44px] lg:h-[11rem] rounded-[0.5rem] overflow-hidden mb-[0.75rem] bg-[#f3ede4]">
+                <div className="relative w-full h-[50vh] lg:h-[11rem] rounded-[0.5rem] overflow-hidden mb-[0.75rem] bg-[#f3ede4]">
                   <div
                     className="w-full h-full bg-cover bg-center group-hover:scale-105 transition-transform duration-500"
                     style={{ backgroundImage: `url(${item.image})` }}
