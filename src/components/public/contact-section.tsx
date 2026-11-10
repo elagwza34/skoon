@@ -1,4 +1,4 @@
-import { CONTACT_MAP_IMG, CONTACT_PIN_IMG } from './contact-data'
+import { CONTACT_PIN_IMG } from './contact-data'
 
 export default function ContactSection() {
   return (
@@ -86,11 +86,15 @@ export default function ContactSection() {
             </div>
           </div>
 
-          {/* Left: Map */}
-          <div className="lg:col-span-6 rounded-[0.5rem] overflow-hidden shadow-lg min-h-[380px] h-full bg-[#f3ede4] relative">
-            <div
-              className="w-full h-full min-h-[380px] bg-cover bg-center"
-              style={{ backgroundImage: `url(${CONTACT_MAP_IMG})` }}
+          {/* Left: Map (Interactive Google Maps iframe) */}
+          <div className="lg:col-span-6 rounded-[0.5rem] overflow-hidden shadow-lg min-h-[380px] h-full relative">
+            <iframe
+              className="w-full h-full min-h-[380px]"
+              title="موقع سكون كافيه"
+              src="https://www.google.com/maps?q=%D8%B7%D9%86%D8%B7%D8%A7+%D8%B4%D8%A7%D8%B1%D8%B9+%D8%AD%D8%B3%D9%86+%D8%AD%D8%B3%D9%8A%D8%A8+%D8%A8%D8%AC%D9%88%D8%A7%D8%B1+%D8%A7%D9%84%D9%83%D9%85%D9%88%D9%86%D9%8A+%D9%84%D9%84%D8%B3%D9%8A%D8%A7%D8%B1%D8%A7%D8%AA&output=embed"
+              allowFullScreen
+              loading="lazy"
+              referrerPolicy="no-referrer-when-downgrade"
             />
             <div className="absolute bottom-4 right-4 bg-[#1A1310]/90 backdrop-blur-md p-3 rounded-xl shadow-md text-[#FFFCF8] flex items-center gap-3">
               <img src={CONTACT_PIN_IMG} alt="سكون" className="w-8 h-8 object-contain" />
