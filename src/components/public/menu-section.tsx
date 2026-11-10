@@ -96,17 +96,15 @@ export default function MenuSection() {
           ))}
         </div>
 
-        {/* Notice */}
+        {/* Order Now CTA */}
         <div className="mt-[3rem] text-center">
-          <p className="text-[13px] text-[#4e4541] inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#f3ede4] shadow-sm font-sans">
-            <span className="material-symbols-outlined text-[#B98757] text-base">
-              info
-            </span>
-            <span>
-              الأسعار شاملة ضريبة القيمة المضافة. نرحب بزيارتكم للطلب المباشر في
-              الكافيه.
-            </span>
-          </p>
+          <a
+            href="/order-type"
+            className="inline-flex items-center gap-2 px-8 py-3.5 rounded-full bg-[#241B17] text-[#FFFCF8] text-[17px] font-semibold hover:bg-[#B98757] hover:text-[#241B17] transition-all duration-300 shadow-lg font-sans"
+          >
+            <span>اطلب الأن</span>
+            <span className="material-symbols-outlined text-[18px]">restaurant_menu</span>
+          </a>
         </div>
       </div>
     </section>
