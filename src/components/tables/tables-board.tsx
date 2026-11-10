@@ -51,13 +51,20 @@ export function TablesBoard({ tables, canEditLayout = false, branches = [] }: { 
           <span className="text-lg font-bold text-foreground">{formatNumber(occupied)}</span>
           <span className="text-warning">مشغولة</span>
         </span>
-        {canEditLayout ? <Button size="sm" className="ms-auto" onClick={openCreate}><Icon name="plus" size={14} />إضافة طاولة</Button> : null}
-        {false && <Link href="/tables/print" className={!canEditLayout ? 'ms-auto' : undefined}>
-          <Button size="sm" variant="outline">
-            <Icon name="orders" size={14} />
-            طباعة QR
-          </Button>
-        </Link>}
+        {canEditLayout ? (
+          <div className="ms-auto flex items-center gap-2">
+            <Link href="/owner/qr-tables">
+              <Button size="sm" variant="outline">
+                <Icon name="orders" size={14} />
+                كل رموز QR
+              </Button>
+            </Link>
+            <Button size="sm" onClick={openCreate}>
+              <Icon name="plus" size={14} />
+              إضافة طاولة
+            </Button>
+          </div>
+        ) : null}
         <div className="hidden"><Button size="sm" variant={view === 'grid' ? 'primary' : 'ghost'} onClick={() => setView('grid')}>شبكة</Button><Button size="sm" variant={view === 'floor' ? 'primary' : 'ghost'} onClick={() => setView('floor')}>مخطط القاعة</Button></div>
       </div>
       {notice ? <p className="rounded-md bg-success/10 px-3 py-2 text-sm text-success">{notice}</p> : null}
