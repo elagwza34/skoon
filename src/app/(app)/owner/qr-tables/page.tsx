@@ -1,6 +1,3 @@
-'use client'
-
-import { useState } from 'react'
 import Image from 'next/image'
 import { requirePageAccess } from '@/lib/require-page-access'
 import { prisma } from '@/lib/prisma'
@@ -39,14 +36,6 @@ export default async function OwnerQrTablesPage() {
     })
   )
 
-  const [printingTableId, setPrintingTableId] = useState<bigint | null>(null)
-
-  const printSingleTable = (tableId: bigint) => {
-    setPrintingTableId(tableId)
-    window.print()
-    setPrintingTableId(null)
-  }
-
   return (
     <div className="min-h-dvh bg-background p-4 sm:p-6 text-foreground" dir="rtl" lang="ar">
       <style
@@ -54,57 +43,12 @@ export default async function OwnerQrTablesPage() {
           __html: `
             @media print {
               body * { visibility: hidden; }
-              #print-only, #print-only * { visibility: visible; }
-              #print-only { position: absolute; inset: 0; width: 100%; height: 100%; overflow: auto; }
               .no-print { display: none !important; }
               .qr-card { break-inside: avoid; page-break-inside: avoid; }
-            }
-            #print-only {
-              display: none;
-              position: fixed;
-              inset: 0;
-              z-index: 9999;
-              background: white;
-              padding: 2rem;
-              overflow-y: auto;
             }
           `,
         }}
       />
-
-      {/* Hidden print container for single table */}
-      <div id="print-only">
-        {printingTableId && tablesWithQr.find((t) => t.id === printingTableId) && (
-          <div className="single-print-card flex flex-col items-center max-w-[200px] mx-auto">
-            <Image
-              src="/logo.png"
-              alt="شعار سكون"
-              width={64}
-              height={64}
-              className="mb-3 h-16 w-16 object-contain"
-            />
-            <div className="mb-3 text-xl font-bold">
-              طاولة {tablesWithQr.find((t) => t.id === printingTableId)?.number}
-            </div>
-            {tablesWithQr.find((t) => t.id === printingTableId)?.branch?.name && (
-              <div className="mb-3 text-xs text-muted-foreground">
-                {tablesWithQr.find((t) => t.id === printingTableId)?.branch.name}
-              </div>
-            )}
-            <img
-              src={tablesWithQr.find((t) => t.id === printingTableId)?.qrDataUrl}
-              alt={`رمز QR للطاولة ${tablesWithQr.find((t) => t.id === printingTableId)?.number}`}
-              width={160}
-              height={160}
-              className="h-40 w-40 rounded border bg-white p-1"
-            />
-            <div className="mt-2 break-all text-[10px] leading-tight text-muted-foreground font-mono">
-              {tablesWithQr.find((t) => t.id === printingTableId)?.url}
-            </div>
-            <div className="mt-1 text-[10px] text-muted-foreground">امسح الرمز لعرض المنيو</div>
-          </div>
-        )}
-      </div>
 
       {/* Header — hidden when printing */}
       <div className="no-print mx-auto mb-8 max-w-5xl">
@@ -173,13 +117,6 @@ export default async function OwnerQrTablesPage() {
               <div className="mt-1 text-[10px] text-muted-foreground">
                 امسح الرمز لعرض المنيو
               </div>
-              <button
-                onClick={() => printSingleTable(table.id)}
-                className="no-print mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-accent text-accent-foreground text-xs font-semibold hover:bg-accent/90 transition-colors"
-              >
-                <span className="material-symbols-outlined text-[14px]">print</span>
-                طباعة
-              </button>
             </div>
           ))}
         </div>
