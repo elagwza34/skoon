@@ -67,7 +67,7 @@ export default function MenuSection() {
               data-category={item.category}
             >
               <div>
-                <div className="relative w-full h-[50vh] lg:h-[11rem] rounded-[0.5rem] overflow-hidden mb-[0.75rem] bg-[#f3ede4]">
+                <div className="relative w-full h-[200px] md:h-[300px] rounded-[0.5rem] overflow-hidden mb-[0.75rem] bg-[#f3ede4]">
                   <div
                     className="w-full h-full bg-cover bg-center group-hover:scale-105 transition-transform duration-500"
                     style={{ backgroundImage: `url(${item.image})` }}

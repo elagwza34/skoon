@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 
@@ -16,11 +16,22 @@ const navLinks = [
 
 export default function LandingNav() {
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [scrolled, setScrolled] = useState(false)
+
+  useEffect(() => {
+    const handleScroll = () => setScrolled(window.scrollY > 20)
+    window.addEventListener('scroll', handleScroll, { passive: true })
+    return () => window.removeEventListener('scroll', handleScroll)
+  }, [])
 
   return (
     <>
       <header
-        className="fixed top-0 w-full z-50 bg-transparent transition-all duration-300"
+        className={`fixed top-0 w-full z-50 transition-all duration-300 ${
+          scrolled
+            ? 'bg-[#1A1310]/95 backdrop-blur-md shadow-[0_1px_8px_rgba(0,0,0,0.04)]'
+            : 'bg-transparent'
+        }`}
       >
         <div className="h-24 w-full px-[1rem] lg:px-[3rem] flex items-center justify-between">
           <div className="flex items-center gap-[1rem]">
