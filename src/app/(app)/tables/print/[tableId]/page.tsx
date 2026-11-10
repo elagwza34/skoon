@@ -12,11 +12,33 @@ export default async function TablePrintPage({
 }: {
   params: Promise<{ tableId: string }>
 }) {
-  const { tableId } = await params
+  const resolvedParams = await params
+  const tableId = resolvedParams.tableId
   await requirePageAccess('/tables')
 
+  let tableIdNumber: bigint | null = null
+  try {
+    tableIdNumber = BigInt(tableId)
+  } catch {
+    // Invalid ID format
+  }
+
+  if (!tableIdNumber) {
+    return (
+      <div className="min-h-screen bg-background p-6 text-foreground flex flex-col items-center justify-center">
+        <h1 className="text-xl font-bold">معرف الطاولة غير صالح</h1>
+        <a
+          href="/tables"
+          className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#241B17] text-[#FFFCF8] font-semibold hover:bg-[#B98757]"
+        >
+          العودة للصفحة الرئيسية
+        </a>
+      </div>
+    )
+  }
+
   const table = await prisma.cafeTable.findUnique({
-    where: { id: BigInt(tableId), isActive: true, deletedAt: null },
+    where: { id: tableIdNumber, isActive: true, deletedAt: null },
     include: {
       branch: { select: { name: true } },
     },
