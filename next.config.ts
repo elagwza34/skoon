@@ -30,6 +30,11 @@ const nextConfig: NextConfig = {
         hostname: "skooncafe.com",
         pathname: "/images/**",
       },
+      {
+        protocol: "https",
+        hostname: "lh3.googleusercontent.com",
+        pathname: "/**",
+      },
     ],
   },
   experimental: {

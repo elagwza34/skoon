@@ -1,109 +1,109 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
-import { Icon } from '@/components/ui/icon'
-import { Button } from '@/components/ui/button'
+import Image from 'next/image'
 
-const NAV_LINKS = [
-  { href: '/', label: 'الرئيسية' },
-  { href: '/order-type', label: 'القائمة' },
-  { href: '/', label: 'عن سكون' },
-  { href: '/', label: 'اتصل بنا' },
+const LOGO =
+  'https://lh3.googleusercontent.com/aida/ALJJyrAVYs6WPNK-08neMS-jRXVIlMP11b_p6MmYfGWTT8GOUwxVOkaocq4a9iKTxJ8n2ebbC-7sqJ7A__Hk6oPzgwuWjikY8BHh68ftcUkvwR9ETDKqSFkXBBD1-qyUBNaDRiI79PbaRB1uVPZHSUZDPFU9zYm2MUCkxX1Uuqs_vYC1pNmbIfaQ4JmWvrrx1vQhK__Wdm7n0NGbmECKGfcxC2dSkEFQC6YlXqLZq2OPyCARgKXn76C9DlNm9K0X'
+
+const navLinks = [
+  { href: '#', label: 'الرئيسية', active: true },
+  { href: '#menu', label: 'المنيو' },
+  { href: '#occasions', label: 'المناسبات' },
+  { href: '#events', label: 'الفعاليات' },
+  { href: '#contact', label: 'تواصل معنا' },
 ]
 
-export function LandingNav() {
-  const [scrolled, setScrolled] = useState(false)
-  const [mobileOpen, setMobileOpen] = useState(false)
-
-  useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 10)
-    window.addEventListener('scroll', onScroll, { passive: true })
-    return () => window.removeEventListener('scroll', onScroll)
-  }, [])
-
-  const bg = scrolled
-    ? 'bg-cafe-espresso/95 backdrop-blur-md border-b border-cafe-mocha/30'
-    : 'bg-transparent'
+export default function LandingNav() {
+  const [drawerOpen, setDrawerOpen] = useState(false)
 
   return (
-    <nav className={`fixed top-0 z-40 w-full ${bg} transition-colors duration-300`} aria-label="الرئيسية">
-      <div className="mx-auto flex max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center gap-2">
-          <ImageLogo />
-          <span className="font-bold text-xl tracking-tight text-cafe-cream">SKOON</span>
+    <>
+      <header
+        className="fixed top-0 w-full z-50 bg-[#1A1310]/90 backdrop-blur-xl transition-all duration-300 shadow-[0_1px_8px_rgba(0,0,0,0.04)]"
+      >
+        <div className="h-20 max-w-7xl mx-auto px-[1rem] lg:px-[3rem] flex items-center justify-between">
+          <div className="flex items-center gap-[0.75rem]">
+            <Image src={LOGO} alt="سكون كافيه" className="h-8 w-auto object-contain" priority />
+            <span className="text-xl text-[#FFFCF8] tracking-wide font-sans">
+              سكون كافيه
+            </span>
+          </div>
+          <nav className="hidden md:flex items-center gap-[3.5rem]">
+            {navLinks.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                className={`text-sm transition-colors ${
+                  link.active
+                    ? 'text-[#B98757]'
+                    : 'text-[#D8C5AD] hover:text-[#FFFCF8]'
+                }`}
+              >
+                {link.label}
+              </Link>
+            ))}
+          </nav>
+          <div className="flex items-center gap-[0.75rem]">
+            <div className="w-8 h-8 rounded-full bg-[#050201] flex items-center justify-center">
+              <span className="material-symbols-outlined text-[#ffffff] text-[18px]">
+                person
+              </span>
+            </div>
+            <button
+              className="md:hidden flex items-center justify-center text-[#FFFCF8] focus:outline-none"
+              onClick={() => setDrawerOpen((prev) => !prev)}
+              type="button"
+            >
+              <span className="material-symbols-outlined text-2xl">menu</span>
+            </button>
+          </div>
         </div>
+      </header>
 
-        <div className="hidden md:flex items-center gap-6 text-sm font-medium">
-          {NAV_LINKS.map((link, index) => (
+      {/* Mobile overlay */}
+      {drawerOpen && (
+        <div
+          className="fixed inset-0 bg-[#1A1310]/70 backdrop-blur-sm z-50 transition-opacity duration-300"
+          onClick={() => setDrawerOpen(false)}
+        />
+      )}
+
+      {/* Mobile drawer */}
+      <aside
+        className={`fixed top-0 right-0 h-full w-72 bg-[#241B17] z-50 transform transition-transform duration-300 ease-in-out shadow-2xl flex flex-col p-[1.25rem] ${drawerOpen ? 'translate-x-0' : 'translate-x-full'}`}
+      >
+        <div className="flex items-center justify-between pb-[1.25rem]">
+          <div className="flex items-center gap-[0.375rem]">
+            <Image src={LOGO} alt="سكون" className="h-8 w-auto object-contain" />
+            <span className="text-base text-[#FFFCF8] font-sans">سكون</span>
+          </div>
+          <button
+            className="text-[#D8C5AD] hover:text-[#FFFCF8]"
+            onClick={() => setDrawerOpen(false)}
+            type="button"
+          >
+            <span className="material-symbols-outlined text-2xl">close</span>
+          </button>
+        </div>
+        <nav className="flex flex-col gap-[1.25rem] mt-[3rem]">
+          {navLinks.map((link) => (
             <Link
-              key={index}
+              key={link.href}
               href={link.href}
-              className="text-cafe-cream/80 hover:text-cafe-caramel transition-colors"
+              onClick={() => setDrawerOpen(false)}
+              className={`text-sm transition-colors ${
+                link.active
+                  ? 'text-[#B98757]'
+                  : 'text-[#D8C5AD] hover:text-[#FFFCF8]'
+              }`}
             >
               {link.label}
             </Link>
           ))}
-        </div>
-
-        <div className="flex items-center gap-3">
-          <Link href="/order-type">
-            <Button size="sm" className="bg-cafe-caramel text-cafe-espresso hover:bg-cafe-caramel/90">
-              ابدأ طلبك
-            </Button>
-          </Link>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="text-cafe-cream md:hidden"
-            onClick={() => setMobileOpen(true)}
-            aria-label="فتح القائمة"
-          >
-            <Icon name="menu" size={20} />
-          </Button>
-        </div>
-      </div>
-
-      {mobileOpen && (
-        <div className="fixed inset-0 z-50 bg-cafe-espresso/98 backdrop-blur-lg" aria-hidden="true">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setMobileOpen(false)} />
-          <div className="absolute top-0 right-0 w-full sm:w-96 bg-cafe-espresso p-6 shadow-2xl transform transition-transform duration-300 translate-x-full sm:translate-x-0">
-            <div className="flex items-center justify-between mb-8">
-              <span className="font-bold text-xl text-cafe-cream">SKOON</span>
-              <Button size="sm" variant="ghost" onClick={() => setMobileOpen(false)} className="text-cafe-cream">
-                <Icon name="close" size={20} />
-              </Button>
-            </div>
-            <div className="flex flex-col gap-4">
-              {NAV_LINKS.map((link, index) => (
-                <Link
-                  key={index}
-                  href={link.href}
-                  onClick={() => setMobileOpen(false)}
-                  className="block py-3 text-sm font-medium text-cafe-cream/80 hover:text-cafe-caramel transition-colors"
-                >
-                  {link.label}
-                </Link>
-              ))}
-              <Link
-                href="/order-type"
-                onClick={() => setMobileOpen(false)}
-                className="mt-6 block py-4 text-center font-semibold text-cafe-espresso bg-cafe-caramel rounded-xl hover:bg-cafe-caramel/90 transition-colors"
-              >
-                ابدأ طلبك
-              </Link>
-            </div>
-          </div>
-        </div>
-      )}
-    </nav>
-  )
-}
-
-function ImageLogo() {
-  return (
-    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-cafe-mocha">
-      <Icon name="utensils" size={18} className="text-cafe-caramel" />
-    </div>
+        </nav>
+      </aside>
+    </>
   )
 }

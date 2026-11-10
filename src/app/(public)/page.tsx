@@ -1,94 +1,38 @@
-import { prisma } from '@/lib/prisma'
-import { formatCurrency } from '@/lib/format'
-import { ResumeOrderButton } from '@/components/order/resume-order-button'
-import { LandingHero } from '@/components/public/landing-hero'
-import { FeaturedProducts } from '@/components/public/featured-products'
-import { CategoriesSection } from '@/components/public/categories-section'
-import { CafeIntro } from '@/components/public/cafe-intro'
-import { MenuCta } from '@/components/public/menu-cta'
-import { LandingFooter } from '@/components/public/landing-footer'
-
-interface PublicProduct {
-  id: string
-  name: string
-  description: string | null
-  price: string
-  imagePath: string | null
-}
-
-interface PublicCategory {
-  id: string
-  name: string
-}
+import LandingNav from '@/components/public/landing-nav'
+import LandingHero from '@/components/public/landing-hero'
+import AboutSection from '@/components/public/about-section'
+import MenuSection from '@/components/public/menu-section'
+import OccasionsSection from '@/components/public/occasions-section'
+import EventsSection from '@/components/public/events-section'
+import GallerySection from '@/components/public/gallery-section'
+import WhySokoonSection from '@/components/public/why-sokoon-section'
+import SocialQRSection from '@/components/public/social-qr-section'
+import ContactSection from '@/components/public/contact-section'
+import LandingFooter from '@/components/public/landing-footer'
 
 /**
- * Premium café landing page — Arabic-first, RTL.
- *
- * Public-facing only. Fetches real catalog data (products + categories) from
- * the database for the featured-products section. All ordering flows remain
- * on the existing verified routes: /order-type → /select-table → /menu/[token].
- *
- * No staff routes, APIs, middleware, or Prisma schema are touched.
+ * Skoon — Premium Café Landing Page (Arabic-first, RTL).
+ * Composed from the provided HTML design, converted to Next.js/React components.
+ * All sections are responsive (sm/md/lg) and use the project's RTL setup.
  */
-export default async function LandingPage() {
-  // Fetch real, active, available products for the featured section.
-  // Limit to 8 for the hero carousel-like grid.
-  const [products, categories] = await Promise.all([
-    prisma.product
-      .findMany({
-        where: { isActive: true, deletedAt: null, isAvailable: true },
-        orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
-        take: 8,
-        select: {
-          id: true,
-          name: true,
-          description: true,
-          price: true,
-          imagePath: true,
-        },
-      })
-      .then((rows) =>
-        rows.map((p) => ({
-          id: p.id.toString(),
-          name: p.name,
-          description: p.description,
-          price: p.price.toString(),
-          imagePath: p.imagePath,
-        })) as PublicProduct[],
-      )
-      .catch(() => [] as PublicProduct[]),
-    prisma.category
-      .findMany({
-        where: { isActive: true, deletedAt: null },
-        orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
-        select: { id: true, name: true },
-      })
-      .then((rows) => rows.map((c) => ({ id: c.id.toString(), name: c.name })) as PublicCategory[])
-      .catch(() => [] as PublicCategory[]),
-  ])
-
-  // خلفية البطل — صورة من Pexels (مسموح بها في next.config.ts images.remotePatterns).
-  // لتغييرها، عدل الرابط أسفل أو أضف NEXT_PUBLIC_HERO_BG_IMAGE في .env.local.
-  const heroBgImage =
-    process.env.NEXT_PUBLIC_HERO_BG_IMAGE ??
-    'https://images.pexels.com/photos/302899/pexels-photo-302899.jpeg?auto=compress&cs=tinysrgb&w=1920';
-  const cafeBgImage = process.env.NEXT_PUBLIC_CAFE_BG_IMAGE;
-
+export default function LandingPage() {
   return (
-    <div className="relative min-h-dvh bg-white text-foreground" dir="rtl" lang="ar">
-      <main>
-        <LandingHero bgImage={heroBgImage} />
-        <FeaturedProducts products={products} />
-        <CategoriesSection categories={categories} />
-        <CafeIntro bgImage={cafeBgImage} />
-        <MenuCta />
+    <div className="relative min-h-dvh bg-[#fff9ef] text-[#1d1b16]" dir="rtl" lang="ar">
+      <LandingNav />
+
+      <main className="w-full select-none">
+        <LandingHero />
+        <AboutSection />
+        <MenuSection />
+        <OccasionsSection />
+        <EventsSection />
+        <GallerySection />
+        <WhySokoonSection />
+        <SocialQRSection />
+        <ContactSection />
       </main>
 
       <LandingFooter />
-
-      <div className="mt-8 flex justify-center">
-        <ResumeOrderButton />
-      </div>
     </div>
   )
 }
