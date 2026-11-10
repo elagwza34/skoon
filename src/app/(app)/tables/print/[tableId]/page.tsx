@@ -2,6 +2,7 @@ import Image from 'next/image'
 import { requirePageAccess } from '@/lib/require-page-access'
 import { prisma } from '@/lib/prisma'
 import { toDataURL } from 'qrcode'
+import { PrintButton } from '@/components/tables/print-button'
 
 export const metadata = {
   title: 'طباعة رمز QR للطاولة',
@@ -83,13 +84,7 @@ export default async function TablePrintPage({
           </div>
         </div>
         <div className="mt-4 flex gap-2">
-          <button
-            onClick={() => window.print()}
-            className="no-print inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-[#241B17] text-[#FFFCF8] font-semibold text-sm hover:bg-[#B98757] hover:text-[#241B17] transition-colors"
-          >
-            <span className="material-symbols-outlined text-[16px]">print</span>
-            طباعة
-          </button>
+          <PrintButton />
           <a
             href="/tables"
             className="no-print inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border text-sm hover:bg-accent transition-colors"
