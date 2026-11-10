@@ -20,7 +20,7 @@ export default function LandingHero() {
 
       <div className="relative z-10 w-full px-[1rem] lg:px-[3rem] text-center pt-28 pb-16 flex flex-col items-center">
         <div className="mb-[1.25rem] inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-[#f3ede4]/10 backdrop-blur-md shadow-sm">
-          <Image src={LOGO_BADGE} alt="سكون كافيه" className="w-6 h-6 object-contain" />
+          <Image src={LOGO_BADGE} alt="سكون كافيه" width={24} height={24} className="w-6 h-6 object-contain" />
           <span className="text-xs text-[#B98757] tracking-wider uppercase font-sans">
             ملاذك الهادئ في قلب المدينة
           </span>

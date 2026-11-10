@@ -25,7 +25,7 @@ export default function LandingNav() {
       >
         <div className="h-20 w-full px-[1rem] lg:px-[3rem] flex items-center justify-between">
           <div className="flex items-center gap-[0.75rem]">
-            <Image src={LOGO} alt="سكون كافيه" className="h-8 w-auto object-contain" priority />
+            <Image src={LOGO} alt="سكون كافيه" width={32} height={32} className="h-8 w-auto object-contain" priority />
             <span className="text-xl text-[#FFFCF8] tracking-wide font-sans">
               سكون كافيه
             </span>
@@ -76,7 +76,7 @@ export default function LandingNav() {
       >
         <div className="flex items-center justify-between pb-[1.25rem]">
           <div className="flex items-center gap-[0.375rem]">
-            <Image src={LOGO} alt="سكون" className="h-8 w-auto object-contain" />
+            <Image src={LOGO} alt="سكون" width={32} height={32} className="h-8 w-auto object-contain" />
             <span className="text-base text-[#FFFCF8] font-sans">سكون</span>
           </div>
           <button
