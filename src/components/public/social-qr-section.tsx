@@ -32,12 +32,13 @@ export default function SocialQRSection() {
       showQr: false,
     },
     {
-      name: 'واي فاي سكون',
+      name: 'واي فاي סكون',
       icon: 'wifi',
       desc: 'اتصل بالشبكة بسرعة وسهولة',
       link: '#',
       qrNote: 'الشبكة: Sokoon_Guest',
       extra: 'مجانًا لزوارنا',
+      showQr: false,
     },
   ]
 
