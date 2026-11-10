@@ -33,18 +33,18 @@ export default function LandingHero() {
         </p>
         <div className="flex flex-wrap items-center justify-center gap-[1rem] w-full">
           <a
-            href="#menu"
+            href="/scan-qr"
             className="px-8 py-3.5 rounded-full bg-[#B98757] text-[#1A1310] text-sm font-semibold hover:bg-[#D4AF37] transition-all duration-300 shadow-lg hover:shadow-[0_0_15px_rgba(212,175,55,0.18)] flex items-center gap-2"
+          >
+            <span>اطلب الآن</span>
+            <span className="material-symbols-outlined text-[18px]">qr_code_scanner</span>
+          </a>
+          <a
+            href="#menu"
+            className="px-8 py-3.5 rounded-full bg-[#FFFCF8]/10 text-[#FFFCF8] text-sm font-medium hover:bg-[#FFFCF8]/20 backdrop-blur-md transition-all duration-300 flex items-center gap-2"
           >
             <span>استكشف المنيو</span>
             <span className="material-symbols-outlined text-[18px]">restaurant_menu</span>
-          </a>
-          <a
-            href="#about"
-            className="px-8 py-3.5 rounded-full bg-[#FFFCF8]/10 text-[#FFFCF8] text-sm font-medium hover:bg-[#FFFCF8]/20 backdrop-blur-md transition-all duration-300 flex items-center gap-2"
-          >
-            <span>اكتشف سكون</span>
-            <span className="material-symbols-outlined text-[18px]">arrow_downward</span>
           </a>
         </div>
         <a
