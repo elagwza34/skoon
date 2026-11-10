@@ -75,7 +75,7 @@ export default function ContactSection() {
                 <span>تواصل واتساب</span>
               </a>
               <a
-                href="https://www.google.com/maps/search/?api=1&query=طنطا+شارع+حسن+حسيب+بجوار+الكموني+للسيارات"
+                href="https://maps.app.goo.gl/vX1vCK9Jm7nB8sc16"
                 target="_blank"
                 rel="noopener"
                 className="flex-1 min-w-[160px] py-3.5 px-6 rounded-full bg-[rgba(212,175,55,0.18)] text-[#241B17] text-sm font-semibold hover:bg-[#B98757]/30 transition-all duration-300 shadow-sm text-center flex items-center justify-center gap-2 font-sans"
