@@ -253,13 +253,13 @@ export function MenuOrderView({ menu }: { menu: PublicMenu }) {
           <button
             type="button"
             aria-label="إغلاق"
-            className="absolute inset-0 bg-cafe-espresso/60 backdrop-blur-sm"
+            className="absolute inset-0 bg-black/80 backdrop-blur-md"
             onClick={() => setCartOpen(false)}
           />
-          <div className="relative z-10 flex max-h-[90dvh] w-full max-w-md flex-col overflow-hidden rounded-t-2xl bg-white text-foreground shadow-xl sm:rounded-2xl">
-            <div className="flex items-center justify-between border-b border-border px-4 py-3">
-              <h2 className="text-base font-bold">طلبك ({itemCount})</h2>
-              <Button size="icon" variant="ghost" onClick={() => setCartOpen(false)} aria-label="إغلاق">
+          <div className="relative z-10 flex max-h-[90dvh] w-full max-w-md flex-col overflow-hidden rounded-t-2xl bg-cafe-espresso text-white shadow-xl sm:rounded-2xl">
+            <div className="flex items-center justify-between border-b border-[#4a5568] px-4 py-3">
+              <h2 className="text-base font-bold text-white">طلبك ({itemCount})</h2>
+              <Button size="icon" variant="ghost" onClick={() => setCartOpen(false)} aria-label="إغلاق" className="text-white">
                 <Icon name="close" size={18} />
               </Button>
             </div>
