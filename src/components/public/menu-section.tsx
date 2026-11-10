@@ -99,7 +99,7 @@ export default function MenuSection() {
         {/* Order Now CTA */}
         <div className="mt-[3rem] text-center">
           <a
-            href="/order-type"
+            href="/scan-qr"
             className="inline-flex items-center gap-2 px-8 py-3.5 rounded-full bg-[#241B17] text-[#FFFCF8] text-[17px] font-semibold hover:bg-[#B98757] hover:text-[#241B17] transition-all duration-300 shadow-lg font-sans"
           >
             <span>اطلب الأن</span>
