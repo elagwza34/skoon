@@ -61,11 +61,31 @@ export default function ScanQRPage() {
   }
 
   const goToOrder = () => {
-    if (scanResult) {
-      window.location.href = `/menu/${scanResult}`
-    } else {
+    const text = scanResult?.trim()
+    if (!text) {
       window.location.href = '/order-type'
+      return
     }
+    try {
+      const u = new URL(text)
+      const m = u.pathname.match(/^\/menu\/([0-9a-f]{16})$/i)
+      if (m) {
+        window.location.href = `/menu/${m[1]}`
+        return
+      }
+    } catch {
+      // not an absolute URL
+    }
+    const pathMatch = text.match(/\/menu\/([0-9a-f]{16})/i)
+    if (pathMatch) {
+      window.location.href = `/menu/${pathMatch[1]}`
+      return
+    }
+    if (/^[0-9a-f]{16}$/i.test(text)) {
+      window.location.href = `/menu/${text}`
+      return
+    }
+    window.location.href = '/order-type'
   }
 
   return (
