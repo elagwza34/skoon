@@ -29,7 +29,7 @@ export default function ContactSection() {
                     العنوان والموقع
                   </h3>
                   <p className="text-[15px] text-[#4e4541] font-sans">
-                    شارع الجمهورية الرئيسي، متفرع من الميدان، بجوار البنك الأهلي، مصر.
+                    طنطا شارع حسن حسيب بجوار الكموني للسيارات، مصر.
                   </p>
                 </div>
               </div>
@@ -42,7 +42,7 @@ export default function ContactSection() {
                     أرقام التواصل
                   </h3>
                   <p className="text-[15px] text-[#4e4541] font-sans" dir="ltr">
-                    +20 100 123 4567 / +20 122 987 6543
+                    01500379339
                   </p>
                 </div>
               </div>
@@ -75,7 +75,7 @@ export default function ContactSection() {
                 <span>تواصل واتساب</span>
               </a>
               <a
-                href="https://maps.google.com"
+                href="https://www.google.com/maps/search/?api=1&query=طنطا+شارع+حسن+حسيب+بجوار+الكموني+للسيارات"
                 target="_blank"
                 rel="noopener"
                 className="flex-1 min-w-[160px] py-3.5 px-6 rounded-full bg-[rgba(212,175,55,0.18)] text-[#241B17] text-sm font-semibold hover:bg-[#B98757]/30 transition-all duration-300 shadow-sm text-center flex items-center justify-center gap-2 font-sans"

@@ -1,6 +1,5 @@
 export default function LandingFooter() {
-  const LOGO =
-    'https://lh3.googleusercontent.com/aida/ALJJyrAVYs6WPNK-08neMS-jRXVIlMP11b_p6MmYfGWTT8GOUwxVOkaocq4a9iKTxJ8n2ebbC-7sqJ7A__Hk6oPzgwuWjikY8BHh68ftcUkvwR9ETDKqSFkXBBD1-qyUBNaDRiI79PbaRB1uVPZHSUZDPFU9zYm2MUCkxX1Uuqs_vYC1pNmbIfaQ4JmWvrrx1vQhK__Wdm7n0NGbmECKGfcxC2dSkEFQC6YlXqLZq2OPyCARgKXn76C9DlNm9K0X'
+  const LOGO = '/logo.png'
 
   const links = [
     { label: 'الرئيسية', href: '#' },

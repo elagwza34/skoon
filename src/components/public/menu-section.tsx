@@ -63,7 +63,7 @@ export default function MenuSection() {
           {filtered.map((item) => (
             <div
               key={item.id}
-              className="menu-card group rounded-[0.5rem] bg-[#FFFCF8] p-[1rem] shadow-md flex flex-col justify-between transition-all duration-300 hover:-translate-y-1 hover:shadow-xl"
+              className="menu-card group rounded-[0.5rem] bg-[#FFFCF8] p-[1rem] shadow-md flex flex-col justify-between transition-all duration-300 hover:-translate-y-1 hover:shadow-xl h-[64px] lg:h-auto"
               data-category={item.category}
             >
               <div>
@@ -72,6 +72,7 @@ export default function MenuSection() {
                     className="w-full h-full bg-cover bg-center group-hover:scale-105 transition-transform duration-500"
                     style={{ backgroundImage: `url(${item.image})` }}
                   />
+                  {/* Mobile height override handled via grid item: h-[64px] on parent */}
                   <span className="absolute top-3 right-3 px-2.5 py-1 rounded-md bg-[#1A1310]/80 backdrop-blur text-[#B98757] text-[10px] font-sans font-medium">
                     {item.badge}
                   </span>

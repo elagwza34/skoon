@@ -25,7 +25,7 @@ export default function LandingHero() {
             ملاذك الهادئ في قلب المدينة
           </span>
         </div>
-        <h1 className="text-40px lg:text-[56px] leading-[52px] lg:leading-[68px] font-bold text-[#FFFCF8] mb-[1.25rem] max-w-[40rem]">
+        <h1 className="text-[48px] lg:text-[56px] leading-[56px] lg:leading-[68px] font-bold text-[#FFFCF8] mb-[1.25rem] max-w-[40rem]">
           سكون.. مساحتك من الهدوء
         </h1>
         <p className="text-[17px] text-[#D8C5AD] max-w-[32rem] mx-auto mb-[3.5rem] font-light leading-relaxed">
