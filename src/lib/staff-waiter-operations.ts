@@ -429,10 +429,11 @@ export async function requestTableTransfer(session: StaffSession, input: unknown
       },
     })
 
+    const sender = await tx.user.findUnique({ where: { id: session.id }, select: { name: true } })
     await notifyUser(tx, recipientWaiterId, {
       type: 'order.created',
-      title: '\u062a\u0627\u0644\u0628 \u0646\u0642\u0644 \u0645\u0633\u0626\u0648\u0644\u064a\u0629 \u0627\u0644\u0637\u0627\u0648\u0644\u0629',
-      body: '\u064a\u0648\u062c\u0648\u062f \u0637\u0644\u0628 \u0646\u0642\u0644 \u0645\u0633\u0626\u0648\u0644\u064a\u0629 \u0637\u0627\u0648\u0644\u0629 \u0628\u0627\u0646\u062a\u0638\u0627\u0631 \u0645\u0648\u0627\u0641\u0642\u0629\u0643',
+      title: 'طلب نقل مسؤولية طاولة',
+      body: `${sender?.name ?? 'ويتر'} يريد تسليم مسؤولية الطاولة ${table.number} إليك. افتح مساحة الويتر لقبول الطلب أو رفضه.`,
     })
 
     return {
@@ -551,8 +552,8 @@ export async function acceptTableTransfer(session: StaffSession, transferIdRaw: 
 
     await notifyUser(tx, row.sender_waiter_id, {
       type: 'order.created',
-      title: '\u062a\u0645 \u0642\u0628\u0648\u0644 \u0646\u0642\u0644 \u0645\u0633\u0626\u0648\u0644\u064a\u0629 \u0627\u0644\u0637\u0627\u0648\u0644\u0629',
-      body: '\u062a\u0645 \u0646\u0642\u0644 \u0645\u0633\u0626\u0648\u0644\u064a\u0629 \u0627\u0644\u0637\u0644\u0628\u0627\u062a \u0627\u0644\u0646\u0634\u0637\u0629 (\u0627\u0644\u063a) \u0625\u0644\u0649 \u0648\u064a\u062a\u0631 \u0622\u062e\u0631',
+      title: 'تم قبول نقل مسؤولية الطاولة',
+      body: `تم نقل مسؤولية الطاولة ${row.table_number} و${orders.length} طلب نشط إلى النادل المستلم.`,
     })
 
     await notifyRole(tx, ROLE.KITCHEN, row.branch_id, {

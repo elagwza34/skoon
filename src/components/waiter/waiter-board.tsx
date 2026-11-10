@@ -260,6 +260,34 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
     setTab('pos')
   }
 
+  async function respondTableTransfer(transferId: string, action: 'accept' | 'reject') {
+    setError(null)
+    try {
+      let reason: string | undefined
+      if (action === 'reject') { reason = window.prompt('سبب رفض نقل الطاولة (مطلوب)')?.trim() ?? undefined; if (!reason) return }
+      const res = await fetch(`/api/staff/waiter/table-transfers/${transferId}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(action === 'reject' ? { action, reason } : { action }) })
+      const payload = await res.json().catch(() => ({})) as { error?: string }
+      if (!res.ok) throw new Error(payload.error ?? 'تعذر تنفيذ طلب نقل الطاولة')
+      startTransition(() => router.refresh())
+      setSuccess(action === 'accept' ? 'تم قبول نقل الطاولة وأصبحت مسؤولاً عنها.' : 'تم رفض طلب نقل الطاولة.')
+      setTimeout(() => setSuccess(null), 3500)
+    } catch (e) { setError(e instanceof Error ? e.message : 'تعذر تنفيذ طلب نقل الطاولة') }
+  }
+
+  async function submitTableTransfer() {
+    if (!transferDialog?.tableId || !transferRecipient) { setError('اختر الطاولة والنادل المستلم'); return }
+    setError(null)
+    try {
+      const res = await fetch('/api/staff/waiter/table-transfers', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tableId: transferDialog.tableId, recipientWaiterId: transferRecipient, notes: transferNotes || undefined }) })
+      const payload = await res.json().catch(() => ({})) as { error?: string; tableNumber?: string }
+      if (!res.ok) throw new Error(payload.error ?? 'تعذر طلب نقل الطاولة')
+      setSuccess(`تم إرسال طلب نقل الطاولة ${payload.tableNumber ?? ''} للنادل المستلم.`)
+      setTransferDialog(null); setTransferRecipient(''); setTransferNotes('')
+      startTransition(() => router.refresh())
+      setTimeout(() => setSuccess(null), 3500)
+    } catch (e) { setError(e instanceof Error ? e.message : 'تعذر طلب نقل الطاولة') }
+  }
+
   const router = useRouter()
 
   // Auto-refresh table/order status every second so both cashier and
@@ -319,6 +347,22 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
 
       <main className="min-w-0 w-full p-3 sm:p-4 lg:p-6">
         <div className="flex min-w-0 w-full flex-col gap-5">
+          {(workspace.incomingTableTransfers?.length ?? 0) > 0 && (
+            <Card className="border-warning/40 bg-warning/5">
+              <CardHeader><CardTitle className="text-base">طلبات نقل طاولات بانتظار موافقتك</CardTitle></CardHeader>
+              <CardContent className="space-y-2">
+                {workspace.incomingTableTransfers?.map((tr) => (
+                  <div key={tr.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-card p-3">
+                    <div className="text-sm"><p className="font-medium">الطاولة {tr.tableNumber}</p><p className="text-muted-foreground">من: {tr.senderName}{tr.notes ? ` · ${tr.notes}` : ''}</p></div>
+                    <div className="flex gap-2">
+                      <Button size="sm" onClick={() => respondTableTransfer(tr.id, 'accept')}>قبول واستلام الطاولة</Button>
+                      <Button size="sm" variant="outline" onClick={() => respondTableTransfer(tr.id, 'reject')}>رفض</Button>
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
 
           {/* TAB: POS */}
           {tab === 'pos' && (
@@ -507,6 +551,39 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
 
         </div>
       </main>
+
+      {transferDialog && (
+        <div role="dialog" aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" dir="rtl">
+          <Card className="w-full max-w-md">
+            <CardHeader><CardTitle>نقل مسؤولية طاولة</CardTitle></CardHeader>
+            <CardContent className="space-y-3">
+              <label className="block space-y-1 text-sm">
+                <span className="text-muted-foreground">الطاولة</span>
+                <select className="h-10 w-full rounded border bg-background px-3" value={transferDialog.tableId} onChange={(e) => { const t0 = workspace.tables.find((x) => x.id === e.target.value); setTransferDialog({ tableId: e.target.value, tableNumber: t0?.number ?? '' }) }}>
+                  <option value="">اختر الطاولة</option>
+                  {workspace.tables.filter((t0) => myActiveTableNumbers.has(t0.number)).map((t0) => <option key={t0.id} value={t0.id}>الطاولة {t0.number}</option>)}
+                </select>
+              </label>
+              <label className="block space-y-1 text-sm">
+                <span className="text-muted-foreground">النادل المستلم</span>
+                <select className="h-10 w-full rounded border bg-background px-3" value={transferRecipient} onChange={(e) => setTransferRecipient(e.target.value)}>
+                  <option value="">اختر النادل</option>
+                  {(workspace.waiters ?? []).filter((w) => w.id !== workspace.currentUserId).map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+                </select>
+              </label>
+              <label className="block space-y-1 text-sm">
+                <span className="text-muted-foreground">ملاحظات (اختياري)</span>
+                <Input value={transferNotes} onChange={(e) => setTransferNotes(e.target.value)} placeholder="سبب/ملاحظة" />
+              </label>
+              <p className="text-xs text-muted-foreground">ستبقى المسؤولية عندك حتى يقبل النادل المستلم نقل الطاولة.</p>
+            </CardContent>
+            <div className="flex justify-end gap-2 border-t p-3">
+              <Button variant="outline" onClick={() => { setTransferDialog(null); setTransferRecipient(''); setTransferNotes('') }}>إلغاء</Button>
+              <Button disabled={!transferDialog.tableId || !transferRecipient} onClick={submitTableTransfer}>إرسال طلب النقل</Button>
+            </div>
+          </Card>
+        </div>
+      )}
 
     </div>
   )
