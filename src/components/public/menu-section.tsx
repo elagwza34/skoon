@@ -58,12 +58,12 @@ export default function MenuSection() {
           })}
         </div>
 
-        {/* Menu Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-[1rem]" id="menu-grid">
+        {/* Menu Horizontal Scroll */}
+        <div className="flex flex-row gap-4 overflow-x-auto pb-4 no-scrollbar" id="menu-grid">
           {filtered.map((item) => (
             <div
               key={item.id}
-              className="menu-card group rounded-[0.5rem] bg-[#FFFCF8] p-[1rem] shadow-md flex flex-col justify-between transition-all duration-300 hover:-translate-y-1 hover:shadow-xl lg:h-auto"
+              className="menu-card group min-w-[280px] rounded-[0.5rem] bg-[#FFFCF8] p-[1rem] shadow-md flex flex-col justify-between transition-all duration-300 hover:-translate-y-1 hover:shadow-xl"
               data-category={item.category}
             >
               <div>

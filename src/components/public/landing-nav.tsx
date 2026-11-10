@@ -20,14 +20,12 @@ export default function LandingNav() {
   return (
     <>
       <header
-        className="fixed top-0 w-full z-50 bg-[#1A1310]/90 backdrop-blur-xl transition-all duration-300 shadow-[0_1px_8px_rgba(0,0,0,0.04)]"
+        className="fixed top-0 w-full z-50 bg-transparent transition-all duration-300"
       >
-        <div className="h-20 w-full px-[1rem] lg:px-[3rem] flex items-center justify-between">
-          <div className="flex items-center gap-[0.75rem]">
-            <Image src={LOGO} alt="سكون كافيه" width={32} height={32} className="h-8 w-auto object-contain" priority />
-            <span className="text-xl text-[#FFFCF8] tracking-wide font-sans">
-              سكون كافيه
-            </span>
+        <div className="h-24 w-full px-[1rem] lg:px-[3rem] flex items-center justify-between">
+          <div className="flex items-center gap-[1rem]">
+            <Image src={LOGO} alt="سكون كافيه" width={64} height={64} className="h-16 w-auto object-contain" priority />
+  
           </div>
           <nav className="hidden md:flex items-center gap-[3.5rem]">
             {navLinks.map((link) => (
@@ -44,20 +42,13 @@ export default function LandingNav() {
               </Link>
             ))}
           </nav>
-          <div className="flex items-center gap-[0.75rem]">
-            <div className="w-8 h-8 rounded-full bg-[#050201] flex items-center justify-center">
-              <span className="material-symbols-outlined text-[#ffffff] text-[18px]">
-                person
-              </span>
-            </div>
-            <button
-              className="md:hidden flex items-center justify-center text-[#FFFCF8] focus:outline-none"
-              onClick={() => setDrawerOpen((prev) => !prev)}
-              type="button"
-            >
-              <span className="material-symbols-outlined text-2xl">menu</span>
-            </button>
-          </div>
+          <button
+            className="md:hidden flex items-center justify-center text-[#FFFCF8] focus:outline-none"
+            onClick={() => setDrawerOpen((prev) => !prev)}
+            type="button"
+          >
+            <span className="material-symbols-outlined text-2xl">menu</span>
+          </button>
         </div>
       </header>
 
