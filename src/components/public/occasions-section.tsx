@@ -28,7 +28,7 @@ export default function OccasionsSection() {
 
   return (
     <section className="py-[3.5rem] bg-[#241B17]" id="occasions">
-      <div className="max-w-7xl mx-auto px-[1rem] lg:px-[3rem]">
+      <div className="w-full px-[1rem] lg:px-[3rem]">
         <div className="flex flex-col md:flex-row md:items-end justify-between mb-[3.5rem] gap-[0.75rem]">
           <div>
             <span className="text-sm text-[#B98757] tracking-wider font-sans font-semibold">

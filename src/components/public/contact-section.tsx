@@ -3,7 +3,7 @@ import { CONTACT_MAP_IMG, CONTACT_PIN_IMG } from './contact-data'
 export default function ContactSection() {
   return (
     <section className="py-[3.5rem] bg-[#241B17]" id="contact">
-      <div className="max-w-7xl mx-auto px-[1rem] lg:px-[3rem]">
+      <div className="w-full px-[1rem] lg:px-[3rem]">
         <div className="text-center max-w-[32rem] mx-auto mb-[3.5rem] flex flex-col items-center gap-[0.375rem]">
           <span className="text-sm text-[#B98757] tracking-wider font-sans font-semibold">
             نحن بانتظارك

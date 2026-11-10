@@ -12,7 +12,7 @@ export default function LandingFooter() {
 
   return (
     <footer className="w-full bg-[#241B17] text-[#FFFCF8] py-[3.5rem] shadow-[0_1px_8px_rgba(0,0,0,0.04)]">
-      <div className="max-w-7xl mx-auto px-[1rem] lg:px-[3rem] flex flex-col items-center text-center gap-[3.5rem]">
+      <div className="w-full px-[1rem] lg:px-[3rem] flex flex-col items-center text-center gap-[3.5rem]">
         <div className="flex flex-col items-center gap-[0.375rem]">
           <img src={LOGO} alt="سكون كافيه" className="h-8 w-auto object-contain" />
           <span className="text-[22px] text-[#B98757] tracking-wide font-sans font-medium">

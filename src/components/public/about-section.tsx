@@ -4,7 +4,7 @@ export default function AboutSection() {
 
   return (
     <section className="py-[3.5rem] bg-[#fff9ef]" id="about">
-      <div className="max-w-7xl mx-auto px-[1rem] lg:px-[3rem]">
+      <div className="w-full px-[1rem] lg:px-[3rem]">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-[3.5rem] items-center">
           {/* Left Image */}
           <div className="lg:col-span-6 relative">

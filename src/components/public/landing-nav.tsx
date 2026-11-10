@@ -23,7 +23,7 @@ export default function LandingNav() {
       <header
         className="fixed top-0 w-full z-50 bg-[#1A1310]/90 backdrop-blur-xl transition-all duration-300 shadow-[0_1px_8px_rgba(0,0,0,0.04)]"
       >
-        <div className="h-20 max-w-7xl mx-auto px-[1rem] lg:px-[3rem] flex items-center justify-between">
+        <div className="h-20 w-full px-[1rem] lg:px-[3rem] flex items-center justify-between">
           <div className="flex items-center gap-[0.75rem]">
             <Image src={LOGO} alt="سكون كافيه" className="h-8 w-auto object-contain" priority />
             <span className="text-xl text-[#FFFCF8] tracking-wide font-sans">

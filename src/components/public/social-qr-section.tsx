@@ -40,7 +40,7 @@ export default function SocialQRSection() {
 
   return (
     <section className="py-[3.5rem] bg-[#ede7de]">
-      <div className="max-w-7xl mx-auto px-[1rem] lg:px-[3rem]">
+      <div className="w-full px-[1rem] lg:px-[3rem]">
         <div className="text-center max-w-[32rem] mx-auto mb-[3.5rem] flex flex-col items-center gap-[0.375rem]">
           <span className="text-sm text-[#B98757] tracking-wider font-sans font-semibold">
             تواصل سريع وسلس
