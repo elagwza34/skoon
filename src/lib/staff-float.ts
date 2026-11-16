@@ -372,6 +372,49 @@ export async function getMainSafeSummary(session: StaffSession): Promise<MainSaf
   }
 }
 
+/** Deposit into Main Safe — Owner only (opening balance / manual funding). */
+export async function depositToMainSafe(session: StaffSession, amount: number, reason: string, idempotencyKey?: string): Promise<{ id: string; occurredAt: string }> {
+  if (session.role !== ROLE.OWNER) throw new FloatError('غير مصرح — الإيداع في الخزنة الرئيسية للمالك فقط', 403)
+  if (!Number.isFinite(amount) || amount <= 0) throw new FloatError('المبلغ غير صالح', 400)
+  if (!reason.trim() || reason.trim().length < 3) throw new FloatError('السبب مطلوب (3 أحرف على الأقل)', 400)
+  const branchId = session.branchId ? BigInt(session.branchId) : await firstBranchId()
+  if (!branchId || !staffCanAccessBranch(session, branchId)) throw new FloatError('Forbidden', 403)
+
+  const key = validatedOperationKey(idempotencyKey)
+  const operationType = 'main_safe_deposit'
+  const fingerprint = createHash('sha256').update(JSON.stringify({ amount, reason: reason.trim(), branchId: branchId.toString() })).digest('hex')
+
+  const previous = await prisma.financialOperation.findUnique({
+    where: { branchId_actorId_operationType_idempotencyKey: { branchId, actorId: session.id, operationType, idempotencyKey: key } },
+  })
+  if (previous) {
+    if (previous.fingerprint !== fingerprint) throw new FloatError('Idempotency key was reused with a different request', 409)
+    return previous.result as { id: string; occurredAt: string }
+  }
+
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('main-safe:' || ${branchId.toString()}))`
+    const replay = await tx.financialOperation.findUnique({ where: { branchId_actorId_operationType_idempotencyKey: { branchId, actorId: session.id, operationType, idempotencyKey: key } } })
+    if (replay) { if (replay.fingerprint !== fingerprint) throw new FloatError('Idempotency key was reused with a different request', 409); return replay.result as never }
+
+    const movement = await tx.financialMovement.create({
+      data: {
+        branchId, type: 'main_safe_deposit', status: 'posted',
+        amount: amount.toFixed(2), sourceAccount: 'EXTERNAL_FUNDING', destinationAccount: 'MAIN_SAFE',
+        actorId: session.id, reason: reason.trim(),
+      },
+      select: { id: true, occurredAt: true },
+    })
+    await tx.auditLog.create({ data: {
+      userId: session.id, branchId, action: 'main_safe.deposit', entityType: 'financial_movement', entityId: movement.id,
+      newValues: { amount: amount.toFixed(2), reason: reason.trim() },
+    } })
+    const result = { id: movement.id.toString(), occurredAt: movement.occurredAt.toISOString() }
+    await tx.financialOperation.create({ data: { branchId, actorId: session.id, operationType, idempotencyKey: key, fingerprint, result } })
+    return result
+  })
+}
+
 /** Withdraw from Main Safe — Owner only. Manager must not physically withdraw cash. */
 export async function withdrawFromMainSafe(session: StaffSession, amount: number, reason: string, idempotencyKey?: string): Promise<{ id: string; occurredAt: string }> {
   if (session.role !== ROLE.OWNER) throw new FloatError('غير مصرح — السحب من الخزنة الرئيسية للمالك فقط', 403)

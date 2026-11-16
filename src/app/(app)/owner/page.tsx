@@ -10,13 +10,20 @@ export default async function OwnerPage() {
     <div className="min-h-dvh bg-background p-2 sm:p-3">
       <CanonicalDashboardPage pathname="/owner" />
       <OwnerInvoiceBoard invoices={invoices} session={{ role: session.role, name: session.name ?? '', branchId: session.branchId ?? null }} />
-      <div className="mt-6">
+      <div className="mt-6 flex flex-wrap gap-3">
         <a
           href="/owner/qr-tables"
           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#241B17] text-[#FFFCF8] font-semibold text-sm hover:bg-[#B98757] hover:text-[#241B17] transition-colors"
         >
           <span className="material-symbols-outlined text-[16px]">qr_code</span>
           رموز QR للطاولات
+        </a>
+        <a
+          href="/main-safe"
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border bg-card font-semibold text-sm hover:bg-accent transition-colors"
+        >
+          <span className="material-symbols-outlined text-[16px]">account_balance</span>
+          الخزنة الرئيسية
         </a>
       </div>
     </div>

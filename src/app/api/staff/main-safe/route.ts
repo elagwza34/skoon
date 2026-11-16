@@ -1,17 +1,19 @@
-import { NextResponse } from 'next/server'
+﻿import { NextResponse } from 'next/server'
 import { getStaffSession } from '@/lib/session'
 import {
   getMainSafeSummary,
   withdrawFromMainSafe,
   transferMainSafeToFixedFloat,
+  depositToMainSafe,
   FloatError,
 } from '@/lib/staff-float'
 
 /**
  * Main Safe management — /api/staff/main-safe.
  *   GET  → balance and history (manager+)
- *   POST → { action: 'withdraw', amount, reason } (manager+)
- *   POST → { action: 'transfer_to_fixed_float', amount, reason } (manager+)
+ *   POST → { action: 'deposit', amount, reason } (owner)
+ *   POST → { action: 'withdraw', amount, reason } (owner)
+ *   POST → { action: 'transfer_to_fixed_float', amount, reason } (owner)
  */
 export const dynamic = 'force-dynamic'
 
@@ -40,10 +42,20 @@ export async function POST(req: Request) {
   }
 
   try {
+    if (body.action === 'deposit') {
+      const amount = typeof body.amount === 'number' ? body.amount : Number(body.amount)
+      const reason = typeof body.reason === 'string' ? body.reason : ''
+      if (!Number.isFinite(amount) || amount <= 0 || !reason.trim()) {
+        return NextResponse.json({ error: 'المبلغ والسبب مطلوبان' }, { status: 400 })
+      }
+      const result = await depositToMainSafe(session, amount, reason, req.headers.get('idempotency-key') ?? (typeof body.idempotencyKey === 'string' ? body.idempotencyKey : undefined))
+      return NextResponse.json(result, { status: 200 })
+    }
+
     if (body.action === 'withdraw') {
-      const amount = typeof body.amount === 'number' ? body.amount : null
-      const reason = typeof body.reason === 'string' ? body.reason : null
-      if (amount === null || amount <= 0 || !reason) {
+      const amount = typeof body.amount === 'number' ? body.amount : Number(body.amount)
+      const reason = typeof body.reason === 'string' ? body.reason : ''
+      if (!Number.isFinite(amount) || amount <= 0 || !reason.trim()) {
         return NextResponse.json({ error: 'المبلغ والسبب مطلوبان' }, { status: 400 })
       }
       const result = await withdrawFromMainSafe(session, amount, reason, req.headers.get('idempotency-key') ?? (typeof body.idempotencyKey === 'string' ? body.idempotencyKey : undefined))
@@ -51,9 +63,9 @@ export async function POST(req: Request) {
     }
 
     if (body.action === 'transfer_to_fixed_float') {
-      const amount = typeof body.amount === 'number' ? body.amount : null
-      const reason = typeof body.reason === 'string' ? body.reason : null
-      if (amount === null || amount <= 0 || !reason) {
+      const amount = typeof body.amount === 'number' ? body.amount : Number(body.amount)
+      const reason = typeof body.reason === 'string' ? body.reason : ''
+      if (!Number.isFinite(amount) || amount <= 0 || !reason.trim()) {
         return NextResponse.json({ error: 'المبلغ والسبب مطلوبان' }, { status: 400 })
       }
       const result = await transferMainSafeToFixedFloat(session, amount, reason, req.headers.get('idempotency-key') ?? (typeof body.idempotencyKey === 'string' ? body.idempotencyKey : undefined))

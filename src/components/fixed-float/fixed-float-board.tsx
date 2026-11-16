@@ -1,5 +1,6 @@
 ﻿'use client'
 
+import Link from 'next/link'
 import { useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -112,6 +113,7 @@ export function FixedFloatBoard({ board }: { board: FixedFloatBoard }) {
           <Button disabled={busy} onClick={() => void post('addition')}>إضافة من الخزنة</Button>
           <Button variant="destructive" disabled={busy || board.requiresReconciliation} onClick={() => void post('withdrawal')}>سحب من العهدة</Button>
           {error ? <p className="w-full text-sm text-destructive">{error}</p> : null}
+          <p className="w-full text-xs text-muted-foreground">«إضافة من الخزنة» تسحب من رصيد <Link href="/main-safe" className="text-primary underline">الخزنة الرئيسية</Link>. إذا كان الرصيد غير كافٍ نفّذ إيداعًا في الخزنة الرئيسية أولًا.</p>
         </CardContent>
       </Card>
 

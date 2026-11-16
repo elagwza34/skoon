@@ -37,6 +37,7 @@ const ROUTE_PERMISSION: Record<string, string> = {
   '/reports': 'reports.view',
   '/settings': 'settings.manage',
   '/fixed-float': 'settings.manage',
+  '/main-safe': 'settings.manage',
   '/shifts': 'orders.view',
   '/cashier': 'orders.payment',
 }
