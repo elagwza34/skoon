@@ -35,13 +35,15 @@ export async function getStaffTables(session: StaffSession): Promise<StaffTable[
     }),
   ])
   const openByTable = new Map(active.map((a) => [a.cafeTableId.toString(), a._count._all]))
-  return tables.map((t) => {
-    const open = openByTable.get(t.id.toString()) ?? 0
-    return {
-      id: t.id.toString(), number: t.number, name: t.name, capacity: t.capacity,
-      status: open > 0 ? ('occupied' as const) : ('available' as const),
-      publicToken: t.publicToken, openOrders: open,
-      floorPlanZone: t.floorPlanZone, floorPlanX: t.floorPlanX === null ? null : Number(t.floorPlanX), floorPlanY: t.floorPlanY === null ? null : Number(t.floorPlanY), floorPlanRotation: t.floorPlanRotation,
-    }
-  })
+  return tables
+    .map((t) => {
+      const open = openByTable.get(t.id.toString()) ?? 0
+      return {
+        id: t.id.toString(), number: t.number, name: t.name, capacity: t.capacity,
+        status: open > 0 ? ('occupied' as const) : ('available' as const),
+        publicToken: t.publicToken, openOrders: open,
+        floorPlanZone: t.floorPlanZone, floorPlanX: t.floorPlanX === null ? null : Number(t.floorPlanX), floorPlanY: t.floorPlanY === null ? null : Number(t.floorPlanY), floorPlanRotation: t.floorPlanRotation,
+      }
+    })
+    .sort((a, b) => a.number.localeCompare(b.number, 'en', { numeric: true, sensitivity: 'base' }))
 }

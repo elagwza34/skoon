@@ -11,13 +11,13 @@ export const metadata = {
 export default async function OwnerQrTablesPage() {
   const session = await requirePageAccess('/owner')
 
-  const tables = await prisma.cafeTable.findMany({
+  const tables = (await prisma.cafeTable.findMany({
     where: { isActive: true, deletedAt: null },
-    orderBy: { number: 'asc' },
+    orderBy: [{ sortOrder: 'asc' }, { number: 'asc' }],
     include: {
       branch: { select: { name: true } },
     },
-  })
+  })).sort((a, b) => a.number.localeCompare(b.number, 'en', { numeric: true, sensitivity: 'base' }))
 
   const baseUrl =
     process.env.NEXT_PUBLIC_APP_URL ||
