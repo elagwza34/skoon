@@ -391,10 +391,16 @@ export async function closeShift(
   if (parsed.data.handoverRecipientId) {
     if (parsed.data.handoverRecipientId === session.id) throw new ShiftError('لا يمكنك تسليم الوردية لنفسك', 422)
     recipient = await prisma.user.findFirst({
-      where: { id: parsed.data.handoverRecipientId, branchId: shift.branchId, isActive: true, deletedAt: null },
+      where: { id: parsed.data.handoverRecipientId, branchId: shift.branchId, isActive: true, deletedAt: null, role: { is: { slug: ROLE.CASHIER } } },
       select: { id: true, name: true },
     })
     if (!recipient) throw new ShiftError('الموظف المستلم غير موجود أو غير نشط في نفس الفرع', 422)
+  }
+
+  if (session.role === ROLE.WAITER && parsed.data.tableHandoffRecipientId) {
+    if (parsed.data.tableHandoffRecipientId === session.id) throw new ShiftError('Cannot hand tables to yourself', 422)
+    tableHandoffRecipient = await prisma.user.findFirst({ where: { id: parsed.data.tableHandoffRecipientId, branchId: shift.branchId, isActive: true, deletedAt: null, role: { is: { slug: ROLE.WAITER } } }, select: { id: true, name: true } })
+    if (!tableHandoffRecipient) throw new ShiftError('Select an active waiter in this branch', 422)
   }
 
   // Financial totals are calculated after the common shift lock below.
@@ -420,7 +426,7 @@ export async function closeShift(
       if (isCashHandlingRole(session.role)) {
         // سلفة الكاشير تبقى مسجلة عليه وتُستكمل لاحقًا؛ لا تُمنع إغلاق الوردية بسببها (per spec E2).
         if (recipient) {
-        const eligible = await tx.user.findFirst({ where: { id: recipient.id, branchId: lockedShift.branchId, isActive: true, deletedAt: null }, select: { id: true } })
+        const eligible = await tx.user.findFirst({ where: { id: recipient.id, branchId: lockedShift.branchId, isActive: true, deletedAt: null, role: { is: { slug: ROLE.CASHIER } } }, select: { id: true } })
         if (!eligible) throw new ShiftError('المستلم لم يعد نشطًا في نفس الفرع', 422)
       }
     }
@@ -855,7 +861,7 @@ export async function getShiftsBoard(
 
   if (!staffCanAccessBranch(session, branchId)) throw new ShiftError('غير مصرح', 403)
 
-  const [current, recent, branches, cashiers] = await Promise.all([
+  const [current, recent, branches, cashiers, waiters] = await Promise.all([
     prisma.shift.findFirst({
       where: { cashierId: viewerCashierId, branchId, status: 'open' },
       orderBy: { openedAt: 'desc' },
@@ -873,9 +879,10 @@ export async function getShiftsBoard(
         })
       : Promise.resolve([]),
     prisma.user.findMany({
-      where: { branchId, isActive: true, deletedAt: null },
+      where: { branchId, isActive: true, deletedAt: null, role: { is: { slug: ROLE.CASHIER } } },
       orderBy: { name: 'asc' }, select: { id: true, name: true },
     }),
+    prisma.user.findMany({ where: { branchId, isActive: true, deletedAt: null, role: { is: { slug: ROLE.WAITER } }, cashierShifts: { some: { branchId, status: 'open' } } }, orderBy: { name: 'asc' }, select: { id: true, name: true } }),
   ])
 
   const shiftIds = recent.map((s) => s.id)
@@ -956,6 +963,6 @@ export async function getShiftsBoard(
     currentOrders,
     recent: recent.map(viewOf),
     waiterOpenTables: session.role === ROLE.WAITER && current ? await (async ()=>{ const rows=await prisma.order.findMany({ where: { branchId, responsibleWaiterId: session.id, status: { in: ['new','preparing','ready'] }, paymentStatus: { not: 'paid' } }, select: { cafeTableId: true } }); const ids=[...new Set(rows.map(r=>r.cafeTableId.toString()))]; const tables=ids.length?await prisma.cafeTable.findMany({where:{id:{in:ids.map(id=>BigInt(id))},branchId},select:{id:true,number:true}}):[]; const nameById=new Map(tables.map(x=>[x.id.toString(),x.number])); return rows.reduce((acc:Array<{tableId:string;tableNumber:string;ordersCount:number}>,o)=>{const tid=o.cafeTableId.toString();const row=acc.find(x=>x.tableId===tid);const tn=nameById.get(tid)??tid; if(row) row.ordersCount++; else acc.push({tableId:tid,tableNumber:tn,ordersCount:1}); return acc},[]).sort((a,b)=>a.tableNumber.localeCompare(b.tableNumber,'ar',{numeric:true})) })() : [],
-    handoffRecipients: cashiers.filter((u)=>u.id!==session.id).map((u)=>({id:u.id,name:u.name,role:'staff'})),
+    handoffRecipients: waiters.filter((u)=>u.id!==session.id).map((u)=>({id:u.id,name:u.name,role:ROLE.WAITER})),
   }
 }

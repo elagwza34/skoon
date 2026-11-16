@@ -100,14 +100,14 @@ export interface StaffOrderRow {
  */
 export async function listStaffOrders(
   session: StaffSession,
-  opts: { status?: string; limit?: number } = {},
+  opts: { status?: string; limit?: number; orderId?: string } = {},
 ): Promise<StaffOrderRow[]> {
   const branchScope =
     session.role === ROLE.OWNER ? {} : { branchId: BigInt(session.branchId as string) }
   const statusFilter = opts.status && opts.status !== 'all' && isOrderStatus(opts.status) ? opts.status : undefined
 
   const orders = await prisma.order.findMany({
-    where: { ...branchScope, ...(statusFilter ? { status: statusFilter } : {}) },
+    where: { ...branchScope, ...(statusFilter ? { status: statusFilter } : {}), ...(opts.orderId && /^\d+$/.test(opts.orderId) ? { id: BigInt(opts.orderId) } : {}) },
     orderBy: { createdAt: 'desc' },
     take: Math.min(opts.limit ?? 100, 200),
     select: {
@@ -590,7 +590,7 @@ export async function appendOrderItems(
   const products = await prisma.product.findMany({
     where: { id: { in: productIds }, branchId: order.branchId, isActive: true, deletedAt: null, isAvailable: true },
     select: {
-      id: true, name: true, price: true,
+      id: true, name: true, price: true, taxRate: true,
       variants: { where: { isActive: true, isAvailable: true, archivedAt: null }, select: { id: true, combinationKey: true, price: true } },
       optionAssignments: {
         orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
@@ -694,7 +694,7 @@ export async function appendOrderItems(
           quantity: item.qty,
           lineTotal: centsText(lineCents),
           productVariantSnapshot: variant ? createOrderItemVariantSnapshot(variant.combinationKey, variant.values.map((entry) => entry.value)) : undefined,
-          optionsSnapshot: { version: 1, groups: modifierAdjustments.map((m) => ({ groupId: m.groupId.toString(), groupName: m.groupName, optionId: m.optionId.toString(), optionLabel: m.optionLabel, priceAdjustment: m.priceAdjustment.toString() })) },
+          optionsSnapshot: { version: 1, taxRate: String(p.taxRate ?? '0'), groups: modifierAdjustments.map((m) => ({ groupId: m.groupId.toString(), groupName: m.groupName, optionId: m.optionId.toString(), optionLabel: m.optionLabel, priceAdjustment: m.priceAdjustment.toString() })) },
           options: { create: modifierAdjustments.map((m) => ({ productOptionId: m.groupId, optionValueId: m.optionId, optionName: m.groupName, valueLabel: m.optionLabel, priceAdjustment: m.priceAdjustment.toString() })) },
           notes: item.note?.trim() || null,
         },

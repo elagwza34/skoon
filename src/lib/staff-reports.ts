@@ -165,7 +165,7 @@ export async function getReportsSummary(session: StaffSession, daysRaw?: string)
     billedOrders: billed.length,
     paidOrders,
     avgOrderValue: avgPerPaidOrder(orderValueCents, billed.length),
-    avgCollectedPerPaidOrder: avgPerPaidOrder(collected.collectedCents, paidOrders),
+    avgCollectedPerPaidOrder: avgPerPaidOrder(collected.netCollectedCents, paidOrders),
     daily,
     topProducts: topRows.map((r) => ({
       name: r.productName, qty: r._sum.quantity ?? 0, revenue: centsToAmount(toCents(r._sum.lineTotal ?? '0')),

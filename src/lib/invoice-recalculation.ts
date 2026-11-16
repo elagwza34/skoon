@@ -1,3 +1,4 @@
+import { calculateSnapshotTax } from '@/lib/invoice-tax'
 import type { Prisma } from '@prisma/client'
 import { calculateInvoiceDiscounts, type DiscountKind } from '@/lib/invoice-discounts'
 
@@ -44,7 +45,7 @@ export async function recalculateOpenOrderInvoice(
   const lines = await tx.orderItem.findMany({
     where: { orderId, isVoided: false },
     orderBy: { id: 'asc' },
-    select: { id: true, unitPrice: true, quantity: true, discountType: true, discountValue: true, eligibleForInvoiceDiscount: true },
+    select: { id: true, unitPrice: true, quantity: true, discountType: true, discountValue: true, eligibleForInvoiceDiscount: true, optionsSnapshot: true },
   })
   if (!lines.length) throw new InvoiceCalculationError('An invoice cannot remain without active items')
   const calculated = calculateInvoiceDiscounts(lines.map((line) => ({
@@ -58,7 +59,7 @@ export async function recalculateOpenOrderInvoice(
     where: { id: line.id },
     data: { lineTotal: centsText(calculated.lineTotals[index].afterDiscountCents), discountAmount: centsText(calculated.lineTotals[index].itemDiscountCents) },
   })))
-  const tax = calculateInvoiceTaxCents(calculated.finalCents, taxRate)
+  const tax = calculateSnapshotTax(lines.map((line, index) => ({ baseCents: calculated.lineTotals[index].afterDiscountCents, eligible: line.eligibleForInvoiceDiscount, snapshot: line.optionsSnapshot })), calculated.invoiceDiscountCents, taxRate).taxCents
   const total = calculated.finalCents + tax
   return { calculated, tax, total }
 }

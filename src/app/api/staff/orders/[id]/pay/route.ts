@@ -31,9 +31,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const session = await getStaffSession()
   if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
 
-  // Waiters and Managers cannot collect payments or settle invoices — cash custody is Cashier/Owner only
-  if (session.role === 'waiter' || session.role === 'manager') return NextResponse.json({ error: 'غير مصرح — التحصيل والحصر النقدي للكاشير أو المالك فقط' }, { status: 403 })
-
   const { id } = await ctx.params
   let body: { action?: string } & Record<string, unknown>
   try {
@@ -47,6 +44,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const idempotencyKey = req.headers.get('idempotency-key') ?? bodyIdempotencyKey
 
     if (body.action === 'pay') {
+      if (session.role !== 'owner' && session.role !== 'cashier') return NextResponse.json({ error: 'Cashier or owner access is required' }, { status: 403 })
       const input = paymentServiceInputFromRequest(body, idempotencyKey)
       const method = typeof body.method === 'string' ? body.method : null
       const result = method === 'cash'

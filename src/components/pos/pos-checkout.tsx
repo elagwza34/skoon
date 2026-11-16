@@ -1,5 +1,7 @@
 ﻿'use client'
 
+import { Modal } from '@/components/ui/modal'
+
 import { useEffect, useMemo, useRef, useState, memo } from 'react'
 import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -14,6 +16,8 @@ import { formatCurrency, formatNumber } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import type { PosCatalog } from '@/lib/staff-pos'
 import { posDraftKey, restorePosDraft } from '@/lib/pos-draft'
+import { calculateInvoiceDiscounts } from '@/lib/invoice-discounts'
+import { calculateSnapshotTax } from '@/lib/invoice-tax'
 import { buildPaymentRequestPayload } from '@/lib/payment-request'
 import { ThermalReceiptPreview } from '@/components/cashier/thermal-receipt-preview'
 import type { InvoiceRow } from '@/lib/staff-invoices'
@@ -77,6 +81,7 @@ export function PosCheckout({
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'mobile_wallet' | 'instapay'>('cash')
   const [received, setReceived] = useState('')
   const [electronicConfirmed, setElectronicConfirmed] = useState(false)
+  const [externalTransactionReference, setExternalTransactionReference] = useState('')
   const [receipt, setReceipt] = useState<InvoiceRow | null>(null)
   const [dispatchRetry, setDispatchRetry] = useState<{
     id: string
@@ -160,6 +165,15 @@ export function PosCheckout({
     }, 0)
   }
   const subtotal = cart.reduce((s, l) => s + ((variantPriceById.get(`${l.id}:${l.variantId}`) ?? priceById.get(l.id) ?? 0) + modifierPrice(l.id, l.modifierSelections)) * l.qty, 0)
+  const previewTotal = (() => {
+    try {
+      const lines = cart.map(line => ({ unitCents: BigInt(Math.round(((variantPriceById.get(`${line.id}:${line.variantId}`) ?? priceById.get(line.id) ?? 0) + modifierPrice(line.id, line.modifierSelections)) * 100)), quantity: line.qty, discountType: line.discountType ?? 'none' as const, discountValue: BigInt(Math.round((line.discountValue ?? 0) * (line.discountType === 'amount' ? 100 : 1))), eligibleForInvoiceDiscount: true }))
+      const calculated = calculateInvoiceDiscounts(lines, discountType, BigInt(Math.round(Number(discountValue || 0) * (discountType === 'amount' ? 100 : 1))))
+      const tax = calculateSnapshotTax(cart.map((line, index) => ({ baseCents: calculated.lineTotals[index].afterDiscountCents, eligible: true, snapshot: { taxRate: catalog.products.find(product => product.id === line.id)?.taxRate ?? '0' } })), calculated.invoiceDiscountCents)
+      return Number(calculated.finalCents + tax.taxCents) / 100
+    } catch { return subtotal }
+  })()
+
   const itemCount = cart.reduce((s, l) => s + l.qty, 0)
 
   useEffect(() => {
@@ -167,12 +181,12 @@ export function PosCheckout({
     // Avoid sending cart summary on the very first mount to prevent a
     // render loop between PosCheckout and its parent (setPosCartSummary).
     if (cartSummarySent.current) {
-      onCartSummaryChange?.({ itemCount, total: subtotal, tableId })
+      onCartSummaryChange?.({ itemCount, total: previewTotal, tableId })
       return
     }
     cartSummarySent.current = true
-    onCartSummaryChange?.({ itemCount, total: subtotal, tableId })
-  }, [draftReady, itemCount, onCartSummaryChange, subtotal, tableId])
+    onCartSummaryChange?.({ itemCount, total: previewTotal, tableId })
+  }, [draftReady, itemCount, onCartSummaryChange, previewTotal, tableId])
 
   function add(id: string) {
     const product = catalog.products.find((p) => p.id === id)
@@ -317,6 +331,7 @@ export function PosCheckout({
   }
 
   async function checkout() {
+    if (orderType === 'takeaway' && paymentMethod !== 'cash' && (!electronicConfirmed || !externalTransactionReference.trim() || externalTransactionReference.trim().length > 100)) { setError('أدخل مرجع التحويل وأكد استلام الدفع'); return }
     if (cart.length === 0 || busy) return
     if (orderType === 'dine_in' && !tableId) {
       setError('اختر الطاولة')
@@ -385,7 +400,7 @@ export function PosCheckout({
             'content-type': 'application/json',
             'Idempotency-Key': payIdempotencyKey,
           },
-          body: JSON.stringify(buildPaymentRequestPayload(paymentMethod, received, electronicConfirmed)),
+          body: JSON.stringify(buildPaymentRequestPayload(paymentMethod, received, electronicConfirmed, externalTransactionReference)),
         })
         const payment = await paymentResponse.json().catch(() => ({}))
         if (!paymentResponse.ok) throw new Error(payment.error ?? 'فشل تحصيل طلب التيك أواي؛ لم يُرسل للمطبخ')
@@ -561,9 +576,9 @@ export function PosCheckout({
             })}
           </ul>
         )}
-        <div className="flex items-center justify-between border-t border-border pt-3 text-base font-bold"><span className="text-foreground">{isWaiter ? 'الإجمالي التقديري' : 'الإجمالي'}</span><span className="text-primary">{formatCurrency(subtotal)}</span></div>
+        <div className="flex items-center justify-between border-t border-border pt-3 text-base font-bold"><span className="text-foreground">{isWaiter ? 'الإجمالي التقديري' : 'الإجمالي'}</span><span className="text-primary">{formatCurrency(previewTotal)}</span></div>
         {canUseDiscounts ? <div className="grid grid-cols-1 gap-2 sm:grid-cols-2"><select value={discountType} onChange={(event) => setDiscountType(event.target.value as typeof discountType)} className="rounded-lg border bg-background p-2 text-sm"><option value="none">بدون خصم عام</option><option value="percentage">خصم عام %</option><option value="amount">خصم عام مبلغ</option></select>{discountType !== 'none' ? <Input value={discountValue} onChange={(event) => setDiscountValue(event.target.value)} inputMode="decimal" placeholder="قيمة الخصم" /> : null}</div> : null}
-        {orderType === 'takeaway' ? <div className="space-y-2 rounded-lg border p-3"><select value={paymentMethod} onChange={(event) => { setPaymentMethod(event.target.value as typeof paymentMethod); setElectronicConfirmed(false) }} className="w-full rounded-lg border bg-background p-2"><option value="cash">نقدي</option><option value="mobile_wallet">محفظة إلكترونية</option><option value="instapay">إنستا باي</option></select>{paymentMethod === 'cash' ? <Input value={received} onChange={(event) => setReceived(event.target.value)} inputMode="decimal" placeholder="المبلغ المستلم" /> : <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={electronicConfirmed} onChange={(event) => setElectronicConfirmed(event.target.checked)} />أؤكد استلام الدفع الإلكتروني</label>}</div> : null}
+        {orderType === 'takeaway' ? <div className="space-y-2 rounded-lg border p-3"><select value={paymentMethod} onChange={(event) => { setPaymentMethod(event.target.value as typeof paymentMethod); setElectronicConfirmed(false) }} className="w-full rounded-lg border bg-background p-2"><option value="cash">نقدي</option><option value="mobile_wallet">محفظة إلكترونية</option><option value="instapay">إنستا باي</option></select>{paymentMethod === 'cash' ? <Input value={received} onChange={(event) => setReceived(event.target.value)} inputMode="decimal" placeholder="المبلغ المستلم" /> : <div className="space-y-2"><Input value={externalTransactionReference} onChange={(event) => setExternalTransactionReference(event.target.value)} maxLength={100} placeholder="مرجع التحويل" aria-label="مرجع التحويل" /><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={electronicConfirmed} onChange={(event) => setElectronicConfirmed(event.target.checked)} />أؤكد استلام الدفع الإلكتروني</label></div>}</div> : null}
         <Button size="lg" className="w-full" disabled={!cart.length || busy} onClick={checkout}><Icon name="check" size={18} />{busy ? 'جاري الحفظ…' : 'تأكيد الطلب'}</Button>
         <p className="text-center text-[11px] text-muted-foreground">{formatNumber(itemCount)} صنف · السعر النهائي يُحسب من قاعدة البيانات</p>
       </CardContent>
@@ -632,7 +647,7 @@ export function PosCheckout({
         </section> : null}
 
       {variantModal && (
-        <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/40 p-2 sm:p-4" dir="rtl">
+        <Modal className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/40 p-2 sm:p-4" dir="rtl" onClose={() => setVariantModal(null)} aria-label="اختيار المتغير">
           <Card className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-lg flex-col overflow-hidden sm:max-h-[calc(100dvh-2rem)]">
             <CardHeader className="shrink-0 border-b">
               <CardTitle className="break-words">اختر متغيرًا لـ {variantModal.product.name}</CardTitle>
@@ -657,10 +672,10 @@ export function PosCheckout({
               </div>
             </CardContent>
           </Card>
-        </div>
+        </Modal>
       )}
       {modifierModal && (
-        <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/40 p-2 sm:p-4" dir="rtl">
+        <Modal className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/40 p-2 sm:p-4" dir="rtl" onClose={() => setModifierModal(null)} aria-label="إضافات الصنف">
           <Card className="flex max-h-[calc(100dvh-1.5rem)] w-full max-w-lg flex-col overflow-hidden sm:max-h-[calc(100dvh-2rem)]">
             <CardHeader className="shrink-0 border-b">
               <CardTitle className="break-words">اختر الخصائص لـ {modifierModal.product.name}</CardTitle>
@@ -737,7 +752,7 @@ export function PosCheckout({
               </div>
             </CardContent>
           </Card>
-        </div>
+        </Modal>
       )}
       {receipt ? (
         <ThermalReceiptPreview
@@ -753,11 +768,11 @@ export function PosCheckout({
       ) : null}
     </div>
     {isWaiter && cartOpen ? (
-      <div role="dialog" aria-modal="true" aria-label="سلة الطلب" className="fixed inset-0 z-50 grid place-items-center bg-black/50 sm:p-4" dir="rtl">
+      <Modal aria-label="سلة الطلب" className="fixed inset-0 z-50 grid place-items-center bg-black/50 sm:p-4" dir="rtl" onClose={() => onCartOpenChange?.(false)} dismissible={!busy}>
         <Card className="flex h-[100dvh] w-full flex-col overflow-hidden rounded-none sm:max-h-[calc(100dvh-2rem)] sm:max-w-2xl sm:rounded-xl">
           {cartContents}
         </Card>
-      </div>
+      </Modal>
     ) : null}
     </>
   )

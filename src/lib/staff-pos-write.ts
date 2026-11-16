@@ -1,3 +1,4 @@
+import { calculateSnapshotTax } from '@/lib/invoice-tax'
 import { createHash, randomBytes } from 'node:crypto'
 import { prisma } from '@/lib/prisma'
 import { ROLE, requiresOperationalShift } from '@/lib/authz'
@@ -123,7 +124,7 @@ export async function createPosOrder(session: StaffSession, input: unknown, idem
   const products = await prisma.product.findMany({
     where: { id: { in: productIds }, branchId, isActive: true, deletedAt: null, isAvailable: true },
     select: {
-      id: true, name: true, price: true,
+      id: true, name: true, price: true, taxRate: true,
       variants: { where: { isActive: true, isAvailable: true, archivedAt: null }, select: { id: true }, take: 1 },
       optionAssignments: { select: { productOption: { select: { id: true, name: true, type: true, isRequired: true, minSelections: true, maxSelections: true, isActive: true, values: { where: { isActive: true, deletedAt: null }, select: { id: true, value: true, priceAdjustment: true } } } } } },
     },
@@ -155,7 +156,7 @@ export async function createPosOrder(session: StaffSession, input: unknown, idem
     return {
       productId: p.id, productVariantId: variant?.id ?? null, productName: p.name, unitPrice,
       productVariantSnapshot: variant ? createOrderItemVariantSnapshot(variant.combinationKey, variant.values.map((entry) => entry.value)) : null,
-      optionsSnapshot: { version: 1, groups: modifiers.map((selection) => ({ groupId: selection.groupId.toString(), groupName: selection.groupName, optionId: selection.optionId.toString(), optionLabel: selection.optionLabel, priceAdjustment: selection.priceAdjustment.toString() })) },
+      optionsSnapshot: { version: 1, taxRate: String(p.taxRate ?? '0'), groups: modifiers.map((selection) => ({ groupId: selection.groupId.toString(), groupName: selection.groupName, optionId: selection.optionId.toString(), optionLabel: selection.optionLabel, priceAdjustment: selection.priceAdjustment.toString() })) },
       modifiers,
       quantity: item.qty, lineTotal: Number(unitPrice) * item.qty,
       notes: item.note?.trim() || null,
@@ -175,7 +176,8 @@ export async function createPosOrder(session: StaffSession, input: unknown, idem
   const orderNumber = `POS-${Date.now().toString(36).toUpperCase()}`
   const orderRef = randomBytes(12).toString('hex')
   const subtotal = centsText(calculated.subtotalCents)
-  const total = centsText(calculated.finalCents)
+  const tax = calculateSnapshotTax(lines.map((line, index) => ({ baseCents: calculated.lineTotals[index].afterDiscountCents, eligible: true, snapshot: line.optionsSnapshot })), calculated.invoiceDiscountCents)
+  const total = centsText(calculated.finalCents + tax.taxCents)
 
   const created = await prisma.$transaction(async (tx) => {
     if (openShift) {
@@ -222,7 +224,7 @@ export async function createPosOrder(session: StaffSession, input: unknown, idem
         discountEligibleBase: centsText(calculated.eligibleBaseCents),
         discountType: invoiceDiscountType === 'none' ? null : invoiceDiscountType,
         discountValue: invoiceDiscountType === 'amount' ? Number(parsed.data.discountValue ?? 0).toFixed(2) : String(parsed.data.discountValue ?? 0),
-        discountAmount: centsText(calculated.itemDiscountCents + calculated.invoiceDiscountCents), taxAmount: '0',
+        discountAmount: centsText(calculated.itemDiscountCents + calculated.invoiceDiscountCents), taxAmount: centsText(tax.taxCents), taxRate: new Set(lines.map(line => line.optionsSnapshot.taxRate)).size === 1 ? lines[0].optionsSnapshot.taxRate : '0',
         total, paymentStatus: 'unpaid',
         items: {
           create: lines.map((l) => ({
@@ -292,7 +294,7 @@ export function validateModifierSelections(product: ProductWithModifiers, input:
   }
 }
 
-function resolveModifierSelections(product: ProductWithModifiers, input: Array<{ groupId: string; valueIds: string[] }>) {
+export function resolveModifierSelections(product: ProductWithModifiers, input: Array<{ groupId: string; valueIds: string[] }>) {
   const groups = new Map(product.optionAssignments.map((assignment) => [assignment.productOption.id.toString(), assignment.productOption]))
   return input.flatMap((selection) => {
     const group = groups.get(selection.groupId)!

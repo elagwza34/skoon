@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { financialJson } from '@/lib/financial-json'
 import { getStaffSession } from '@/lib/session'
 import { listAttendanceCorrections, requestAttendanceCorrection, SchedulingError } from '@/lib/staff-scheduling-write'
 
@@ -12,17 +12,17 @@ function jsonValue(value: unknown): unknown {
 
 export async function GET() {
   const session = await getStaffSession()
-  if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  if (!session) return financialJson({ error: 'Not authenticated' }, { status: 401 })
   try {
-    return NextResponse.json({ corrections: jsonValue(await listAttendanceCorrections(session)) })
+    return financialJson({ corrections: jsonValue(await listAttendanceCorrections(session)) })
   } catch (error) {
-    return NextResponse.json({ error: error instanceof SchedulingError ? error.message : 'Unable to list attendance corrections' }, { status: error instanceof SchedulingError ? error.status : 500 })
+    return financialJson({ error: error instanceof SchedulingError ? error.message : 'Unable to list attendance corrections' }, { status: error instanceof SchedulingError ? error.status : 500 })
   }
 }
 
 export async function POST(req: Request) {
   const session = await getStaffSession()
-  if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-  try { return NextResponse.json({ correction: await requestAttendanceCorrection(session, await req.json()) }, { status: 201 }) }
-  catch (error) { return NextResponse.json({ error: error instanceof SchedulingError ? error.message : 'Unable to request attendance correction' }, { status: error instanceof SchedulingError ? error.status : 500 }) }
+  if (!session) return financialJson({ error: 'Not authenticated' }, { status: 401 })
+  try { return financialJson({ correction: await requestAttendanceCorrection(session, await req.json()) }, { status: 201 }) }
+  catch (error) { return financialJson({ error: error instanceof SchedulingError ? error.message : 'Unable to request attendance correction' }, { status: error instanceof SchedulingError ? error.status : 500 }) }
 }

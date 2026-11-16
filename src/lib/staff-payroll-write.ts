@@ -118,8 +118,15 @@ export async function generatePayrollDraft(session: StaffSession, runId: bigint)
       if (!hasContract) { blockers.push({ employeeId: worker.id, reason: 'No active employment contract spans this payroll period' }); continue }
       const rates = profile.compensationRates.filter((rate) => rangeOverlaps(periodStart, periodEnd, rate.effectiveFrom, rate.effectiveUntil)).sort((a, b) => a.effectiveFrom.getTime() - b.effectiveFrom.getTime())
       if (!rates.length) { blockers.push({ employeeId: worker.id, reason: 'Missing effective compensation rate' }); continue }
-      const coverageEnd = rates.reduce((latest, rate) => !rate.effectiveUntil || rate.effectiveUntil > latest ? (rate.effectiveUntil ?? periodEnd) : latest, periodStart)
-      if (rates[0].effectiveFrom > periodStart || coverageEnd < periodEnd) { blockers.push({ employeeId: worker.id, reason: 'Compensation history does not cover the full payroll period' }); continue }
+      let coveredThrough = addDays(periodStart, -1)
+      let invalidCoverage = false
+      for (const rate of rates) {
+        const from = day(rate.effectiveFrom > periodStart ? rate.effectiveFrom : periodStart)
+        const until = day(rate.effectiveUntil && rate.effectiveUntil < periodEnd ? rate.effectiveUntil : periodEnd)
+        if (from.getTime() !== addDays(coveredThrough, 1).getTime() || until < from) { invalidCoverage = true; break }
+        coveredThrough = until
+      }
+      if (invalidCoverage || coveredThrough < periodEnd) { blockers.push({ employeeId: worker.id, reason: 'Compensation history does not cover the full payroll period without gaps or overlaps' }); continue }
       if (rates.some((rate) => !['monthly', 'hourly'].includes(rate.compensationType))) { blockers.push({ employeeId: worker.id, reason: 'Only monthly and hourly compensation are supported for automated payroll' }); continue }
 
       const attendance = await getAttendanceSummary(session, { employeeId: worker.id, startsOn: key(periodStart), endsOn: key(periodEnd) })
@@ -127,26 +134,42 @@ export async function generatePayrollDraft(session: StaffSession, runId: bigint)
       if (attendance.totals.scheduledMinutes === 0) { blockers.push({ employeeId: worker.id, reason: 'Missing effective work schedule' }); continue }
       const adjustments = await prisma.hrAdjustment.findMany({ where: { employeeId: worker.id, status: 'approved', effectiveOn: { gte: periodStart, lte: periodEnd } }, select: { type: true, amount: true } })
       const advances = await prisma.employeeAdvance.findMany({ where: { employeeId: worker.id, status: 'approved' }, select: { amount: true, repaidAmount: true } })
-      if (advances.some((advance) => decimalCents(advance.amount) > decimalCents(advance.repaidAmount))) { blockers.push({ employeeId: worker.id, reason: 'Outstanding advance needs an approved repayment plan' }); continue }
+      // Advances are recovered explicitly through the receipted repayment workflow.
+      // Preserve outstanding debt in the calculation snapshot; never invent a payroll deduction.
+      const outstandingAdvanceCents = advances.reduce((sum, advance) => sum + Math.max(0, decimalCents(advance.amount) - decimalCents(advance.repaidAmount)), 0)
       const overtimeRows = await prisma.overtimeRequest.findMany({ where: { employeeId: worker.id, status: 'approved', startsAt: { gte: periodStart, lt: addDays(periodEnd, 1) } }, select: { startsAt: true, category: true, approvedMinutes: true } })
       const policies = await prisma.overtimePolicy.findMany({ where: { effectiveFrom: { lte: periodEnd }, AND: [{ OR: [{ effectiveUntil: null }, { effectiveUntil: { gte: periodStart } }] }, { OR: [{ employeeId: worker.id }, { roleId: worker.roleId }, { branchId: run.branchId }, { employeeId: null, roleId: null, branchId: null }] }] }, orderBy: { effectiveFrom: 'desc' } })
-      const overtime: PayrollOvertime[] = []
+      const overtime: Array<PayrollOvertime & { startsAt: Date }> = []
       for (const overtimeRow of overtimeRows) {
         const policy = policies.find((candidate) => candidate.effectiveFrom <= overtimeRow.startsAt && (!candidate.effectiveUntil || candidate.effectiveUntil >= overtimeRow.startsAt) && (candidate.employeeId === worker.id || candidate.roleId === worker.roleId || candidate.branchId === run.branchId || (!candidate.employeeId && !candidate.roleId && !candidate.branchId)))
         if (!policy) { blockers.push({ employeeId: worker.id, reason: 'Approved overtime has no effective overtime policy' }); break }
         const multiplier = overtimeRow.category === 'rest_day' ? policy.restDayMultiplier : overtimeRow.category === 'holiday' ? policy.holidayMultiplier : overtimeRow.category === 'night' ? policy.nightMultiplier : policy.regularMultiplier
-        overtime.push({ approvedMinutes: overtimeRow.approvedMinutes ?? 0, multiplierBasisPoints: decimalBasisPoints(multiplier), premiumOnly: policy.premiumOnly, ...(policy.fixedHourlyRate ? { hourlyRateCents: decimalCents(policy.fixedHourlyRate) } : {}) })
+        overtime.push({ startsAt: overtimeRow.startsAt, approvedMinutes: overtimeRow.approvedMinutes ?? 0, multiplierBasisPoints: decimalBasisPoints(multiplier), premiumOnly: policy.premiumOnly, ...(policy.fixedHourlyRate ? { hourlyRateCents: decimalCents(policy.fixedHourlyRate) } : {}) })
       }
       if (blockers.some((blocker) => blocker.employeeId === worker.id)) continue
       const total: { baseCents: number; overtimeCents: number; bonusCents: number; deductionCents: number; advanceRecoveryCents: number; grossCents: number; netCents: number; segments: Prisma.InputJsonValue[] } = { baseCents: 0, overtimeCents: 0, bonusCents: 0, deductionCents: 0, advanceRecoveryCents: 0, grossCents: 0, netCents: 0, segments: [] }
       for (const rate of rates) {
-        const start = rate.effectiveFrom > periodStart ? rate.effectiveFrom : periodStart; const end = rate.effectiveUntil && rate.effectiveUntil < periodEnd ? rate.effectiveUntil : periodEnd
-        if (start > end) continue
-        const segment = await getAttendanceSummary(session, { employeeId: worker.id, startsOn: key(start), endsOn: key(end) })
-        const calculation = calculatePayroll({ compensation: { kind: rate.compensationType as 'monthly' | 'hourly', cents: decimalCents(rate.amount), scheduledMinutes: segment.totals.scheduledMinutes, payableMinutes: segment.totals.payableMinutes }, overtime: start.getTime() === periodStart.getTime() ? overtime : [], adjustments: start.getTime() === periodStart.getTime() ? adjustments.map((item): PayrollAdjustment => ({ type: item.type as 'bonus' | 'deduction' | 'penalty', cents: decimalCents(item.amount), approved: true })) : [] })
-        total.baseCents += calculation.baseCents; total.overtimeCents += calculation.overtimeCents; total.bonusCents += calculation.bonusCents; total.deductionCents += calculation.deductionCents; total.advanceRecoveryCents += calculation.advanceRecoveryCents; total.grossCents += calculation.grossCents; total.netCents += calculation.netCents; total.segments.push({ startsOn: key(start), endsOn: key(end), calculation })
+        const rateStart = day(rate.effectiveFrom > periodStart ? rate.effectiveFrom : periodStart)
+        const rateEnd = day(rate.effectiveUntil && rate.effectiveUntil < periodEnd ? rate.effectiveUntil : periodEnd)
+        for (let start = rateStart; start <= rateEnd;) {
+          const monthStart = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), 1))
+          const monthEnd = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 0))
+          const end = rateEnd < monthEnd ? rateEnd : monthEnd
+          const segment = await getAttendanceSummary(session, { employeeId: worker.id, startsOn: key(start), endsOn: key(end) })
+          const basis = rate.compensationType === 'monthly' ? await getAttendanceSummary(session, { employeeId: worker.id, startsOn: key(monthStart), endsOn: key(monthEnd) }) : segment
+          const calculation = calculatePayroll({ compensation: { kind: rate.compensationType as 'monthly' | 'hourly', cents: decimalCents(rate.amount), scheduledMinutes: basis.totals.scheduledMinutes, payableMinutes: segment.totals.payableMinutes }, overtime: overtime.filter(item => item.startsAt >= start && item.startsAt < addDays(end, 1)), adjustments: [] })
+          total.baseCents += calculation.baseCents; total.overtimeCents += calculation.overtimeCents; total.grossCents += calculation.grossCents
+          total.segments.push({ startsOn: key(start), endsOn: key(end), calculation })
+          start = addDays(end, 1)
+        }
       }
-      lineInputs.push({ employeeId: worker.id, grossCents: total.grossCents, deductionCents: total.deductionCents + total.advanceRecoveryCents, netCents: total.netCents, snapshot: { version: 1, period: { startsOn: key(periodStart), endsOn: key(periodEnd) }, totals: total } })
+      const approvedAdjustments = adjustments.map((item): PayrollAdjustment => ({ type: item.type as 'bonus' | 'deduction' | 'penalty', cents: decimalCents(item.amount), approved: true }))
+      total.bonusCents = approvedAdjustments.filter(item => item.type === 'bonus').reduce((sum, item) => sum + item.cents, 0)
+      total.grossCents += total.bonusCents
+      total.deductionCents = approvedAdjustments.filter(item => item.type !== 'bonus').reduce((sum, item) => sum + item.cents, 0)
+      if (total.deductionCents > total.grossCents) { blockers.push({ employeeId: worker.id, reason: 'Approved deductions exceed gross payroll; revise or carry forward explicitly' }); continue }
+      total.netCents = total.grossCents - total.deductionCents
+      lineInputs.push({ employeeId: worker.id, grossCents: total.grossCents, deductionCents: total.deductionCents + total.advanceRecoveryCents, netCents: total.netCents, snapshot: { version: 1, period: { startsOn: key(periodStart), endsOn: key(periodEnd) }, outstandingAdvanceCents, advanceRecovery: 'explicit_receipted_repayment', totals: total } })
     }
     if (blockers.length) throw new PayrollError(`Payroll generation blocked: ${blockers.map((b) => `${b.employeeId}: ${b.reason}`).join('; ')}`, 409)
     return await prisma.$transaction(async (tx) => {
@@ -176,19 +199,29 @@ export async function transitionPayrollRun(session: StaffSession, runId: bigint,
   owner(session)
   try {
     return await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('hr-payroll:' || ${runId.toString()}))`
       const run = await tx.payrollRun.findUnique({ where: { id: runId } })
       if (!run) throw new PayrollError('Payroll run not found', 404)
-      const lines = await tx.payrollLine.findMany({ where: { payrollRunId: run.id }, select: { id: true, status: true } })
-      const status = nextPayrollStatus(run.status, event)
+      const lines = await tx.payrollLine.findMany({ where: { payrollRunId: run.id }, select: { id: true, status: true, netAmount: true } })
+      let status = nextPayrollStatus(run.status, event)
       if ((event === 'review' || event === 'approve') && lines.length === 0) throw new PayrollError('Payroll run has no calculated employee lines', 409)
       if (event === 'approve' && lines.some((line) => line.status !== 'draft')) throw new PayrollError('Only untouched draft lines can be approved', 409)
+      if (event === 'approve' && lines.every(line => decimalCents(line.netAmount) === 0)) status = 'paid'
       const now = new Date()
       const updated = await tx.payrollRun.update({ where: { id: run.id }, data: {
         status,
         ...(event === 'review' ? { reviewedById: session.id } : {}),
         ...(event === 'approve' ? { approvedById: session.id, approvedAt: now } : {}),
       } })
-      if (event === 'approve') await tx.payrollLine.updateMany({ where: { payrollRunId: run.id, status: 'draft' }, data: { status: 'approved' } })
+      if (event === 'approve') {
+        await tx.payrollLine.updateMany({ where: { payrollRunId: run.id, status: 'draft', netAmount: 0 }, data: { status: 'paid' } })
+        await tx.payrollLine.updateMany({ where: { payrollRunId: run.id, status: 'draft', netAmount: { gt: 0 } }, data: { status: 'approved' } })
+        if (status === 'paid') {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('hr-payroll-period:' || ${run.periodId.toString()}))`
+          const remaining = await tx.payrollRun.count({ where: { periodId: run.periodId, status: { notIn: ['paid', 'closed'] } } })
+          if (remaining === 0) await tx.payrollPeriod.update({ where: { id: run.periodId }, data: { status: 'paid' } })
+        }
+      }
       return updated
     })
   } catch (error) { return unavailable(error) }
@@ -212,6 +245,8 @@ export async function recordPayrollPayment(session: StaffSession, lineId: bigint
       // PostgreSQL row lock protects the balance check even when two distinct
       // idempotency keys are submitted at the same time.
       await tx.$queryRaw(Prisma.sql`SELECT id FROM payroll_lines WHERE id = ${lineId} FOR UPDATE`)
+      const replay = await tx.payrollPayment.findUnique({ where: { payrollLineId_idempotencyKey: { payrollLineId: lineId, idempotencyKey: parsed.data.idempotencyKey } } })
+      if (replay) return { payment: replay, replay: true }
       const line = await tx.payrollLine.findUnique({ where: { id: lineId } })
       if (!line) throw new PayrollError('Payroll line not found', 404)
       const run = await tx.payrollRun.findUnique({ where: { id: line.payrollRunId } })
@@ -227,7 +262,8 @@ export async function recordPayrollPayment(session: StaffSession, lineId: bigint
       const remaining = await tx.payrollLine.count({ where: { payrollRunId: line.payrollRunId, status: { not: 'paid' } } })
       const runStatus = remaining === 0 ? 'paid' : 'partially_paid'
       await tx.payrollRun.update({ where: { id: line.payrollRunId }, data: { status: runStatus } })
-      const openRuns = await tx.payrollRun.count({ where: { periodId: run.periodId, status: { not: 'paid' } } })
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('hr-payroll-period:' || ${run.periodId.toString()}))`
+      const openRuns = await tx.payrollRun.count({ where: { periodId: run.periodId, status: { notIn: ['paid', 'closed'] } } })
       if (openRuns === 0) await tx.payrollPeriod.update({ where: { id: run.periodId }, data: { status: 'paid' } })
       return { payment, replay: false }
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })

@@ -1,0 +1,220 @@
+{
+  "project": "skoon",
+  "project_ref": "bkgxjutnfkslpgshufhb",
+  "date": "2026-11-16",
+  "scope": "Read-only catalog metadata; no business rows or writes",
+  "table_security": [
+    {
+      "table_name": "audit_logs",
+      "rls_enabled": false,
+      "anon_select": false,
+      "anon_insert": false,
+      "anon_update": false,
+      "authenticated_select": false,
+      "authenticated_insert": false,
+      "authenticated_update": false
+    },
+    {
+      "table_name": "cash_handovers",
+      "rls_enabled": true,
+      "anon_select": false,
+      "anon_insert": false,
+      "anon_update": false,
+      "authenticated_select": false,
+      "authenticated_insert": false,
+      "authenticated_update": false
+    },
+    {
+      "table_name": "employee_advances",
+      "rls_enabled": true,
+      "anon_select": false,
+      "anon_insert": false,
+      "anon_update": false,
+      "authenticated_select": false,
+      "authenticated_insert": false,
+      "authenticated_update": false
+    },
+    {
+      "table_name": "financial_movements",
+      "rls_enabled": false,
+      "anon_select": false,
+      "anon_insert": false,
+      "anon_update": false,
+      "authenticated_select": false,
+      "authenticated_insert": false,
+      "authenticated_update": false
+    },
+    {
+      "table_name": "financial_operations",
+      "rls_enabled": false,
+      "anon_select": false,
+      "anon_insert": false,
+      "anon_update": false,
+      "authenticated_select": false,
+      "authenticated_insert": false,
+      "authenticated_update": false
+    },
+    {
+      "table_name": "orders",
+      "rls_enabled": false,
+      "anon_select": false,
+      "anon_insert": false,
+      "anon_update": false,
+      "authenticated_select": false,
+      "authenticated_insert": false,
+      "authenticated_update": false
+    },
+    {
+      "table_name": "payments",
+      "rls_enabled": false,
+      "anon_select": false,
+      "anon_insert": false,
+      "anon_update": false,
+      "authenticated_select": false,
+      "authenticated_insert": false,
+      "authenticated_update": false
+    },
+    {
+      "table_name": "payroll_lines",
+      "rls_enabled": true,
+      "anon_select": false,
+      "anon_insert": false,
+      "anon_update": false,
+      "authenticated_select": false,
+      "authenticated_insert": false,
+      "authenticated_update": false
+    },
+    {
+      "table_name": "payroll_payments",
+      "rls_enabled": true,
+      "anon_select": false,
+      "anon_insert": false,
+      "anon_update": false,
+      "authenticated_select": false,
+      "authenticated_insert": false,
+      "authenticated_update": false
+    },
+    {
+      "table_name": "payroll_periods",
+      "rls_enabled": true,
+      "anon_select": false,
+      "anon_insert": false,
+      "anon_update": false,
+      "authenticated_select": false,
+      "authenticated_insert": false,
+      "authenticated_update": false
+    },
+    {
+      "table_name": "payroll_runs",
+      "rls_enabled": true,
+      "anon_select": false,
+      "anon_insert": false,
+      "anon_update": false,
+      "authenticated_select": false,
+      "authenticated_insert": false,
+      "authenticated_update": false
+    },
+    {
+      "table_name": "refunds",
+      "rls_enabled": true,
+      "anon_select": false,
+      "anon_insert": false,
+      "anon_update": false,
+      "authenticated_select": false,
+      "authenticated_insert": false,
+      "authenticated_update": false
+    },
+    {
+      "table_name": "shifts",
+      "rls_enabled": false,
+      "anon_select": false,
+      "anon_insert": false,
+      "anon_update": false,
+      "authenticated_select": false,
+      "authenticated_insert": false,
+      "authenticated_update": false
+    }
+  ],
+  "unique_indexes": [
+    {
+      "tablename": "cash_handovers",
+      "indexname": "cash_handovers_movement_id_key",
+      "indexdef": "CREATE UNIQUE INDEX cash_handovers_movement_id_key ON public.cash_handovers USING btree (movement_id)"
+    },
+    {
+      "tablename": "cash_handovers",
+      "indexname": "cash_handovers_pkey",
+      "indexdef": "CREATE UNIQUE INDEX cash_handovers_pkey ON public.cash_handovers USING btree (id)"
+    },
+    {
+      "tablename": "financial_operations",
+      "indexname": "financial_operations_branch_id_actor_id_operation_type_idempote",
+      "indexdef": "CREATE UNIQUE INDEX financial_operations_branch_id_actor_id_operation_type_idempote ON public.financial_operations USING btree (branch_id, actor_id, operation_type, idempotency_key)"
+    },
+    {
+      "tablename": "financial_operations",
+      "indexname": "financial_operations_pkey",
+      "indexdef": "CREATE UNIQUE INDEX financial_operations_pkey ON public.financial_operations USING btree (id)"
+    },
+    {
+      "tablename": "payments",
+      "indexname": "payments_pkey",
+      "indexdef": "CREATE UNIQUE INDEX payments_pkey ON public.payments USING btree (id)"
+    },
+    {
+      "tablename": "payroll_lines",
+      "indexname": "payroll_lines_pkey",
+      "indexdef": "CREATE UNIQUE INDEX payroll_lines_pkey ON public.payroll_lines USING btree (id)"
+    },
+    {
+      "tablename": "payroll_lines",
+      "indexname": "payroll_lines_run_employee_key",
+      "indexdef": "CREATE UNIQUE INDEX payroll_lines_run_employee_key ON public.payroll_lines USING btree (payroll_run_id, employee_id)"
+    },
+    {
+      "tablename": "payroll_payments",
+      "indexname": "payroll_payments_line_idempotency_key",
+      "indexdef": "CREATE UNIQUE INDEX payroll_payments_line_idempotency_key ON public.payroll_payments USING btree (payroll_line_id, idempotency_key)"
+    },
+    {
+      "tablename": "payroll_payments",
+      "indexname": "payroll_payments_pkey",
+      "indexdef": "CREATE UNIQUE INDEX payroll_payments_pkey ON public.payroll_payments USING btree (id)"
+    },
+    {
+      "tablename": "payroll_periods",
+      "indexname": "payroll_periods_dates_key",
+      "indexdef": "CREATE UNIQUE INDEX payroll_periods_dates_key ON public.payroll_periods USING btree (starts_on, ends_on)"
+    },
+    {
+      "tablename": "payroll_periods",
+      "indexname": "payroll_periods_pkey",
+      "indexdef": "CREATE UNIQUE INDEX payroll_periods_pkey ON public.payroll_periods USING btree (id)"
+    },
+    {
+      "tablename": "payroll_runs",
+      "indexname": "payroll_runs_period_branch_key",
+      "indexdef": "CREATE UNIQUE INDEX payroll_runs_period_branch_key ON public.payroll_runs USING btree (period_id, branch_id)"
+    },
+    {
+      "tablename": "payroll_runs",
+      "indexname": "payroll_runs_pkey",
+      "indexdef": "CREATE UNIQUE INDEX payroll_runs_pkey ON public.payroll_runs USING btree (id)"
+    },
+    {
+      "tablename": "refunds",
+      "indexname": "refunds_payment_id_idempotency_key_key",
+      "indexdef": "CREATE UNIQUE INDEX refunds_payment_id_idempotency_key_key ON public.refunds USING btree (payment_id, idempotency_key)"
+    },
+    {
+      "tablename": "refunds",
+      "indexname": "refunds_pkey",
+      "indexdef": "CREATE UNIQUE INDEX refunds_pkey ON public.refunds USING btree (id)"
+    },
+    {
+      "tablename": "shifts",
+      "indexname": "shifts_pkey",
+      "indexdef": "CREATE UNIQUE INDEX shifts_pkey ON public.shifts USING btree (id)"
+    }
+  ]
+}

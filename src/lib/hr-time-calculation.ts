@@ -13,7 +13,7 @@ export type HrAttendanceCorrection = {
 }
 export type HrShiftInterval = { id: string | number | bigint; openedAt: Date | string; closedAt?: Date | string | null }
 export type HrLeaveInterval = { status: string; startsOn: Date | string; endsOn: Date | string; paid?: boolean }
-export type HrHolidayInterval = { startsOn: Date | string; endsOn: Date | string }
+export type HrHolidayInterval = { startsOn: Date | string; endsOn: Date | string; paid?: boolean }
 
 export type HrDailyTimeSummary = {
   date: string; scheduledMinutes: number; actualMinutes: number; payableMinutes: number; missingMinutes: number
@@ -120,11 +120,15 @@ export function calculateHrTimeSummary(input: {
   const days: HrDailyTimeSummary[] = []
   for (let key = startsOn; key <= endsOn; key = addDays(key, 1)) {
     const schedule = effectiveSchedule(input.schedules, key); const plan = schedule?.days.find((day) => day.weekday === weekday(key)); const scheduled = scheduledMinutes(plan); const actualMinutes = actual.get(key) ?? 0
-    const holiday = holidays.some((item) => dateKey(item.startsOn) <= key && key <= dateKey(item.endsOn)); const approvedLeave = leaves.find((item) => item.status === 'approved' && dateKey(item.startsOn) <= key && key <= dateKey(item.endsOn))
-    const leaveUnknown = Boolean(approvedLeave && approvedLeave.paid === undefined); const paidLeaveMinutes = approvedLeave?.paid === true ? Math.max(0, scheduled - actualMinutes) : 0
+    const holidayRows = holidays.filter((item) => dateKey(item.startsOn) <= key && key <= dateKey(item.endsOn)); const holiday = holidayRows.length > 0; const approvedLeave = leaves.find((item) => item.status === 'approved' && dateKey(item.startsOn) <= key && key <= dateKey(item.endsOn))
+    // Breaks are unpaid once per scheduled day, capped by actual attendance.
+    const breakMinutes = plannedIntervals(plan).reduce((sum, interval) => sum + (interval.unpaidBreakMinutes ?? 0), 0)
+    const workingMinutes = Math.max(0, actualMinutes - breakMinutes)
+    const leaveUnknown = Boolean(approvedLeave && approvedLeave.paid === undefined) || holidayRows.some(item => item.paid === undefined)
+    const paidLeaveMinutes = approvedLeave?.paid === true || holidayRows.some(item => item.paid === true) ? Math.max(0, scheduled - workingMinutes) : 0
     const firstInterval = plannedIntervals(plan)[0]; const expectedStart = firstInterval ? minuteOfDay(firstInterval.startsAt) : null; const grace = schedule?.graceMinutes ?? 0; const lateMinutes = expectedStart == null || firstStart.get(key) == null ? 0 : Math.max(0, firstStart.get(key)! - expectedStart - grace)
-    const payableMinutes = actualMinutes + paidLeaveMinutes; const missingMinutes = Math.max(0, scheduled - actualMinutes - paidLeaveMinutes)
-    days.push({ date: key, scheduledMinutes: scheduled, actualMinutes, payableMinutes, missingMinutes, lateMinutes, earlyDepartureMinutes: missingMinutes, extraMinutes: Math.max(0, actualMinutes - scheduled), restDayWorkMinutes: scheduled === 0 ? actualMinutes : 0, holidayWorkMinutes: holiday ? actualMinutes : 0, approvedLeaveMinutes: approvedLeave ? Math.max(0, scheduled - actualMinutes) : 0, paidLeaveMinutes, leaveClassificationUnknown: leaveUnknown, holiday, overnightWorkMinutes: overnight.get(key) ?? 0 })
+    const payableMinutes = workingMinutes + paidLeaveMinutes; const missingMinutes = Math.max(0, scheduled - payableMinutes)
+    days.push({ date: key, scheduledMinutes: scheduled, actualMinutes, payableMinutes, missingMinutes, lateMinutes, earlyDepartureMinutes: missingMinutes, extraMinutes: Math.max(0, workingMinutes - scheduled), restDayWorkMinutes: scheduled === 0 ? actualMinutes : 0, holidayWorkMinutes: holiday ? actualMinutes : 0, approvedLeaveMinutes: approvedLeave ? Math.max(0, scheduled - actualMinutes) : 0, paidLeaveMinutes, leaveClassificationUnknown: leaveUnknown, holiday, overnightWorkMinutes: overnight.get(key) ?? 0 })
   }
   return { timezone, startsOn, endsOn, days, totals: totals(days) }
 }

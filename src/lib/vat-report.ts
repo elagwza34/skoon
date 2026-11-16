@@ -1,3 +1,4 @@
+import { financialDayBoundary } from '@/lib/financial-calendar'
 import { ROLE } from '@/lib/authz'
 import { centsToAmount, financeBranchScope, toCents } from '@/lib/finance-metrics'
 import { prisma } from '@/lib/prisma'
@@ -7,11 +8,12 @@ export class VatReportError extends Error {
   constructor(message: string, readonly status = 400) { super(message); this.name = 'VatReportError' }
 }
 
-export type VatPayment = { status: string; amount: unknown; createdAt: Date }
+export type VatPayment = { id?: string | bigint; status: string; amount: unknown; createdAt: Date }
 export type VatInvoiceInput = {
   id: string; number: string; branchId: string; branch: string; createdAt: Date
   subtotal: unknown; discount: unknown; tax: unknown; total: unknown; taxRate: unknown
   payments: VatPayment[]
+  refunds?: { id: string | bigint; paymentId: string | bigint; status: string; amount: unknown; executedAt: Date | null }[]
 }
 export type VatInvoiceRow = {
   id: string; number: string; branch: string; paymentAt: string; taxRate: string
@@ -37,37 +39,45 @@ export interface VatCalculation {
  * partial/split payment cannot be attributed by date without an allocation
  * ledger, so it is explicitly excluded rather than estimated.
  */
-export function calculateVat(invoices: readonly VatInvoiceInput[]): VatCalculation {
+export function calculateVat(invoices: readonly VatInvoiceInput[], window: { from?: Date; to?: Date } = {}): VatCalculation {
   const result: VatCalculation = { collectedVatCents: 0, refundedVatCents: 0, netVatCents: 0, salesExcludingVatCents: 0, salesIncludingVatCents: 0, paidInvoices: 0, rows: [], excluded: [] }
+  const inWindow = (at: Date) => (!window.from || at >= window.from) && (!window.to || at <= window.to)
   for (const invoice of invoices) {
-    const settled = invoice.payments.filter((payment) => payment.status === 'completed' || payment.status === 'refunded')
-    if (settled.length !== 1) {
-      result.excluded.push({ number: invoice.number, branch: invoice.branch, reason: settled.length > 1 ? 'multiple_settled_payments_no_tax_allocation' : 'no_settled_payment' })
-      continue
+    const total = toCents(invoice.total), tax = toCents(invoice.tax)
+    const settled = invoice.payments.filter(payment => ['completed', 'refunded'].includes(payment.status)).sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || String(a.id ?? '').localeCompare(String(b.id ?? '')))
+    if (!settled.length || total <= 0 || tax < 0 || tax > total || settled.reduce((sum, payment) => sum + toCents(payment.amount), 0) > total) {
+      result.excluded.push({ number: invoice.number, branch: invoice.branch, reason: 'invalid_or_unsettled_invoice' }); continue
     }
-    const payment = settled[0]
-    const totalCents = toCents(invoice.total)
-    if (toCents(payment.amount) !== totalCents) {
-      result.excluded.push({ number: invoice.number, branch: invoice.branch, reason: 'partial_or_mismatched_payment_no_tax_allocation' })
-      continue
+    let collectedBase = 0, allocatedTax = 0, counted = false
+    const add = (id: string, amount: number, vat: number, at: Date, state: 'collected' | 'refunded', note: string | null = null) => {
+      if (!inWindow(at)) return
+      if (state === 'collected') {
+        result.collectedVatCents += vat; result.salesExcludingVatCents += amount - vat; result.salesIncludingVatCents += amount; counted = true
+      } else { result.refundedVatCents += vat }
+      result.rows.push({ id, number: invoice.number, branch: invoice.branch, paymentAt: at.toISOString(), taxRate: String(invoice.taxRate), salesExcludingVat: centsToAmount(amount - vat), vatCollected: centsToAmount(vat), salesIncludingVat: centsToAmount(amount), state, note })
     }
-    const taxCents = toCents(invoice.tax)
-    const netSalesCents = totalCents - taxCents
-    const state = payment.status === 'completed' ? 'collected' : 'refunded'
-    if (state === 'collected') {
-      result.collectedVatCents += taxCents
-      result.salesExcludingVatCents += netSalesCents
-      result.salesIncludingVatCents += totalCents
-      result.paidInvoices += 1
-    } else {
-      result.refundedVatCents += taxCents
+    for (const [index, payment] of settled.entries()) {
+      const amount = toCents(payment.amount)
+      collectedBase += amount
+      const nextTax = Number((BigInt(tax) * BigInt(collectedBase) + BigInt(Math.floor(total / 2))) / BigInt(total))
+      const paymentTax = nextTax - allocatedTax; allocatedTax = nextTax
+      if (payment.status === 'refunded') {
+        add(`${invoice.id}:legacy:${index}`, amount, paymentTax, payment.createdAt, 'refunded', 'Legacy refund has no execution timestamp; original payment date is used.')
+        continue
+      }
+      add(`${invoice.id}:payment:${index}`, amount, paymentTax, payment.createdAt, 'collected')
+      let returned = 0, returnedTax = 0
+      const refunds = (invoice.refunds ?? []).filter(refund => refund.status === 'COMPLETED' && String(refund.paymentId) === String(payment.id)).sort((a,b) => (a.executedAt?.getTime() ?? 0) - (b.executedAt?.getTime() ?? 0) || String(a.id).localeCompare(String(b.id)))
+      for (const refund of refunds) {
+        if (!refund.executedAt) { result.excluded.push({ number: invoice.number, branch: invoice.branch, reason: 'completed_refund_missing_execution_date' }); continue }
+        returned += toCents(refund.amount)
+        if (returned > amount || amount <= 0) { result.excluded.push({ number: invoice.number, branch: invoice.branch, reason: 'refund_exceeds_payment' }); continue }
+        const nextReturnedTax = Number((BigInt(paymentTax) * BigInt(returned) + BigInt(Math.floor(amount / 2))) / BigInt(amount))
+        add(`${invoice.id}:refund:${refund.id}`, toCents(refund.amount), nextReturnedTax - returnedTax, refund.executedAt, 'refunded')
+        returnedTax = nextReturnedTax
+      }
     }
-    result.rows.push({
-      id: invoice.id, number: invoice.number, branch: invoice.branch, paymentAt: payment.createdAt.toISOString(),
-      taxRate: String(invoice.taxRate), salesExcludingVat: centsToAmount(netSalesCents),
-      vatCollected: centsToAmount(taxCents), salesIncludingVat: centsToAmount(totalCents), state,
-      note: state === 'refunded' ? 'Refund date is not recorded; payment creation date is shown.' : null,
-    })
+    if (counted) result.paidInvoices++
   }
   result.netVatCents = result.collectedVatCents - result.refundedVatCents
   return result
@@ -94,9 +104,7 @@ export interface VatReport {
 export function parseVatDate(value: string | undefined, endOfDay = false): Date | undefined {
   if (!value) return undefined
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new VatReportError('Dates must use YYYY-MM-DD')
-  const parsed = new Date(`${value}T${endOfDay ? '23:59:59.999' : '00:00:00.000'}Z`)
-  if (Number.isNaN(parsed.getTime())) throw new VatReportError('Invalid date')
-  return parsed
+  return financialDayBoundary(value, endOfDay)
 }
 
 /** Validated, server-side-only filters. The client can never provide a scope wider than Owner access. */
@@ -114,15 +122,15 @@ export async function getVatReport(session: StaffSession, input: { from?: string
   const { from, to, branchId } = normalizeVatReportFilters(input)
   const paymentDate = from || to ? { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } : undefined
   const invoices = await prisma.order.findMany({
-    where: { ...financeBranchScope(session), ...(branchId ? { branchId } : {}), payments: { some: { status: { in: ['completed', 'refunded'] }, ...(paymentDate ? { createdAt: paymentDate } : {}) } } },
-    orderBy: { createdAt: 'desc' }, take: 1000,
-    select: { id: true, orderNumber: true, branchId: true, createdAt: true, itemsSubtotal: true, discountAmount: true, taxAmount: true, total: true, taxRate: true, branch: { select: { name: true } }, payments: { select: { status: true, amount: true, createdAt: true } } },
+    where: { ...financeBranchScope(session), ...(branchId ? { branchId } : {}), OR: [{ payments: { some: { status: { in: ['completed', 'refunded'] }, ...(paymentDate ? { createdAt: paymentDate } : {}) } } }, { refunds: { some: { status: 'COMPLETED', ...(paymentDate ? { executedAt: paymentDate } : {}) } } }] },
+    orderBy: { createdAt: 'desc' },
+    select: { id: true, orderNumber: true, branchId: true, createdAt: true, itemsSubtotal: true, discountAmount: true, taxAmount: true, total: true, taxRate: true, branch: { select: { name: true } }, payments: { select: { id: true, status: true, amount: true, createdAt: true } }, refunds: { where: { status: 'COMPLETED' }, select: { id: true, paymentId: true, status: true, amount: true, executedAt: true } } },
   })
-  const calculated = calculateVat(invoices.map((invoice) => ({ id: invoice.id.toString(), number: invoice.orderNumber, branchId: invoice.branchId.toString(), branch: invoice.branch.name, createdAt: invoice.createdAt, subtotal: invoice.itemsSubtotal, discount: invoice.discountAmount, tax: invoice.taxAmount, total: invoice.total, taxRate: invoice.taxRate, payments: invoice.payments })))
+  const calculated = calculateVat(invoices.map((invoice) => ({ id: invoice.id.toString(), number: invoice.orderNumber, branchId: invoice.branchId.toString(), branch: invoice.branch.name, createdAt: invoice.createdAt, subtotal: invoice.itemsSubtotal, discount: invoice.discountAmount, tax: invoice.taxAmount, total: invoice.total, taxRate: invoice.taxRate, payments: invoice.payments, refunds: invoice.refunds })), { from, to })
   const day = new Map<string, number>(); const month = new Map<string, number>(); const rates = new Map<string, { vat: number; invoices: number }>()
   for (const row of calculated.rows) {
     const signed = row.state === 'refunded' ? -toCents(row.vatCollected) : toCents(row.vatCollected)
-    const date = new Date(row.paymentAt); const dayKey = date.toISOString().slice(0, 10); const monthKey = dayKey.slice(0, 7)
+    const date = new Date(row.paymentAt); const dayKey = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(date); const monthKey = dayKey.slice(0, 7)
     day.set(dayKey, (day.get(dayKey) ?? 0) + signed); month.set(monthKey, (month.get(monthKey) ?? 0) + signed)
     const existing = rates.get(row.taxRate) ?? { vat: 0, invoices: 0 }; existing.vat += signed; existing.invoices += 1; rates.set(row.taxRate, existing)
   }
@@ -133,6 +141,6 @@ export async function getVatReport(session: StaffSession, input: { from?: string
     byMonth: [...month].map(([label, cents]) => ({ label, vat: centsToAmount(cents) })).sort((a, b) => a.label.localeCompare(b.label)),
     byTaxRate: [...rates].map(([rate, value]) => ({ rate, vat: centsToAmount(value.vat), invoices: value.invoices })).sort((a, b) => a.rate.localeCompare(b.rate)),
     invoices: calculated.rows, excluded: calculated.excluded,
-    limitations: ['VAT uses the immutable order taxAmount and taxRate snapshots; it never applies current product rates.', 'The current payment writer supports full-order collection and full refunds only. Legacy partial or multiple settled payments are excluded because no tax-allocation ledger exists.', 'Refunded payments have no refundedAt timestamp, so refund date reporting is unavailable; the original payment timestamp is displayed only as context.', 'Tax-rate breakdown is invoice-level. Mixed tax rates within one invoice cannot be reconstructed because order items do not persist tax snapshots.'],
+    limitations: ['VAT uses the immutable order taxAmount and taxRate snapshots; it never applies current product rates.', 'Partial and split payments allocate the immutable invoice VAT proportionally with cumulative cent rounding; refunds reverse the corresponding payment allocation.', 'Current refunds are attributed to executedAt. Legacy payment-status refunds have no execution timestamp and use the original payment date.', 'Tax-rate breakdown is invoice-level. Mixed tax rates within one invoice cannot be reconstructed because legacy order items lack tax snapshots; new items preserve product tax rates in optionsSnapshot.taxRate.'],
   }
 }

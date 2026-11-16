@@ -1,3 +1,5 @@
+import { calculateSnapshotTax } from '@/lib/invoice-tax'
+import { toCents, centsToAmount } from '@/lib/finance-metrics'
 import { createHash, randomBytes } from 'node:crypto'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
@@ -80,7 +82,7 @@ export async function createPublicOrder(input: CreateOrderInput & { idempotencyK
       deletedAt: null,
       isAvailable: true,
     },
-    select: { id: true, name: true, price: true, variants: { where: { isActive: true, archivedAt: null }, select: { id: true }, take: 1 }, optionAssignments: { select: { productOption: { select: { isActive: true, isRequired: true, minSelections: true } } } } },
+    select: { id: true, name: true, price: true, taxRate: true, variants: { where: { isActive: true, archivedAt: null }, select: { id: true }, take: 1 }, optionAssignments: { select: { productOption: { select: { isActive: true, isRequired: true, minSelections: true } } } } },
   })
   const priceById = new Map(products.map((p) => [p.id.toString(), p]))
   for (const item of items) {
@@ -92,21 +94,24 @@ export async function createPublicOrder(input: CreateOrderInput & { idempotencyK
   let total = 0
   const lines = items.map((item) => {
     const p = priceById.get(item.productId)!
-    const unit = Number(p.price)
+    const unit = toCents(p.price)
     total += unit * item.qty
     return {
       productId: p.id,
       productName: p.name,
       unitPrice: p.price,
+      optionsSnapshot: { version: 1, taxRate: String(p.taxRate ?? '0'), groups: [] },
       quantity: item.qty,
-      lineTotal: unit * item.qty,
+      lineTotal: centsToAmount(unit * item.qty).toFixed(2),
       notes: item.note?.trim() || null,
     }
   })
 
   const orderNumber = `QR-${Date.now().toString(36).toUpperCase()}`
   const orderRef = randomBytes(12).toString('hex') // 24 hex chars, unique, hides the id
-  const itemsSubtotal = total.toFixed(2)
+  const itemsSubtotal = centsToAmount(total).toFixed(2)
+  const tax = calculateSnapshotTax(lines.map(line => ({ baseCents: BigInt(toCents(line.lineTotal)), eligible: true, snapshot: line.optionsSnapshot })), 0n)
+  const invoiceTotal = centsToAmount(total + Number(tax.taxCents)).toFixed(2)
 
   const fingerprint = key ? createHash('sha256').update(JSON.stringify({ tableId: tableId.toString(), items: items.map((i) => ({ productId: i.productId, qty: i.qty, note: i.note ?? null })) })).digest('hex') : null
 
@@ -136,8 +141,9 @@ export async function createPublicOrder(input: CreateOrderInput & { idempotencyK
         customerPhone: customerPhone?.trim() || null,
         itemsSubtotal,
         discountAmount: '0',
-        taxAmount: '0',
-        total: itemsSubtotal,
+        taxAmount: centsToAmount(Number(tax.taxCents)).toFixed(2),
+        taxRate: new Set(lines.map(line => line.optionsSnapshot.taxRate)).size === 1 ? lines[0].optionsSnapshot.taxRate : '0',
+        total: invoiceTotal,
         paymentStatus: 'unpaid',
         items: {
           create: lines.map((l) => ({
@@ -146,6 +152,7 @@ export async function createPublicOrder(input: CreateOrderInput & { idempotencyK
             unitPrice: l.unitPrice,
             quantity: l.quantity,
             lineTotal: l.lineTotal,
+            optionsSnapshot: l.optionsSnapshot,
             notes: l.notes,
           })),
         },

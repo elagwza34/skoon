@@ -1,16 +1,11 @@
+import { financialDayBoundary } from '@/lib/financial-calendar'
 import { NextResponse } from 'next/server'
 import { getStaffSession } from '@/lib/session'
 import { getCashierInvoices } from '@/lib/staff-invoices'
 
 export const dynamic = 'force-dynamic'
 
-function parseDate(value: string | null, endOfDay = false): Date | undefined {
-  if (!value) return undefined
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error('Dates must use YYYY-MM-DD')
-  const parsed = new Date(`${value}T${endOfDay ? '23:59:59.999' : '00:00:00.000'}Z`)
-  if (Number.isNaN(parsed.getTime())) throw new Error('Invalid date')
-  return parsed
-}
+function parseDate(value: string | null, endOfDay = false) { return value ? financialDayBoundary(value, endOfDay) : undefined }
 
 const PAYMENT_METHOD_LABELS: Record<string, string> = {
   cash: 'نقدي',

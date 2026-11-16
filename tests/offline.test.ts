@@ -251,15 +251,15 @@ test('VAT: fully settled invoices use stored tax snapshots and count once', () =
   assert.equal(result.rows.length, 1)
 })
 
-test('VAT: partial and multiple payments are excluded without inventing allocation', () => {
+test('VAT: partial and multiple payments allocate saved invoice tax proportionally', () => {
   const base = { branchId: '1', branch: 'Main', createdAt: new Date(), subtotal: '100.00', discount: '0.00', tax: '14.00', total: '114.00', taxRate: '14' }
   const result = calculateVat([
     { ...base, id: '1', number: 'PARTIAL', payments: [{ status: 'completed', amount: '50.00', createdAt: new Date() }] },
     { ...base, id: '2', number: 'SPLIT', payments: [{ status: 'completed', amount: '57.00', createdAt: new Date() }, { status: 'completed', amount: '57.00', createdAt: new Date() }] },
   ])
-  assert.equal(result.collectedVatCents, 0)
-  assert.equal(result.paidInvoices, 0)
-  assert.deepEqual(result.excluded.map((row) => row.reason), ['partial_or_mismatched_payment_no_tax_allocation', 'multiple_settled_payments_no_tax_allocation'])
+  assert.equal(result.collectedVatCents, 2014)
+  assert.equal(result.paidInvoices, 2)
+  assert.deepEqual(result.excluded.map((row) => row.reason), [])
 })
 
 test('VAT: full refunds, tax-exempt invoices, and distinct invoice tax rates reconcile exactly', () => {
@@ -276,12 +276,12 @@ test('VAT: full refunds, tax-exempt invoices, and distinct invoice tax rates rec
 })
 
 test('VAT: date input is bounded and valid for branch/date-filtered server queries', () => {
-  assert.equal(parseVatDate('2026-10-01')?.toISOString(), '2026-10-01T00:00:00.000Z')
-  assert.equal(parseVatDate('2026-10-01', true)?.toISOString(), '2026-10-01T23:59:59.999Z')
+  assert.equal(parseVatDate('2026-10-01')?.toISOString(), '2026-09-30T21:00:00.000Z')
+  assert.equal(parseVatDate('2026-10-01', true)?.toISOString(), '2026-10-01T20:59:59.999Z')
   assert.throws(() => parseVatDate('2026/10/01'))
   const filters = normalizeVatReportFilters({ from: '2026-10-01', to: '2026-10-31', branchId: '42' })
   assert.equal(filters.branchId, 42n)
-  assert.equal(filters.from?.toISOString(), '2026-10-01T00:00:00.000Z')
+  assert.equal(filters.from?.toISOString(), '2026-09-30T21:00:00.000Z')
   assert.throws(() => normalizeVatReportFilters({ branchId: 'other-branch' }))
 })
 

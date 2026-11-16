@@ -1,0 +1,50 @@
+{
+  "date": "2026-11-16",
+  "scope": "33 confirmed financial audit findings",
+  "offline": {
+    "command": "npm test",
+    "exitCode": 0,
+    "passed": 436,
+    "failed": 0,
+    "skipped": 0
+  },
+  "postgres": {
+    "command": "node --require ./tests/node-userinfo-workaround.cjs --import tsx --test tests/financial-remediation-postgres.test.ts",
+    "exitCode": 0,
+    "passed": 6,
+    "failed": 0,
+    "skipped": 0,
+    "database": "fresh local PostgreSQL 17 scratch cluster; synthetic fixtures only",
+    "clusterStoppedAfterTests": true
+  },
+  "typecheck": {
+    "command": "npm run typecheck",
+    "exitCode": 0
+  },
+  "lint": {
+    "command": "npm run lint",
+    "exitCode": 0
+  },
+  "schema": {
+    "command": "npx prisma validate",
+    "exitCode": 0
+  },
+  "productionBuild": {
+    "command": "npm run build",
+    "exitCode": 0
+  },
+  "diffCheck": {
+    "command": "git diff --check",
+    "exitCode": 0
+  },
+  "independentReview": "Three additional issues corrected and rechecked; no critical regression reported within review scope.",
+  "productionDatabaseModified": false,
+  "migrationAppliedToProduction": false,
+  "historicalFinancialRecordsRewritten": false,
+  "uiCommit": "65279c1",
+  "limitations": [
+    "Deploy the additive external-reference unique index through the approved migration process.",
+    "Reconcile existing financial discrepancies and unverified legacy funding explicitly.",
+    "No bank-provider or physical-cash reconciliation was performed."
+  ]
+}

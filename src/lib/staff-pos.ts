@@ -31,6 +31,7 @@ export interface PosCatalogModifierGroup {
 }
 
 export interface PosCatalogProduct {
+  taxRate?: string
   id: string
   name: string
   price: string
@@ -73,7 +74,7 @@ export async function getPosCatalog(session: StaffSession): Promise<PosCatalog> 
       where: { ...branchScope, isActive: true, deletedAt: null },
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
       select: {
-        id: true, name: true, price: true, categoryId: true, isAvailable: true,
+        id: true, name: true, price: true, taxRate: true, categoryId: true, isAvailable: true,
         category: { select: { name: true } },
         variants: {
           where: { isActive: true, isAvailable: true, archivedAt: null },
@@ -132,7 +133,7 @@ export async function getPosCatalog(session: StaffSession): Promise<PosCatalog> 
         }
       })
       return {
-        id: p.id.toString(), name: p.name, price: p.price.toString(),
+        id: p.id.toString(), name: p.name, price: p.price.toString(), taxRate: p.taxRate.toString(),
         categoryId: p.categoryId.toString(), categoryName: p.category.name,
         isAvailable: p.isAvailable,
         variants: p.variants.map((v) => ({

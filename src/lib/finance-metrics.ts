@@ -215,8 +215,8 @@ export async function getCollectedStatsWithRefunds(
       where: { ...branchScope, createdAt, status: 'completed' },
     }),
     prisma.refund.groupBy({
-      by: ['status'],
-      where: { ...branchScope, createdAt, status: 'COMPLETED' },
+      by: ['status', 'method'],
+      where: { ...branchScope, executedAt: createdAt, status: 'COMPLETED' },
       _sum: { amount: true },
     }),
   ])
@@ -236,6 +236,7 @@ export async function getCollectedStatsWithRefunds(
   for (const g of refundGroups) {
     const cents = toCents(g._sum.amount?.toString() ?? '0')
     refundedCentsFromRefunds += cents
+    byMethodCents[g.method] = (byMethodCents[g.method] ?? 0) - cents
   }
   const netCollectedCents = collectedCents - refundedCentsFromRefunds
   return { collectedCents, refundedCents, paidOrders: paid.length, byMethodCents, refundedCentsFromRefunds, netCollectedCents }

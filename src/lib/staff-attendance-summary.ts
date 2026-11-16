@@ -39,6 +39,6 @@ export async function getAttendanceSummary(session: StaffSession, input: unknown
   ])
   return calculateHrTimeSummary({
     startsOn: value.startsOn, endsOn: value.endsOn, timezone: 'Africa/Cairo', schedules, shifts,
-    corrections, leaves, holidays,
+    corrections, leaves: leaves.map(({ isPaid, ...row }) => ({ ...row, paid: isPaid ?? undefined })), holidays: holidays.map(({ isPaid, ...row }) => ({ ...row, paid: isPaid ?? undefined })),
   })
 }

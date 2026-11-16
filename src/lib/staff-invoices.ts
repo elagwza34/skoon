@@ -1,3 +1,5 @@
+import { snapshotTaxRate } from '@/lib/invoice-tax'
+import { PosError } from '@/lib/staff-pos'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { ROLE, hasAtLeast, requiresOperationalShift } from '@/lib/authz'
@@ -10,7 +12,7 @@ import { modifierSnapshotLabels } from '@/lib/order-item-options'
 import { adjustOrderItem, OrderItemAdjustmentError } from '@/lib/staff-order-item-adjustment'
 import { lockAndReadShift } from '@/lib/financial-shift-lock'
 import { releaseOrderItemReservations, reserveOrderItemInventory, StockError } from '@/lib/staff-inventory-engine'
-import { validateModifierSelections } from '@/lib/staff-pos-write'
+import { validateModifierSelections, resolveModifierSelections } from '@/lib/staff-pos-write'
 import { notifyRole } from '@/lib/notifications'
 import { createHash } from 'node:crypto'
 
@@ -72,7 +74,7 @@ function discountValue(kind: DiscountKind, value: unknown): bigint { return kind
 export async function getCashierInvoices(session: StaffSession, range: { from?: Date; to?: Date; branchId?: bigint; orderId?: bigint } = {}): Promise<InvoiceRow[]> {
   const scope = session.role === ROLE.OWNER ? (range.branchId ? { branchId: range.branchId } : {}) : { branchId: BigInt(session.branchId as string) }
   const createdAt = range.from || range.to ? { ...(range.from ? { gte: range.from } : {}), ...(range.to ? { lte: range.to } : {}) } : undefined
-  const orders = await prisma.order.findMany({ where: { ...scope, ...(range.orderId ? { id: range.orderId } : {}), ...(createdAt ? { createdAt } : {}) }, orderBy: { createdAt: 'desc' }, take: range.orderId ? 1 : 150,
+  const orders = await prisma.order.findMany({ where: { ...scope, ...(range.orderId ? { id: range.orderId } : {}), ...(createdAt ? { createdAt } : {}) }, orderBy: { createdAt: 'desc' }, ...(range.orderId ? { take: 1 } : {}),
       select: { id: true, orderNumber: true, createdAt: true, cancelledAt: true, cancelReason: true, status: true, paymentStatus: true, orderType: true, notes: true, discountType: true, discountValue: true, itemsSubtotal: true, itemDiscountAmount: true, discountEligibleBase: true, discountAmount: true, taxAmount: true, total: true,
         branch: { select: { name: true } }, cafeTable: { select: { number: true } }, createdBy: { select: { name: true } },
         isArchived: true,
@@ -164,29 +166,21 @@ export async function editOpenInvoice(session: StaffSession, orderIdRaw: string,
       const product = await tx.product.findFirst({
         where: { id: BigInt(parsed.data.productId!), branchId: order.branchId, isActive: true, isAvailable: true, deletedAt: null },
         select: {
-          id: true, name: true, price: true,
+          id: true, name: true, price: true, taxRate: true,
           variants: { where: { isActive: true, isAvailable: true, archivedAt: null }, select: { id: true } },
-          optionAssignments: { select: { productOption: { select: { id: true, isRequired: true, minSelections: true, maxSelections: true, type: true, values: { select: { id: true, isActive: true } } } } } }
+          optionAssignments: { select: { productOption: { select: { id: true, name: true, isActive: true, isRequired: true, minSelections: true, maxSelections: true, type: true, values: { where: { isActive: true, deletedAt: null }, select: { id: true, value: true, priceAdjustment: true, isActive: true } } } } } }
         },
       })
       if (!product) throw new InvoiceError('Product is unavailable', 422)
       const hasActiveVariants = product.variants.length > 0
       if (hasActiveVariants && !parsed.data.variantId) throw new InvoiceError('هذا المنتج يتطلب اختيار متغير', 422)
-      if (parsed.data.modifierSelections) {
-        const productWithModifiers = {
-          optionAssignments: product.optionAssignments.map((a: any) => ({
-            productOption: {
-              id: a.productOption.id,
-              isRequired: a.productOption.isRequired,
-              minSelections: a.productOption.minSelections,
-              maxSelections: a.productOption.maxSelections,
-              type: a.productOption.type,
-              values: a.productOption.values,
-            },
-          })),
-        }
-        validateModifierSelections(productWithModifiers as any, parsed.data.modifierSelections)
-      }
+      try { validateModifierSelections(product, parsed.data.modifierSelections ?? []) }
+      catch (error) { if (error instanceof PosError) throw new InvoiceError(error.message, error.status); throw error }
+      const modifiers = resolveModifierSelections(product, parsed.data.modifierSelections ?? [])
+      const adjustmentCents = modifiers.reduce((sum, item) => sum + BigInt(Math.round(Number(item.priceAdjustment) * 100)), 0n)
+      const optionsSnapshot = { version: 1, taxRate: String(product.taxRate ?? '0'), groups: modifiers.map(item => ({ groupId: item.groupId.toString(), groupName: item.groupName, optionId: item.optionId.toString(), optionLabel: item.optionLabel, priceAdjustment: item.priceAdjustment.toString() })) }
+      const optionRows = { create: modifiers.map(item => ({ productOptionId: item.groupId, optionValueId: item.optionId, optionName: item.groupName, valueLabel: item.optionLabel, priceAdjustment: item.priceAdjustment.toString() })) }
+      const pricedUnit = (base: unknown) => { const value = cents(base) + adjustmentCents; if (value < 0n) throw new InvoiceError('Invalid price after modifiers', 422); return value }
       let productVariantId: string | null = null
       if (parsed.data.variantId) {
         const variant = await tx.productVariant.findFirst({
@@ -200,12 +194,10 @@ export async function editOpenInvoice(session: StaffSession, orderIdRaw: string,
         })
         if (!variant) throw new InvoiceError('Product variant is unavailable', 422)
         productVariantId = variant.id.toString()
-        const modifierSnapshot = parsed.data.modifierSelections ? { version: 1, groups: parsed.data.modifierSelections.map((sel: any) => ({ groupId: sel.groupId, values: sel.valueIds })) } : undefined
-        const created = await tx.orderItem.create({ data: { orderId, productId: product.id, productVariantId: BigInt(productVariantId), productVariantSnapshot: createOrderItemVariantSnapshot(variant.combinationKey, variant.values.map((entry: any) => entry.value)), productName: product.name, unitPrice: variant.price, quantity: parsed.data.quantity, lineTotal: (Number(variant.price) * parsed.data.quantity).toFixed(2), optionsSnapshot: modifierSnapshot } })
+        const created = await tx.orderItem.create({ data: { orderId, productId: product.id, productVariantId: BigInt(productVariantId), productVariantSnapshot: createOrderItemVariantSnapshot(variant.combinationKey, variant.values.map((entry: any) => entry.value)), productName: product.name, unitPrice: centsText(pricedUnit(variant.price)), quantity: parsed.data.quantity, lineTotal: centsText(pricedUnit(variant.price) * BigInt(parsed.data.quantity)), optionsSnapshot, options: optionRows } })
         try { await reserveOrderItemInventory(tx, orderId, created.id) } catch (error) { if (error instanceof StockError) throw new InvoiceError(error.message, error.status); throw error }
       } else {
-        const modifierSnapshot = parsed.data.modifierSelections ? { version: 1, groups: parsed.data.modifierSelections.map((sel: any) => ({ groupId: sel.groupId, values: sel.valueIds })) } : undefined
-        const created = await tx.orderItem.create({ data: { orderId, productId: product.id, productName: product.name, unitPrice: product.price, quantity: parsed.data.quantity, lineTotal: (Number(product.price) * parsed.data.quantity).toFixed(2), optionsSnapshot: modifierSnapshot } })
+        const created = await tx.orderItem.create({ data: { orderId, productId: product.id, productName: product.name, unitPrice: centsText(pricedUnit(product.price)), quantity: parsed.data.quantity, lineTotal: centsText(pricedUnit(product.price) * BigInt(parsed.data.quantity)), optionsSnapshot, options: optionRows } })
         try { await reserveOrderItemInventory(tx, orderId, created.id) } catch (error) { if (error instanceof StockError) throw new InvoiceError(error.message, error.status); throw error }
       }
     } else if (parsed.data.action === 'item_config') {
@@ -218,12 +210,12 @@ export async function editOpenInvoice(session: StaffSession, orderIdRaw: string,
       if (repeated) { if (repeated.fingerprint !== fingerprint) throw new InvoiceError('مفتاح العملية مستخدم لتعديل مختلف', 409); return repeated.result }
       const itemId = BigInt(d.orderItemId)
       await tx.$queryRaw`SELECT id FROM order_items WHERE id = ${itemId} AND order_id = ${orderId} FOR UPDATE`
-      const item = await tx.orderItem.findFirst({ where: { id: itemId, orderId, isVoided: false }, select: { id: true, productId: true, productVariantId: true, productName: true, quantity: true, preparedQuantity: true, servedQuantity: true, updatedAt: true } })
+      const item = await tx.orderItem.findFirst({ where: { id: itemId, orderId, isVoided: false }, select: { id: true, productId: true, productVariantId: true, productName: true, quantity: true, preparedQuantity: true, servedQuantity: true, updatedAt: true, optionsSnapshot: true } })
       if (!item) throw new InvoiceError('صنف الفاتورة غير موجود', 404)
       if (item.updatedAt.toISOString() !== d.expectedUpdatedAt) throw new InvoiceError('تغيّر الصنف؛ حدّث الصفحة قبل التعديل', 409)
       if ((item.servedQuantity ?? 0) > 0 || (item.preparedQuantity ?? 0) > 0) throw new InvoiceError('لا يمكن تعديل المتغير/الإضافات لصنف بدأ تحضيره أو قُدّم. عدّل الكمية أو أزل الصنف حسب الحالة.', 409)
       if (locked.status === 'served') throw new InvoiceError('الطلب مقدّم ولا يمكن تعديل تكوين الأصناف', 409)
-      const product = await tx.product.findFirst({ where: { id: item.productId, branchId: order.branchId, isActive: true, deletedAt: null }, select: { id: true, name: true, price: true, variants: { where: { isActive: true, isAvailable: true, archivedAt: null }, select: { id: true } }, optionAssignments: { select: { productOption: { select: { id: true, name: true, isRequired: true, minSelections: true, maxSelections: true, type: true, isActive: true, values: { where: { isActive: true, deletedAt: null }, select: { id: true, value: true, priceAdjustment: true } } } } } } } })
+      const product = await tx.product.findFirst({ where: { id: item.productId, branchId: order.branchId, isActive: true, deletedAt: null }, select: { id: true, name: true, price: true, taxRate: true, variants: { where: { isActive: true, isAvailable: true, archivedAt: null }, select: { id: true } }, optionAssignments: { select: { productOption: { select: { id: true, name: true, isRequired: true, minSelections: true, maxSelections: true, type: true, isActive: true, values: { where: { isActive: true, deletedAt: null }, select: { id: true, value: true, priceAdjustment: true } } } } } } } })
       if (!product) throw new InvoiceError('المنتج غير متاح', 422)
       const modifierInput = d.modifierSelections ?? []
       if (modifierInput.length || product.optionAssignments.length) {
@@ -233,7 +225,7 @@ export async function editOpenInvoice(session: StaffSession, orderIdRaw: string,
       const groups = new Map<string, any>(product.optionAssignments.map((a: any) => [a.productOption.id.toString(), a.productOption]))
       const groupsOut = modifierInput.flatMap((sel: { groupId: string; valueIds: string[] }) => { const group = groups.get(sel.groupId) as any; if (!group) return [] as any[]; const values = new Map<string, any>((group.values ?? []).map((v: any) => [v.id.toString(), v])); return sel.valueIds.map((id: string) => values.get(id)).filter(Boolean).map((opt: any) => ({ groupId: sel.groupId, groupName: String(group.name ?? ''), optionId: opt.id.toString(), optionLabel: String(opt.value ?? opt.label ?? ''), priceAdjustment: String(opt.priceAdjustment ?? '0.00') })) })
       const priceAdjCents = groupsOut.reduce((sum: bigint, v: any) => sum + BigInt(Math.round(Number(v.priceAdjustment) * 100)), 0n)
-      const optionsSnapshot = groupsOut.length ? { version: 1 as const, groups: groupsOut.map((g: any) => ({ groupId: g.groupId, groupName: g.groupName, optionId: g.optionId, optionLabel: g.optionLabel, priceAdjustment: g.priceAdjustment })) } : undefined
+      const optionsSnapshot = { version: 1 as const, taxRate: snapshotTaxRate(item.optionsSnapshot, locked.tax_rate), groups: groupsOut.map((g: any) => ({ groupId: g.groupId, groupName: g.groupName, optionId: g.optionId, optionLabel: g.optionLabel, priceAdjustment: g.priceAdjustment })) }
       const optionRows = groupsOut.map((g: any) => ({ productOptionId: BigInt(g.groupId), optionValueId: BigInt(g.optionId), optionName: g.groupName, valueLabel: g.optionLabel, priceAdjustment: g.priceAdjustment }))
       let variantId: bigint | null = item.productVariantId; let productVariantSnapshot: any = undefined; let baseCents = 0n
       if (product.variants.length > 0) {

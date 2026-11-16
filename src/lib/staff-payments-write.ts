@@ -261,8 +261,6 @@ export async function confirmElectronicPayment(
   })
   if (!order) throw new PaymentError('الطلب غير موجود', 404)
   if (!staffCanAccessBranch(session, order.branchId)) throw new PaymentError('غير مصرح', 403)
-  if (order.status === 'cancelled') throw new PaymentError('لا يمكن تحصيل طلب ملغي', 409)
-  if (order.paymentStatus === 'paid') throw new PaymentError('الطلب مدفوع بالفعل', 409)
 
   const collectionKey = parsed.data.idempotencyKey
   const collectionFingerprint = createHash('sha256').update(JSON.stringify({ orderId: orderIdRaw, method, externalTransactionReference })).digest('hex')
@@ -271,18 +269,8 @@ export async function confirmElectronicPayment(
     if (prior) { if (prior.fingerprint !== collectionFingerprint) throw new PaymentError('مفتاح العملية استُخدم لطلب مختلف', 409); return prior.result as unknown as PaymentResult }
   }
 
-  // Reject duplicate external reference for the same branch/method scope
-  // (different providers are not treated as duplicates of each other).
-  const existingRef = await prisma.payment.findFirst({
-    where: {
-      branchId: order.branchId,
-      method,
-      transactionRef: externalTransactionReference,
-      status: 'completed',
-    },
-    select: { id: true },
-  })
-  if (existingRef) throw new PaymentError('مرجع المعاملة الخارجية مستخدم بالفعل لدفعة مكتملة', 409)
+  if (order.status === 'cancelled') throw new PaymentError('لا يمكن تحصيل طلب ملغي', 409)
+  if (order.paymentStatus === 'paid') throw new PaymentError('الطلب مدفوع بالفعل', 409)
 
   const openShift = requiresOperationalShift(session.role) ? await getOpenShift(session.id, order.branchId) : null
   if (requiresOperationalShift(session.role) && !openShift) {
@@ -297,6 +285,13 @@ export async function confirmElectronicPayment(
       throw new PaymentError('لا توجد وردية مفتوحة لهذا الموظف — افتح وردية أولاً من صفحة الورديات (/shifts)', 409)
     }
 
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('electronic-reference:' || ${order.branchId.toString()} || ':' || ${method} || ':' || ${externalTransactionReference}))`
+    if (collectionKey) {
+      const prior = await tx.financialOperation.findUnique({ where: { branchId_actorId_operationType_idempotencyKey: { branchId: order.branchId, actorId: session.id, operationType: 'payment_confirm_electronic', idempotencyKey: collectionKey } } })
+      if (prior) { if (prior.fingerprint !== collectionFingerprint) throw new PaymentError('Idempotency key was reused with a different request', 409); return prior.result as unknown as PaymentResult }
+    }
+    const existingRef = await tx.payment.findFirst({ where: { branchId: order.branchId, method, transactionRef: externalTransactionReference, status: 'completed' }, select: { id: true } })
+    if (existingRef) throw new PaymentError('External transaction reference is already used', 409)
     const locked = await tx.$queryRaw<{ total: unknown; status: string; payment_status: string }[]>`
       SELECT total, status, payment_status FROM orders WHERE id = ${order.id} FOR UPDATE
     `
@@ -768,7 +763,7 @@ export async function getRefunds(
 ): Promise<RefundResult[]> {
   const branchScope = session.role === ROLE.OWNER ? {} : { branchId: BigInt(session.branchId as string) }
   const where: Prisma.RefundWhereInput = { ...branchScope }
-  if (filters.branchId && /^\d+$/.test(filters.branchId)) where.branchId = BigInt(filters.branchId)
+  if (session.role === ROLE.OWNER && filters.branchId && /^\d+$/.test(filters.branchId)) where.branchId = BigInt(filters.branchId)
   if (filters.status && isRefundStatus(filters.status)) where.status = filters.status
   if (filters.from || filters.to) {
     where.createdAt = {}

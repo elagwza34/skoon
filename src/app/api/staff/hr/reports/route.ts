@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { financialJson } from '@/lib/financial-json'
 import { canManageEmployeeLifecycle } from '@/lib/hr-authz'
 import { prisma } from '@/lib/prisma'
 import { getStaffSession } from '@/lib/session'
@@ -17,12 +18,12 @@ function asDate(value: string | null, fallback: Date) {
  * records only, never the POS, till, stock, or operational finance ledgers. */
 export async function GET(request: Request) {
   const session = await getStaffSession()
-  if (!session) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-  if (!canManageEmployeeLifecycle(session.role)) return NextResponse.json({ error: 'Owner access is required' }, { status: 403 })
+  if (!session) return financialJson({ error: 'Not authenticated' }, { status: 401 })
+  if (!canManageEmployeeLifecycle(session.role)) return financialJson({ error: 'Owner access is required' }, { status: 403 })
   const { searchParams } = new URL(request.url)
   const endsOn = asDate(searchParams.get('endsOn'), new Date())
   const startsOn = asDate(searchParams.get('startsOn'), new Date(Date.UTC(endsOn?.getUTCFullYear() ?? 1970, endsOn?.getUTCMonth() ?? 0, 1)))
-  if (!startsOn || !endsOn || startsOn > endsOn) return NextResponse.json({ error: 'Invalid report period' }, { status: 400 })
+  if (!startsOn || !endsOn || startsOn > endsOn) return financialJson({ error: 'Invalid report period' }, { status: 400 })
   const employeeId = searchParams.get('employeeId') || undefined
   const employeeWhere = employeeId ? { employeeId } : {}
   try {
@@ -50,8 +51,8 @@ export async function GET(request: Request) {
       ]
       return new NextResponse(`\uFEFF${rows.map((row) => row.map(csvCell).join(',')).join('\n')}`, { headers: { 'content-type': 'text/csv; charset=utf-8', 'content-disposition': 'attachment; filename="skoon-hr-report.csv"' } })
     }
-    return NextResponse.json(result)
+    return financialJson(result)
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : 'Unable to build HR report' }, { status: 500 })
+    return financialJson({ error: error instanceof Error ? error.message : 'Unable to build HR report' }, { status: 500 })
   }
 }

@@ -46,7 +46,7 @@ export async function POST(req: Request) {
       if (amount === null || amount <= 0 || !reason) {
         return NextResponse.json({ error: 'المبلغ والسبب مطلوبان' }, { status: 400 })
       }
-      const result = await withdrawFromMainSafe(session, amount, reason)
+      const result = await withdrawFromMainSafe(session, amount, reason, req.headers.get('idempotency-key') ?? (typeof body.idempotencyKey === 'string' ? body.idempotencyKey : undefined))
       return NextResponse.json(result, { status: 200 })
     }
 
@@ -56,7 +56,7 @@ export async function POST(req: Request) {
       if (amount === null || amount <= 0 || !reason) {
         return NextResponse.json({ error: 'المبلغ والسبب مطلوبان' }, { status: 400 })
       }
-      const result = await transferMainSafeToFixedFloat(session, amount, reason)
+      const result = await transferMainSafeToFixedFloat(session, amount, reason, req.headers.get('idempotency-key') ?? (typeof body.idempotencyKey === 'string' ? body.idempotencyKey : undefined))
       return NextResponse.json(result, { status: 200 })
     }
 
