@@ -4,6 +4,9 @@ import { listStaffOrders } from '@/lib/staff-orders'
 import { hasAtLeast, ROLE, requiresOperationalShift } from '@/lib/authz'
 import { getOpenShift } from '@/lib/staff-shifts'
 import { OrdersBoard } from '@/components/orders/orders-board'
+import { OwnerOpenOrdersBoard } from '@/components/owner/owner-open-orders-board'
+import { getCashierInvoices } from '@/lib/staff-invoices'
+import { selectOwnerOpenOrders } from '@/lib/owner-open-orders'
 
 export const dynamic = 'force-dynamic'
 
@@ -16,6 +19,11 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
   const initialQuery = typeof params.q === 'string' ? params.q.slice(0, 60) : ''
   const selected = typeof params.selected === 'string' && /^\d+$/.test(params.selected) ? params.selected : undefined
   const session = await requirePageAccess('/orders')
+
+  if (session.role === ROLE.OWNER) {
+    const invoices = selectOwnerOpenOrders(await getCashierInvoices(session))
+    return <OwnerOpenOrdersBoard invoices={invoices} initialQuery={initialQuery} initialSelectedId={selected} />
+  }
 
   // Operational staff must have an open shift before working orders.
   if (requiresOperationalShift(session.role) && session.branchId) {
@@ -30,7 +38,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
     <OrdersBoard
       orders={orders}
       initialQuery={initialQuery}
-      canPay={session.role === ROLE.OWNER || session.role === ROLE.CASHIER}
+      canPay={session.role === ROLE.CASHIER}
       canRefund={hasAtLeast(session.role, ROLE.MANAGER)}
       canManage={hasAtLeast(session.role, ROLE.MANAGER)}
     />

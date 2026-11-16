@@ -1,4 +1,5 @@
 import { financialDayBoundary } from '@/lib/financial-calendar'
+import { resolveInvoiceRange } from '@/lib/owner-invoice-view'
 import { NextResponse } from 'next/server'
 import { getStaffSession } from '@/lib/session'
 import { getCashierInvoices } from '@/lib/staff-invoices'
@@ -46,10 +47,10 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'نطاق تاريخ غير صحيح', status: 400 }, { status: 400 })
   }
   if (from && to && from > to) return NextResponse.json({ error: 'تاريخ البدء لا يمكن أن يكون بعد تاريخ الانتهاء', status: 400 }, { status: 400 })
-  if (from && to && to.getTime() - from.getTime() > 366 * 24 * 60 * 60 * 1000) return NextResponse.json({ error: 'لا يمكن أن يتجاوز نطاق التاريخ 366 يوماً', status: 400 }, { status: 400 })
+  if (from && to) { const range = resolveInvoiceRange('custom', search.get('from')!, search.get('to')!); if (range.error) return NextResponse.json({ error: range.error }, { status: 400 }) }
 
   const invoices = await getCashierInvoices(session, { from, to })
-  const rows = invoices.filter((invoice) => invoice.status !== 'cancelled' && Number(invoice.remaining) <= 0)
+  const rows = invoices.filter((invoice) => invoice.status !== 'cancelled' && !invoice.isArchived && Number(invoice.remaining) <= 0)
 
   const headers = [
     'رقم الفاتورة',

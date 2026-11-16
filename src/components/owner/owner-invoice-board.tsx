@@ -2,26 +2,23 @@
 
 import { Modal } from '@/components/ui/modal'
 
-import { useState, useTransition, useMemo } from 'react'
+import { useState, useTransition, useMemo, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Input } from '@/components/ui/input'
 import { Icon } from '@/components/ui/icon'
-import { formatCurrency as formatMoney, formatDateShort } from '@/lib/format'
+import { formatCurrency as formatMoney } from '@/lib/format'
 import type { InvoiceRow } from '@/lib/staff-invoices'
+import { invoiceBucket, invoiceView, resolveInvoiceRange, type InvoiceTab, type RangePreset } from '@/lib/owner-invoice-view'
 
 const money = (value: number | string) => formatMoney(Number(value))
 const dateTime = (value: string) => {
   const date = new Date(value)
-  const time = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).format(date)
-  return `${formatDateShort(date)} ${time}`
+  const time = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Africa/Cairo' }).format(date)
+  return `${new Intl.DateTimeFormat('ar-EG-u-nu-latn', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Africa/Cairo' }).format(date)} ${time}`
 }
 const key = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`
-
-type InvoiceTab = 'open' | 'paid' | 'cancelled' | 'deleted'
-
-type RangePreset = 'day' | 'week' | 'month' | 'custom'
 
 export function OwnerInvoiceBoard({ invoices, session }: { invoices: InvoiceRow[]; session: { role: string; name: string; branchId: string | null } }) {
   const [tab, setTab] = useState<InvoiceTab>('open')
@@ -33,25 +30,24 @@ export function OwnerInvoiceBoard({ invoices, session }: { invoices: InvoiceRow[
   const [pending, startTransition] = useTransition()
   const [localInvoices, setLocalInvoices] = useState<InvoiceRow[]>(invoices)
 
-  // Date range export controls (paid invoices only)
+  // All summaries, rows, and paid exports use invoice creation dates in Cairo.
   const [rangePreset, setRangePreset] = useState<RangePreset>('day')
-  const [fromDate, setFromDate] = useState('')
-  const [toDate, setToDate] = useState('')
+  const [fromDate, setFromDate] = useState(() => resolveInvoiceRange('day', '', '').from)
+  const [toDate, setToDate] = useState(() => resolveInvoiceRange('day', '', '').to)
+
+  useEffect(() => { setLocalInvoices(invoices) }, [invoices])
+  const range = useMemo(() => resolveInvoiceRange(rangePreset, fromDate, toDate), [rangePreset, fromDate, toDate])
+  function selectRange(preset: RangePreset) {
+    const next = resolveInvoiceRange(preset, fromDate, toDate)
+    setRangePreset(preset)
+    setFromDate(next.from)
+    setToDate(next.to)
+  }
 
   const clearNotice = () => setTimeout(() => setNotice(null), 5000)
   function setNotice_(message: string | null) { setNotice(message); if (message) clearNotice() }
 
-  const rows = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    return localInvoices.filter((invoice) => {
-      const match = !q || invoice.number.toLowerCase().includes(q) || (invoice.creator ?? '').toLowerCase().includes(q)
-      if (!match) return false
-      if (tab === 'cancelled') return invoice.status === 'cancelled' && !invoice.isArchived
-      if (tab === 'deleted') return invoice.isArchived
-      if (tab === 'paid') return invoice.status !== 'cancelled' && !invoice.isArchived && Number(invoice.remaining) <= 0
-      return invoice.status !== 'cancelled' && !invoice.isArchived && Number(invoice.remaining) > 0
-    })
-  }, [localInvoices, query, tab])
+  const { rows, cards } = useMemo(() => invoiceView(localInvoices, range, tab, query), [localInvoices, range, tab, query])
 
   async function executeDeleteBulk() {
     if (pending || deleteModal.length === 0) return
@@ -83,24 +79,11 @@ export function OwnerInvoiceBoard({ invoices, session }: { invoices: InvoiceRow[
   }
 
   function exportPaidToExcel() {
+    if (range.error) return setNotice_(range.error)
     const params = new URLSearchParams({ format: 'csv' })
-    if (fromDate) params.set('from', fromDate)
-    if (toDate) params.set('to', toDate)
+    if (range.from) params.set('from', range.from)
+    if (range.to) params.set('to', range.to)
     window.location.assign(`/api/staff/invoices?${params.toString()}`)
-  }
-
-  const rangeEnd = () => {
-    const now = new Date()
-    const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999))
-    return end.toISOString().slice(0, 10)
-  }
-  const rangeStart = () => {
-    const now = new Date()
-    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
-    if (rangePreset === 'week') d.setUTCDate(d.getUTCDate() - 6)
-    if (rangePreset === 'month') d.setUTCMonth(d.getUTCMonth() - 1, 1)
-    if (rangePreset === 'day') return d.toISOString().slice(0, 10)
-    return fromDate || d.toISOString().slice(0, 10)
   }
 
   const tabs: { value: InvoiceTab; label: string }[] = [
@@ -126,26 +109,38 @@ export function OwnerInvoiceBoard({ invoices, session }: { invoices: InvoiceRow[
         </div>
       </div>
 
-      {tab === 'paid' && (
-        <div className="mb-4 rounded-lg border border-border p-3 bg-muted/50 flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3 text-sm w-full">
-          <span className="font-medium text-foreground">نطاق التصدير:</span>
-          <div className="flex flex-wrap items-center gap-1.5 w-full sm:w-auto">
-            {'الكل'}
-            {['day', 'week', 'month'].map((p) => (
-              <Button key={p} size="sm" variant={rangePreset === p ? 'secondary' : 'outline'} onClick={() => { setRangePreset(p as RangePreset); setFromDate(''); setToDate('') }} className="flex-shrink-0 whitespace-nowrap">
-                {p === 'day' ? 'يوم' : p === 'week' ? 'أسبوع' : 'شهر'}
-              </Button>
-            ))}
-          </div>
-          <div className="flex flex-wrap items-center gap-1.5 w-full sm:w-auto">
-            <label className="text-[11px] text-muted-foreground whitespace-nowrap">من</label>
-            <Input type="date" value={fromDate} onChange={(e) => { setFromDate(e.target.value); setRangePreset('custom') }} className="w-full sm:w-32" />
-            <label className="text-[11px] text-muted-foreground whitespace-nowrap sm:ml-1">إلى</label>
-            <Input type="date" value={toDate} onChange={(e) => { setToDate(e.target.value); setRangePreset('custom') }} className="w-full sm:w-32" />
-          </div>
-          <Button size="sm" variant="outline" onClick={exportPaidToExcel} className="w-full sm:w-auto">تصدير إكسيل (مدفوعة)</Button>
+      <div className="mb-4 rounded-lg border border-border bg-muted/50 p-3 text-sm">
+        <p className="mb-2 font-medium">النطاق حسب تاريخ إنشاء الفاتورة — بتوقيت القاهرة</p>
+        <div className="flex flex-wrap items-center gap-2">
+          {(['day', 'week', 'month', 'all'] as RangePreset[]).map((preset) => (
+            <Button key={preset} size="sm" variant={rangePreset === preset ? 'secondary' : 'outline'} aria-pressed={rangePreset === preset} onClick={() => selectRange(preset)}>
+              {preset === 'day' ? 'اليوم' : preset === 'week' ? 'آخر ٧ أيام' : preset === 'month' ? 'الشهر الحالي' : 'كل التاريخ'}
+            </Button>
+          ))}
+          <label className="flex items-center gap-2">من
+            <Input type="date" aria-label="من تاريخ إنشاء الفاتورة" aria-invalid={!!range.error} aria-describedby={range.error ? 'invoice-range-error' : undefined} value={fromDate} onChange={(e) => { setFromDate(e.target.value); setRangePreset('custom') }} className="w-36" />
+          </label>
+          <label className="flex items-center gap-2">إلى
+            <Input type="date" aria-label="إلى تاريخ إنشاء الفاتورة" aria-invalid={!!range.error} aria-describedby={range.error ? 'invoice-range-error' : undefined} value={toDate} onChange={(e) => { setToDate(e.target.value); setRangePreset('custom') }} className="w-36" />
+          </label>
+          {tab === 'paid' && <Button size="sm" variant="outline" disabled={!!range.error} onClick={exportPaidToExcel}>تصدير إكسيل (مدفوعة)</Button>}
         </div>
-      )}
+        {range.error && <p id="invoice-range-error" role="alert" className="mt-2 text-destructive">{range.error}</p>}
+      </div>
+      <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {([
+          { value: 'paid', label: 'قيمة الفواتير المدفوعة' },
+          { value: 'cancelled', label: 'القيمة الاسمية للفواتير الملغاة' },
+          { value: 'open', label: 'المتبقي على الفواتير المفتوحة' },
+          { value: 'deleted', label: 'القيمة الاسمية للفواتير المؤرشفة' },
+        ] as { value: InvoiceTab; label: string }[]).map(({ value, label }) => (
+          <div key={value} className="rounded-xl border border-border bg-card p-4">
+            <p className="text-sm text-muted-foreground">{label}</p>
+            <p className="mt-2 text-xl font-bold tabular-nums">{range.error ? '—' : money(cards[value].amount)}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{range.error ? '—' : cards[value].count} فاتورة</p>
+          </div>
+        ))}
+      </div>
 
       <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ابحث برقم الفاتورة أو المنشئ" className="mb-4" />
       {notice && <p className="mb-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">{notice}</p>}
@@ -156,9 +151,8 @@ export function OwnerInvoiceBoard({ invoices, session }: { invoices: InvoiceRow[
         <div className="space-y-2">
 {rows.map((invoice) => {
             const isOpen = expandedId === invoice.id
-            const paid = Number(invoice.paid)
             const remaining = Number(invoice.remaining)
-            const isPaid = tab === 'paid'
+            const isPaid = invoiceBucket(invoice) === 'paid'
             return (
               <div key={invoice.id} className="overflow-hidden rounded-xl border border-border bg-card transition-all">
                 <button
@@ -176,8 +170,8 @@ export function OwnerInvoiceBoard({ invoices, session }: { invoices: InvoiceRow[
                     <span>{invoice.creator ?? '—'} · {dateTime(invoice.createdAt)}</span>
                     <span>{invoice.table ? `طاولة ${invoice.table}` : 'تيك أواي'} · المتبقي {money(invoice.remaining)}</span>
                     <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 border border-border/50">
-                      <Icon name={invoice.isArchived ? 'trash' : invoice.status === 'cancelled' ? 'trash' : invoice.status === 'paid' ? 'check' : 'clock'} size={12} />
-                      {invoice.isArchived ? 'محذوفة' : invoice.status === 'cancelled' ? 'ملغاة' : invoice.status === 'paid' ? 'مدفوعة' : 'مفتوحة'}
+                      <Icon name={invoice.isArchived ? 'trash' : invoice.status === 'cancelled' ? 'trash' : isPaid ? 'check' : 'clock'} size={12} />
+                      {invoice.isArchived ? 'محذوفة' : invoice.status === 'cancelled' ? 'ملغاة' : isPaid ? 'مدفوعة' : 'مفتوحة'}
                     </span>
                   </div>
                 </button>
@@ -191,7 +185,7 @@ export function OwnerInvoiceBoard({ invoices, session }: { invoices: InvoiceRow[
                       <div><span className="text-[11px] text-muted-foreground block">المتبقي</span><span className="text-foreground font-bold">{money(invoice.remaining)}</span></div>
                       <div><span className="text-[11px] text-muted-foreground block">الأصناف</span><span className="text-foreground">{invoice.items.length}</span></div>
                       <div><span className="text-[11px] text-muted-foreground block">التفاصيل</span><span className="text-foreground truncate">{invoice.items.map((i) => `${i.name} × ${i.quantity}`).join(' ، ')}</span></div>
-                      <div><span className="text-[11px] text-muted-foreground block">الحالة</span><span className="text-foreground">{invoice.paymentStatus}</span></div>
+                      <div><span className="text-[11px] text-muted-foreground block">الحالة</span><span className="text-foreground">{invoice.isArchived ? 'مؤرشفة' : invoice.status === 'cancelled' ? 'ملغاة' : isPaid ? 'مدفوعة' : 'مفتوحة'}</span></div>
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2">
                       {!isPaid && remaining <= 0 && invoice.status !== 'cancelled' && (

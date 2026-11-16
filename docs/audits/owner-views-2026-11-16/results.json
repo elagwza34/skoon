@@ -1,0 +1,28 @@
+{
+  "timestamp": "2026-11-16T17:21:02.934Z",
+  "fixtureClock": "2026-11-16T10:00:00Z",
+  "checks": [
+    "open orders include served and partial unpaid; exclude paid cancelled archived",
+    "order details are read-only; Escape restores trigger focus",
+    "both boards and order detail reflow at mobile and desktop widths",
+    "invoice default today has four exclusive amounts and counts",
+    "settled served invoice badge says paid; search leaves aggregates unchanged; day CSV matches range",
+    "last seven days filters cards and rows; CSV shares effective dates",
+    "calendar month filters cards and rows; CSV shares effective dates",
+    "custom dates filter cards and rows; CSV shares explicit dates",
+    "reversed and missing date ranges show error and block rows and CSV",
+    "all history restores older rows; CSV omits date bounds",
+    "incoming invoice refresh updates local rows and summary without resetting range",
+    "no runtime errors or unexpected external/API requests"
+  ],
+  "failures": [],
+  "runtimeErrors": [],
+  "unexpectedRequests": [],
+  "interceptedExports": [
+    "http://127.0.0.1:62248/api/staff/invoices?format=csv&from=2026-11-16&to=2026-11-16",
+    "http://127.0.0.1:62248/api/staff/invoices?format=csv&from=2026-11-10&to=2026-11-16",
+    "http://127.0.0.1:62248/api/staff/invoices?format=csv&from=2026-11-01&to=2026-11-16",
+    "http://127.0.0.1:62248/api/staff/invoices?format=csv&from=2026-11-12&to=2026-11-12",
+    "http://127.0.0.1:62248/api/staff/invoices?format=csv"
+  ]
+}
