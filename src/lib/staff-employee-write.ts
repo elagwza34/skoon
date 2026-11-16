@@ -19,7 +19,7 @@ const optionalText = (max: number) => z.union([z.string().trim().max(max), z.nul
 
 const profileSchema = z.object({
   name: z.string().trim().min(2).max(100).optional(),
-  username: z.string().trim().min(3, 'اسم المستخدم قصير جداً').max(40).optional(),
+  username: z.string().trim().min(3, 'اسم المستخدم قصير جداً').max(40).nullable().optional(),
   phone: optionalText(20),
   personalEmail: optionalText(150),
   personalPhone: optionalText(30),

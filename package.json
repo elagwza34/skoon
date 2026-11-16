@@ -14,7 +14,7 @@
     "start": "next start",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit",
-    "test": "node --require ./tests/node-userinfo-workaround.cjs --import tsx --test tests/offline.test.ts tests/cash-handover-offline.test.ts tests/cash-refund-offline.test.ts tests/table-workspace-offline.test.ts tests/operational-batch-1-offline.test.ts tests/ui-ux-offline.test.ts tests/financial-payments-fixes.test.ts tests/financial-cash-fixes.test.cjs tests/financial-payroll-fixes.test.ts tests/financial-report-fixes.test.ts tests/financial-report-service-fixes.test.ts",
+    "test": "node --require ./tests/node-userinfo-workaround.cjs --import tsx --test tests/offline.test.ts tests/cash-handover-offline.test.ts tests/cash-refund-offline.test.ts tests/table-workspace-offline.test.ts tests/operational-batch-1-offline.test.ts tests/ui-ux-offline.test.ts tests/financial-payments-fixes.test.ts tests/financial-cash-fixes.test.cjs tests/financial-payroll-fixes.test.ts tests/financial-report-fixes.test.ts tests/financial-report-service-fixes.test.ts tests/employee-edit-offline.test.ts",
     "test:cash-handover-postgres": "node --require ./tests/node-userinfo-workaround.cjs --import tsx --test tests/cash-handover-postgres.test.ts",
     "test:cash-refund-postgres": "node --require ./tests/node-userinfo-workaround.cjs --import tsx --test tests/cash-refund-postgres.test.ts",
     "test:table-workspace-postgres": "node --require ./tests/node-userinfo-workaround.cjs --import tsx --test tests/table-workspace-postgres.test.ts",
