@@ -12,7 +12,7 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { Icon } from '@/components/ui/icon'
 import { formatRelative } from '@/lib/format'
 import type { StaffDirectory } from '@/lib/staff-directory'
-import { EmployeeManagementBoard } from '@/components/staff/employee-management-board'
+import { EmployeeDetailPanel, type EmployeeDetail } from '@/components/staff/employee-management-board'
 import { ScheduleManagementBoard } from '@/components/staff/schedule-management-board'
 import { PayrollManagementBoard } from '@/components/staff/payroll-management-board'
 import { AttendancePanel, LeaveManagementControls, LeavePanel, OvertimePanel, OvertimePolicyControls } from '@/components/staff/hr-workspace-panels'
@@ -58,6 +58,8 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+  const [editing, setEditing] = useState<EmployeeDetail | null>(null)
+  const [editError, setEditError] = useState<string | null>(null)
   const [branchName, setBranchName] = useState('')
   const [branchCode, setBranchCode] = useState('')
   const [branchPhone, setBranchPhone] = useState('')
@@ -222,6 +224,47 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
     }
   }
 
+  async function openEdit(id: string) {
+    setEditError(null)
+    try {
+      const response = await fetch(`/api/staff/employees/${id}`)
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.error ?? 'تعذر تحميل ملف الموظف')
+      setEditing(data)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'تعذر تحميل ملف الموظف')
+    }
+  }
+
+  async function post(path: string, body?: unknown) {
+    const response = await fetch(path, { method: 'POST', headers: body ? { 'content-type': 'application/json' } : undefined, body: body ? JSON.stringify(body) : undefined })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(data.error ?? 'تعذر حفظ التغيير')
+    return data
+  }
+
+  async function archiveEditing() {
+    if (!editing) return
+    const reason = window.prompt('سبب الأرشفة (إلزامي):')
+    if (!reason?.trim()) return
+    try { await post(`/api/staff/employees/${editing.id}/archive`, { reason }); setEditing(null); startTransition(() => router.refresh()) }
+    catch (cause) { setEditError(cause instanceof Error ? cause.message : 'تعذر أرشفة الموظف') }
+  }
+
+  async function reactivateEditing() {
+    if (!editing) return
+    try { await post(`/api/staff/employees/${editing.id}/reactivate`); await openEdit(editing.id); startTransition(() => router.refresh()) }
+    catch (cause) { setEditError(cause instanceof Error ? cause.message : 'تعذر إعادة التفعيل') }
+  }
+
+  async function terminateEditing() {
+    if (!editing) return
+    const reason = window.prompt('سبب إنهاء الخدمة (إلزامي):')
+    if (!reason?.trim()) return
+    try { await post(`/api/staff/employees/${editing.id}/terminate`, { reason }); setEditing(null); startTransition(() => router.refresh()) }
+    catch (cause) { setEditError(cause instanceof Error ? cause.message : 'تعذر إنهاء خدمة الموظف') }
+  }
+
   return (
     <div dir="rtl" className="flex min-h-0 flex-col gap-4">
       <header className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card/70 px-4 py-3">
@@ -378,6 +421,9 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
                           <div className="flex items-center gap-2">
                             {r.role !== 'owner' ? (
                               <>
+                                <Button size="sm" variant="outline" onClick={() => void openEdit(r.id)}>
+                                  تعديل الموظف
+                                </Button>
                                 <select
                                   aria-label={`تغيير دور ${r.name}`}
                                   value={r.role}
@@ -415,7 +461,7 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
           )}
         </CardContent>
       </Card>
-      <EmployeeManagementBoard canManage={directory.canManage} />
+      {editing ? <EmployeeDetailPanel employee={editing} canManage={directory.canManage} onClose={() => setEditing(null)} onChanged={() => { void openEdit(editing.id); startTransition(() => router.refresh()) }} onArchive={() => void archiveEditing()} onReactivate={() => void reactivateEditing()} onTerminate={() => void terminateEditing()} post={post} error={editError} setError={setEditError} /> : null}
       </> : null}
       {activeTab === 'schedules' ? <ScheduleManagementBoard employees={directory.rows.map((row) => ({ id: row.id, name: row.name, branchId: row.branchId }))} canManage={directory.canSchedule} /> : null}
       {activeTab === 'attendance' ? <AttendancePanel employees={directory.rows.map((row) => ({ id: row.id, name: row.name, branchId: row.branchId }))} /> : null}

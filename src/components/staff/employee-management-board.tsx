@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 
 type EmployeeRow = { id: string; name: string; email: string | null; username?: string | null; roleName: string; role: string; active: boolean; status: string; hireDate: string | null; probationStatus: string | null }
-type EmployeeDetail = {
+export type EmployeeDetail = {
   id: string; name: string; email?: string | null; username?: string | null; phone?: string | null; active: boolean; status?: string; branchId?: string | null; branchName?: string | null
   role?: { slug: string; name: string }; roleName?: string
   employeeProfile?: {
@@ -125,7 +125,7 @@ export function EmployeeManagementBoard({ canManage }: { canManage: boolean }) {
   )
 }
 
-function EmployeeDetailPanel({ employee, canManage, onClose, onChanged, onArchive, onReactivate, onTerminate, post, error, setError }: { error: string | null; employee: EmployeeDetail; canManage: boolean; onClose: () => void; onChanged: () => void; onArchive: () => void; onReactivate: () => void; onTerminate: () => void; post: (path: string, body?: unknown) => Promise<unknown>; setError: (value: string | null) => void }) {
+export function EmployeeDetailPanel({ employee, canManage, onClose, onChanged, onArchive, onReactivate, onTerminate, post, error, setError }: { error: string | null; employee: EmployeeDetail; canManage: boolean; onClose: () => void; onChanged: () => void; onArchive: () => void; onReactivate: () => void; onTerminate: () => void; post: (path: string, body?: unknown) => Promise<unknown>; setError: (value: string | null) => void }) {
   const p = employee.employeeProfile
   const [name, setName] = useState(employee.name ?? '')
   const [username, setUsername] = useState(employee.username ?? '')
