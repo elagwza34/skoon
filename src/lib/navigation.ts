@@ -1,4 +1,4 @@
-import type { IconName } from '@/components/ui/icon'
+﻿import type { IconName } from '@/components/ui/icon'
 import { homeForRole } from '@/lib/route-access'
 import { isOwner } from '@/lib/authz'
 
@@ -31,6 +31,7 @@ export const navGroups: NavGroup[] = [
     { href: '/reports', label: 'التقارير والتحليلات', icon: 'reports' },
     { href: '/fixed-float', label: 'العهدة الثابتة والتسويات', icon: 'pos' },
     { href: '/fixed-float/settlements', label: 'تسويات السلف', icon: 'pos' },
+    { href: '/main-safe', label: 'الخزنة الرئيسية', icon: 'reports' },
   ] },
   { title: 'الإدارة', items: [{ href: '/settings', label: 'الإعدادات', icon: 'settings' }] },
 ]
