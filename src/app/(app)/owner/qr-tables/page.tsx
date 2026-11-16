@@ -106,7 +106,7 @@ export default async function OwnerQrTablesPage() {
                 height={160}
                 className="h-40 w-40 rounded border bg-white p-1"
               />
-              <div className="mt-2 break-all text-[10px] leading-tight text-muted-foreground font-mono">
+              <div className="no-print mt-2 break-all text-[10px] leading-tight text-muted-foreground font-mono">
                 {table.url}
               </div>
               <div className="mt-1 text-[10px] text-muted-foreground">
