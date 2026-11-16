@@ -16,6 +16,7 @@ export function FixedFloatBoard({ board }: { board: FixedFloatBoard }) {
   const [baselineAmount, setBaselineAmount] = useState('0')
   const [baselineReason, setBaselineReason] = useState('جرد وتأسيس خط أساس العهدة الثابتة')
   const [baselineConfirmed, setBaselineConfirmed] = useState(false)
+  const [reconcileFromNow, setReconcileFromNow] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const requestIdentity = useRef({ fingerprint: '', key: '' })
@@ -59,6 +60,7 @@ export function FixedFloatBoard({ board }: { board: FixedFloatBoard }) {
           amount: Number(baselineAmount),
           reason: baselineReason.trim(),
           confirmed: true,
+          reconcileFromNow,
           branchId: Number(board.branchId),
           idempotencyKey: crypto.randomUUID(),
         }),
@@ -66,6 +68,7 @@ export function FixedFloatBoard({ board }: { board: FixedFloatBoard }) {
       const data = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(data.error || 'تعذر تأسيس خط الأساس')
       setBaselineConfirmed(false)
+      setReconcileFromNow(false)
       transition(() => router.refresh())
     } catch (e) {
       setError(e instanceof Error ? e.message : 'تعذر تأسيس خط الأساس')
@@ -83,11 +86,13 @@ export function FixedFloatBoard({ board }: { board: FixedFloatBoard }) {
             <p>لا يمكن تنفيذ سحب من العهدة الثابتة قبل وجود <b>خط أساس موثق</b> للفرع. السبب الشائع للخطأ <code>Insufficient reconciled fixed-float balance</code> هو غياب سجل <code>fixed_float_baseline</code> (أو وجود مرتجعات غير مرتبطة بسلفة أصلية/حركات تاريخية تتطلب تسوية يدوية).</p>
             <p>إن لم توجد حركات عهدة تاريخية للفرع، يمكن للمالك تأسيس خط الأساس بعد جرد النقد الفعلي. إن كانت هناك حركات تاريخية، يلزم تسوية يدوية معتمدة قبل التأسيس.</p>
             <div className="flex flex-wrap items-end gap-3">
-              <label className="text-sm"><span className="mb-1 block">مبلغ خط الأساس (النقد الفعلي)</span><Input className="w-40" inputMode="decimal" value={baselineAmount} onChange={(e) => setBaselineAmount(e.target.value)} /></label>
+              <label className="text-sm"><span className="mb-1 block">مبلغ النقد الفعلي الآن (الرصيد الابتدائي)</span><Input className="w-40" inputMode="decimal" value={baselineAmount} onChange={(e) => setBaselineAmount(e.target.value)} /></label>
               <label className="min-w-64 flex-1 text-sm"><span className="mb-1 block">سبب/مرجع الجرد</span><Input value={baselineReason} onChange={(e) => setBaselineReason(e.target.value)} /></label>
               <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={baselineConfirmed} onChange={(e) => setBaselineConfirmed(e.target.checked)} />تم تأكيد عدّ النقد الفعلي</label>
-              <Button disabled={busy} onClick={() => void establishBaseline()}>تأسيس خط الأساس</Button>
+              <label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={reconcileFromNow} onChange={(e) => setReconcileFromNow(e.target.checked)} />تسوية وبدء من الآن (تجاهل أثر السجل السابق)</label>
+              <Button disabled={busy} onClick={() => void establishBaseline()}>اعتماد الرصيد والبدء من الآن</Button>
             </div>
+            {reconcileFromNow ? <p className="text-xs text-muted-foreground">سيُنشئ النظام حركة تسوية تُصفّر الأثر المحاسبي للسجل السابق ثم يعتمد مبلغ الجرد كخط أساس/رصيد متاح من الآن. سجلات الحركات السابقة تبقى محفوظة للمراجعة.</p> : null}
           </CardContent>
         </Card>
       ) : null}

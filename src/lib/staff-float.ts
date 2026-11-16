@@ -64,7 +64,7 @@ export function sharedFloatTotals(rows: { type: string; amount: unknown; sourceA
     const effect = (row.destinationAccount === 'FIXED_FLOAT' ? value : 0) - (row.sourceAccount === 'FIXED_FLOAT' ? value : 0)
     available += effect
     if (row.type === 'fixed_float_baseline') baseline += effect
-    else if (row.type === 'fixed_float_addition' || row.type === 'fixed_float_addition_reversal') additions += effect
+    else if (row.type === 'fixed_float_addition' || row.type === 'fixed_float_addition_reversal' || row.type === 'fixed_float_reconciliation') additions += effect
     else if (row.type === 'fixed_float_withdrawal' || row.type === 'fixed_float_withdrawal_reversal') withdrawals -= effect
   }
   return { baseline, additions, withdrawals, available, requiresReconciliation: !rows.some((row) => row.type === 'fixed_float_baseline') }
@@ -136,12 +136,73 @@ export async function settleSharedFloatAdvance(session: StaffSession, advanceIdR
 }
 
 export async function establishFixedFloatBaseline(session: StaffSession, input: unknown) {
-  if (!isOwner(session.role)) throw new FloatError('只有 المالك يمكنه تأسيس حد الرصيد الثابت', 403)
-  const parsed = z.object({ amount: z.coerce.number().min(0).max(9_999_999), reason: z.string().trim().min(3).max(255), confirmed: z.literal(true), idempotencyKey: z.string().trim().min(8).max(100).optional(), branchId: z.coerce.number().int().positive().optional() }).safeParse(input)
-  if (!parsed.success) throw new FloatError('Opening baseline, reason, and receipt confirmation are required')
-  const branchId = session.branchId ? BigInt(session.branchId) : BigInt(parsed.data.branchId ?? 0); if (!branchId || !staffCanAccessBranch(session, branchId)) throw new FloatError('Forbidden', 403)
-  const key = parsed.data.idempotencyKey ?? createHash('sha256').update(`${session.id}:${Date.now()}:${Math.random()}`).digest('hex'); const fingerprint = createHash('sha256').update(JSON.stringify({ branchId: branchId.toString(), amount: parsed.data.amount, reason: parsed.data.reason })).digest('hex')
-  return prisma.$transaction(async tx => { await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('fixed-float-baseline:' || ${branchId.toString()}))`; const prior = await tx.financialOperation.findUnique({ where: { branchId_actorId_operationType_idempotencyKey: { branchId, actorId: session.id, operationType: 'fixed_float_baseline', idempotencyKey: key } } }); if (prior) { if (prior.fingerprint !== fingerprint) throw new FloatError('Idempotency key was reused with a different request', 409); return prior.result }; const existing = await tx.financialMovement.findFirst({ where: { branchId, type: 'fixed_float_baseline' } }); if (existing) throw new FloatError('This branch already has a verified baseline', 409); const legacy = await tx.financialMovement.findFirst({ where: { branchId, OR: [{ sourceAccount: { in: ['FIXED_FLOAT','CASHIER_ADVANCE'] } }, { destinationAccount: { in: ['FIXED_FLOAT','CASHIER_ADVANCE'] } }] } }); if (legacy) throw new FloatError('Historical shared-float movements require an authorized manual reconciliation before baseline establishment', 409); const movement = await tx.financialMovement.create({ data: { branchId, type: 'fixed_float_baseline', amount: parsed.data.amount.toFixed(2), sourceAccount: 'OPENING_RECONCILIATION', destinationAccount: 'FIXED_FLOAT', actorId: session.id, reason: parsed.data.reason, metadata: { actualCashConfirmed: true, reconciledBy: session.id } } }); const result = { id: movement.id.toString(), baseline: parsed.data.amount.toFixed(2) }; await tx.financialOperation.create({ data: { branchId, actorId: session.id, operationType: 'fixed_float_baseline', idempotencyKey: key, fingerprint, result } }); await tx.auditLog.create({ data: { userId: session.id, branchId, action: 'fixed_float.baseline', entityType: 'financial_movement', entityId: movement.id, newValues: result } }); return result })
+  if (!isOwner(session.role)) throw new FloatError('فقط المالك يمكنه تأسيس/تسوية خط أساس العهدة الثابتة', 403)
+  const parsed = z.object({
+    amount: z.coerce.number().min(0).max(9_999_999),
+    reason: z.string().trim().min(3).max(255),
+    confirmed: z.literal(true),
+    reconcileFromNow: z.boolean().optional(),
+    idempotencyKey: z.string().trim().min(8).max(100).optional(),
+    branchId: z.coerce.number().int().positive().optional(),
+  }).safeParse(input)
+  if (!parsed.success) throw new FloatError('مطلوب: المبلغ، سبب واضح، وتأكيد الجرد الفعلي')
+  const branchId = session.branchId ? BigInt(session.branchId) : BigInt(parsed.data.branchId ?? 0)
+  if (!branchId || !staffCanAccessBranch(session, branchId)) throw new FloatError('Forbidden', 403)
+  const key = parsed.data.idempotencyKey ?? createHash('sha256').update(`${session.id}:${Date.now()}:${Math.random()}`).digest('hex')
+  const fingerprint = createHash('sha256').update(JSON.stringify({ branchId: branchId.toString(), amount: parsed.data.amount, reason: parsed.data.reason, reconcileFromNow: !!parsed.data.reconcileFromNow })).digest('hex')
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('fixed-float-baseline:' || ${branchId.toString()}))`
+    const prior = await tx.financialOperation.findUnique({ where: { branchId_actorId_operationType_idempotencyKey: { branchId, actorId: session.id, operationType: 'fixed_float_baseline', idempotencyKey: key } } })
+    if (prior) { if (prior.fingerprint !== fingerprint) throw new FloatError('تم إعادة استخدام مفتاح العملية مع بيانات مختلفة', 409); return prior.result }
+    const existing = await tx.financialMovement.findFirst({ where: { branchId, type: 'fixed_float_baseline' } })
+    if (existing) throw new FloatError('يوجد خط أساس موثق لهذا الفرع بالفعل', 409)
+
+    const rows = await tx.financialMovement.findMany({ where: { branchId }, select: { type: true, amount: true, sourceAccount: true, destinationAccount: true } })
+    const hasFloatHistory = rows.some((r) => r.sourceAccount === 'FIXED_FLOAT' || r.sourceAccount === 'CASHIER_ADVANCE' || r.destinationAccount === 'FIXED_FLOAT' || r.destinationAccount === 'CASHIER_ADVANCE')
+    if (hasFloatHistory && !parsed.data.reconcileFromNow) {
+      throw new FloatError('توجد حركات عهدة سابقة. فعّل خيار "تسوية وبدء من الآن" بعد الجرد الفعلي لاعتماد الرصيد الحالي وتصفير أثر السجل السابق محاسبيًا.', 409)
+    }
+
+    const target = Number(parsed.data.amount.toFixed(2))
+    let adjustmentMovementId: string | null = null
+    if (hasFloatHistory && parsed.data.reconcileFromNow) {
+      const currentNet = sharedFloatTotals(rows).available
+      const deltaToZero = Number((-currentNet).toFixed(2))
+      if (Math.abs(deltaToZero) >= 0.005) {
+        const adj = await tx.financialMovement.create({
+          data: {
+            branchId,
+            type: 'fixed_float_reconciliation',
+            amount: Math.abs(deltaToZero).toFixed(2),
+            sourceAccount: deltaToZero >= 0 ? 'OPENING_RECONCILIATION' : 'FIXED_FLOAT',
+            destinationAccount: deltaToZero >= 0 ? 'FIXED_FLOAT' : 'OPENING_RECONCILIATION',
+            actorId: session.id,
+            reason: `[تسوية وبدء من الآن] تصفير أثر السجل السابق: ${parsed.data.reason}`,
+            metadata: { reconcileFromNow: true, previousNet: Number(currentNet.toFixed(2)), target, reconciledBy: session.id },
+          },
+          select: { id: true },
+        })
+        adjustmentMovementId = adj.id.toString()
+      }
+    }
+
+    const movement = await tx.financialMovement.create({
+      data: {
+        branchId,
+        type: 'fixed_float_baseline',
+        amount: target.toFixed(2),
+        sourceAccount: 'OPENING_RECONCILIATION',
+        destinationAccount: 'FIXED_FLOAT',
+        actorId: session.id,
+        reason: parsed.data.reason,
+        metadata: { actualCashConfirmed: true, reconciledBy: session.id, reconcileFromNow: !!parsed.data.reconcileFromNow, adjustmentMovementId },
+      },
+    })
+    const result = { id: movement.id.toString(), baseline: target.toFixed(2), adjustmentMovementId }
+    await tx.financialOperation.create({ data: { branchId, actorId: session.id, operationType: 'fixed_float_baseline', idempotencyKey: key, fingerprint, result } })
+    await tx.auditLog.create({ data: { userId: session.id, branchId, action: 'fixed_float.baseline', entityType: 'financial_movement', entityId: movement.id, newValues: result } })
+    return result
+  })
 }
 
 export async function getFixedFloatBoard(session: StaffSession): Promise<FixedFloatBoard> {
