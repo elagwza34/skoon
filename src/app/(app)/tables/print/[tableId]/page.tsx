@@ -116,9 +116,7 @@ export default async function TablePrintPage({
             height={200}
             className="h-48 w-48 rounded border bg-white p-2"
           />
-          <div className="no-print mt-2 break-all text-[10px] leading-tight text-muted-foreground font-mono">
-            {url}
-          </div>
+
           <div className="mt-1 text-[10px] text-muted-foreground">
             امسح الرمز لعرض المنيو
           </div>
