@@ -24,6 +24,7 @@ export const PUBLIC_PREFIXES = [
   '/', // landing
   '/login', // sign-in
   '/order-type', // guest flow
+  '/scan-qr', // guest camera entry
   '/select-table', // guest flow
   '/menu', // guest flow (QR)
   '/order', // guest flow (order tracking)

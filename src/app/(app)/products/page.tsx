@@ -12,7 +12,10 @@ export const dynamic = 'force-dynamic'
  * Products — server component. Real branch catalog from the DB.
  * Toggle = owner/manager/cashier; create/edit gated to owner/manager.
  */
-export default async function ProductsPage() {
+export default async function ProductsPage({ searchParams }: { searchParams: Promise<{ q?: string; selected?: string }> }) {
+  const params = await searchParams
+  const initialQuery = typeof params.q === 'string' ? params.q.slice(0, 60) : ''
+  const selected = typeof params.selected === 'string' && /^\d+$/.test(params.selected) ? params.selected : undefined
   const session = await requirePageAccess('/products')
 
   const catalog = await getStaffCatalog(session)
@@ -26,6 +29,8 @@ export default async function ProductsPage() {
     : []
   const products = <ProductsBoard
       catalog={catalog}
+      initialQuery={initialQuery}
+      selectedProductId={selected}
       canEdit={canEdit}
       canToggle={canEdit}
       canCreateCategories={canEdit}

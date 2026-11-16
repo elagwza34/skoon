@@ -1,0 +1,22 @@
+{
+  "checks": [
+    "homepage reflows at phone, tablet, desktop and landscape sizes",
+    "public drawer traps focus, closes with Escape and restores trigger",
+    "gallery opens and dismisses with keyboard",
+    "guest scanner is public and starts a fake camera on the first click",
+    "staff routes still require authentication",
+    "reduced motion disables the persistent public animation",
+    "public layouts remain usable with larger text and light theme",
+    "nested dialogs restore focus and preserve the scroll lock",
+    "dropdown arrow keys move actual focus and select the active item",
+    "popover moves focus inside and restores focus with Escape",
+    "guest cart restores after reload, displays fractions and clears after confirmed success",
+    "kitchen refreshes while idle and stops refreshing offline",
+    "tracking exposes stale requests and retries successfully",
+    "search ignores an older response and preserves the selected result URL",
+    "chart exact values are available without hover",
+    "native receipt dialog preserves 80mm and 58mm print layouts"
+  ],
+  "failures": [],
+  "pageErrors": []
+}

@@ -46,6 +46,9 @@ export function Dropdown({
   const [active, setActive] = useState(0)
   const rootRef = useRef<HTMLDivElement>(null)
   const menuId = useId()
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const itemRefs = useRef<Array<HTMLButtonElement | null>>([])
+  useEffect(() => { if (open) itemRefs.current[active]?.focus() }, [open, active])
 
   const selected = options.find((o) => o.value === value) ?? options[0]
 
@@ -55,7 +58,7 @@ export function Dropdown({
       if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false)
     }
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') setOpen(false)
+      if (e.key === 'Escape') { e.preventDefault(); setOpen(false); triggerRef.current?.focus() }
     }
     document.addEventListener('mousedown', onPointerDown)
     document.addEventListener('keydown', onKeyDown)
@@ -67,18 +70,24 @@ export function Dropdown({
 
   function choose(i: number) {
     setActive(i)
+    if (!options[i]) return
     onChange?.(options[i].value)
+    triggerRef.current?.focus()
     setOpen(false)
   }
 
   function onTriggerKeyDown(e: React.KeyboardEvent) {
-    if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+    if (['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(e.key)) {
       e.preventDefault()
-      setOpen((o) => !o)
+      setActive(e.key === 'ArrowUp' ? options.length - 1 : Math.max(0, options.findIndex(o => o.value === value)))
+      setOpen(true)
     }
   }
 
   function onMenuKeyDown(e: React.KeyboardEvent) {
+    if (!options.length) return
+    if (e.key === 'Tab') { setOpen(false); triggerRef.current?.focus(); return }
+    if (e.key === 'Home' || e.key === 'End') { e.preventDefault(); setActive(e.key === 'Home' ? 0 : options.length - 1); return }
     if (e.key === 'ArrowDown') {
       e.preventDefault()
       setActive((a) => (a + 1) % options.length)
@@ -94,6 +103,7 @@ export function Dropdown({
   return (
     <div ref={rootRef} className="relative">
       <button
+        ref={triggerRef}
         type="button"
         aria-haspopup="menu"
         aria-expanded={open}
@@ -102,7 +112,7 @@ export function Dropdown({
         onClick={() => setOpen((o) => !o)}
         onKeyDown={onTriggerKeyDown}
         className={cn(
-          'inline-flex h-10 items-center gap-2 rounded-md border border-border bg-card px-3 text-sm text-foreground',
+          'inline-flex min-h-11 items-center gap-2 rounded-md border border-border bg-card px-3 text-sm text-foreground',
           'hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
           className,
         )}
@@ -128,7 +138,10 @@ export function Dropdown({
             <button
               key={opt.value}
               type="button"
-              role="menuitem"
+              role="menuitemradio"
+              aria-checked={opt.value === selected?.value}
+              tabIndex={i === active ? 0 : -1}
+              ref={(el) => { itemRefs.current[i] = el }}
               onMouseEnter={() => setActive(i)}
               onClick={() => choose(i)}
               className={cn(

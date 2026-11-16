@@ -27,16 +27,16 @@
     --accent-foreground: 0 0% 98%;
 
     --primary: 25 95% 55%;
-    --primary-foreground: 0 0% 100%;
+    --primary-foreground: 23 35% 10%;
 
     --secondary: 240 5% 22%;
     --secondary-foreground: 0 0% 98%;
 
-    --destructive: 0 72% 55%;
-    --destructive-foreground: 0 0% 100%;
+    --destructive: 0 80% 65%;
+    --destructive-foreground: 23 35% 10%;
 
     --success: 142 70% 45%;
-    --success-foreground: 0 0% 100%;
+    --success-foreground: 23 35% 10%;
 
     --warning: 38 92% 55%;
     --warning-foreground: 30 40% 12%;
@@ -70,19 +70,19 @@
     --accent: 30 40% 94%;
     --accent-foreground: 240 10% 12%;
 
-    --primary: 20 90% 48%;
+    --primary: 20 90% 38%;
     --primary-foreground: 0 0% 100%;
 
     --secondary: 240 10% 94%;
     --secondary-foreground: 240 10% 12%;
 
-    --destructive: 0 74% 50%;
+    --destructive: 0 74% 42%;
     --destructive-foreground: 0 0% 100%;
 
-    --success: 142 66% 40%;
+    --success: 142 66% 30%;
     --success-foreground: 0 0% 100%;
 
-    --warning: 38 92% 50%;
+    --warning: 38 92% 28%;
     --warning-foreground: 0 0% 100%;
 
     --border: 240 10% 88%;
@@ -109,6 +109,7 @@
     /* Arabic-first RTL. Logical properties (ps/pe/ms/me/start/end) keep LTR ready. */
     direction: rtl;
     -webkit-text-size-adjust: 100%;
+    scroll-padding-top: 7rem;
   }
 
   body {
@@ -126,6 +127,43 @@
     outline: 2px solid hsl(var(--ring));
     outline-offset: 2px;
   }
+}
+
+/* Dialogs retain their existing overlay layout in the browser's top layer. */
+.modal-surface {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  border: 0;
+  color: inherit;
+}
+.modal-surface::backdrop { background: rgb(0 0 0 / 60%); }
+.modal-surface:not([open]) { display: none; }
+.skip-link {
+  position: fixed;
+  inset-block-start: 0.5rem;
+  inset-inline-start: 0.5rem;
+  z-index: 100;
+  padding: 0.75rem 1rem;
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+  transform: translateY(-200%);
+}
+.skip-link:focus { transform: none; }
+[id] { scroll-margin-top: 1rem; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+@media (pointer: coarse) {
+  button, input:not([type='checkbox']):not([type='radio']), select { min-height: 44px; }
+  button { min-width: 44px; }
 }
 
 @layer utilities {

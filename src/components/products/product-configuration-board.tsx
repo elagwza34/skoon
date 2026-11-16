@@ -51,8 +51,8 @@ export function ProductConfigurationBoard({ branches }: { branches: { id: string
     <CardContent className="space-y-5">
       <p className="text-sm text-muted-foreground">أنشئ الخاصية وقيمها أولًا، مثل «الحجم: صغير، كبير». بعدها ستظهر في إعداد المنتج المتغير.</p>
       <label className="flex max-w-md flex-col gap-1 text-sm"><span className="text-muted-foreground">الفرع الذي تُدار خصائصه</span><select value={branchId} onChange={(event) => { setBranchId(event.target.value); setError(null); setSuccess(null); setValueAttributeId('') }} className="h-10 rounded border bg-background px-3"><option value="">اختر الفرع أولًا…</option>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>
-      {error ? <p className="rounded bg-destructive/10 p-3 text-sm text-destructive">{error}</p> : null}
-      {success ? <p className="rounded bg-success/10 p-3 text-sm text-success">{success}</p> : null}
+      {error ? <p role="alert" className="rounded bg-destructive/10 p-3 text-sm text-destructive">{error}</p> : null}
+      {success ? <p role="status" className="rounded bg-success/10 p-3 text-sm text-success">{success}</p> : null}
       <div className="grid gap-4 lg:grid-cols-3">
         <section className="space-y-2 rounded-lg border p-3">
           <h3 className="font-medium">خاصية جديدة</h3>

@@ -109,6 +109,8 @@ export default async function TablePrintPage({
           {table.branch?.name && (
             <div className="mb-3 text-xs text-muted-foreground">{table.branch.name}</div>
           )}
+          {/* QR images must preserve their generated pixels for scanning and print. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={qrDataUrl}
             alt={`رمز QR للطاولة ${table.number}`}

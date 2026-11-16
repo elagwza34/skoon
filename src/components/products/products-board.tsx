@@ -1,6 +1,8 @@
 'use client'
 
-import { useMemo, useState, useTransition } from 'react'
+import { Modal } from '@/components/ui/modal'
+
+import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -38,12 +40,16 @@ type VariantAttribute = { id: string; name: string; values: { id: string; label:
 
 export function ProductsBoard({
   catalog,
+  initialQuery = '',
+  selectedProductId,
   canEdit,
   canToggle,
   canManageCategories = false,
   canCreateCategories = false,
   branches = [],
 }: {
+  initialQuery?: string
+  selectedProductId?: string
   catalog: StaffCatalog
   canEdit: boolean
   canToggle?: boolean
@@ -52,7 +58,9 @@ export function ProductsBoard({
   branches?: { id: string; name: string }[]
 }) {
   const router = useRouter()
-  const [query, setQuery] = useState('')
+  const formError = useRef<HTMLParagraphElement>(null)
+  const [query, setQuery] = useState(initialQuery)
+  useEffect(() => setQuery(initialQuery), [initialQuery])
   const [category, setCategory] = useState('all')
   const [pendingId, setPendingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -61,6 +69,7 @@ export function ProductsBoard({
 
   // Product create/edit form state (owner/manager)
   const [showForm, setShowForm] = useState(false)
+  useEffect(() => { if (error && showForm) formError.current?.focus() }, [error, showForm])
   const [draft, setDraft] = useState<ProductDraft>(EMPTY_DRAFT)
   const [createBranchId, setCreateBranchId] = useState(branches.length === 1 ? branches[0].id : '')
   const [saving, setSaving] = useState(false)
@@ -87,9 +96,10 @@ export function ProductsBoard({
     return catalog.products.filter(
       (p) =>
         (category === 'all' || p.categoryId === category) &&
+        (!selectedProductId || query !== initialQuery || p.id === selectedProductId) &&
         (!q || p.name.includes(q)),
     )
-  }, [catalog.products, category, query])
+  }, [catalog.products, category, query, initialQuery, selectedProductId])
 
   function refresh() {
     startTransition(() => router.refresh())
@@ -212,7 +222,7 @@ export function ProductsBoard({
       return
     }
     if (!Number.isFinite(taxRate) || taxRate < 0 || taxRate > 100) {
-      setError('Tax rate must be between 0 and 100')
+      setError('نسبة الضريبة يجب أن تكون بين 0 و100')
       return
     }
     if (!draft.categoryId) {
@@ -348,19 +358,20 @@ export function ProductsBoard({
       </div>
 
       {success ? (
-        <p className="rounded-md bg-success/10 px-3 py-2 text-sm text-success">{success}</p>
+        <p role="status" className="rounded-md bg-success/10 px-3 py-2 text-sm text-success">{success}</p>
       ) : null}
-      {error ? (
-        <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>
+      {error && !showForm ? (
+        <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>
       ) : null}
 
       {canEdit && showForm ? (
-        <div role="dialog" aria-modal="true" aria-label={draft.id ? 'Edit product' : 'Add product'} className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4">
+        <Modal aria-label={draft.id ? 'تعديل منتج' : 'إضافة منتج'} className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4" onClose={() => setShowForm(false)} dismissible={!saving}>
         <Card className="flex w-full max-w-3xl flex-col border-primary/40 max-h-[92dvh] rounded-b-none sm:rounded-b-xl overflow-hidden">
           <CardHeader className="sticky top-0 z-10 border-b bg-card/95 backdrop-blur px-4 py-3">
             <CardTitle>{draft.id ? 'تعديل منتج' : 'منتج جديد'}</CardTitle>
           </CardHeader>
           <CardContent className="grid grid-cols-1 gap-3 sm:grid-cols-2 overflow-y-auto px-4 py-4 pb-24">
+            {error && <p ref={formError} tabIndex={-1} role="alert" className="rounded border border-destructive p-3 text-sm text-destructive sm:col-span-2">{error}</p>}
             <label className="flex flex-col gap-1 text-sm">
               <span className="text-muted-foreground">الاسم</span>
               <Input
@@ -593,7 +604,7 @@ export function ProductsBoard({
             </div>
           </CardContent>
         </Card>
-        </div>
+        </Modal>
       ) : null}
 
       {canCreateCategories ? (

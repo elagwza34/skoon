@@ -1,3 +1,5 @@
+
+import { PublicIcon } from '@/components/public/public-icon'
 export default function WhySokoonSection() {
   const features = [
     {
@@ -26,7 +28,7 @@ export default function WhySokoonSection() {
     <section className="py-[3.5rem] bg-[#fff9ef]">
       <div className="w-full px-[1rem] lg:px-[3rem]">
         <div className="text-center max-w-[32rem] mx-auto mb-[3.5rem] flex flex-col items-center gap-[0.375rem]">
-          <span className="text-sm text-[#B98757] tracking-wider font-sans font-semibold">
+          <span className="text-sm text-[#805329] tracking-wider font-sans font-semibold">
             سر تميزنا
           </span>
           <h2 className="text-[40px] font-bold text-[#241B17] font-sans">ليه سكون؟</h2>
@@ -41,8 +43,8 @@ export default function WhySokoonSection() {
               key={f.title}
               className="p-[2rem] rounded-[0.5rem] bg-[#FFFCF8] shadow-md flex flex-col items-center text-center transition-transform hover:-translate-y-2 duration-300"
             >
-              <div className="w-16 h-16 rounded-full bg-[rgba(212,175,55,0.18)] flex items-center justify-center text-[#B98757] mb-[0.75rem]">
-                <span className="material-symbols-outlined text-3xl">{f.icon}</span>
+              <div className="w-16 h-16 rounded-full bg-[rgba(212,175,55,0.18)] flex items-center justify-center text-[#805329] mb-[0.75rem]">
+                <PublicIcon symbol={f.icon} className="text-3xl" />
               </div>
               <h3 className="text-[18px] font-bold text-[#241B17] mb-2 font-sans">
                 {f.title}

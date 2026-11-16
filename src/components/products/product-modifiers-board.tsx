@@ -86,8 +86,8 @@ export function ProductModifiersBoard({ branches }: { branches: { id: string; na
             </select>
           </label>
 
-          {error ? <p className="rounded bg-destructive/10 p-3 text-sm text-destructive">{error}</p> : null}
-          {success ? <p className="rounded bg-success/10 p-3 text-sm text-success">{success}</p> : null}
+          {error ? <p role="alert" className="rounded bg-destructive/10 p-3 text-sm text-destructive">{error}</p> : null}
+          {success ? <p role="status" className="rounded bg-success/10 p-3 text-sm text-success">{success}</p> : null}
 
           <section className="rounded-xl border p-4 space-y-3">
             <p className="font-semibold">1) إنشاء مجموعة جديدة</p>

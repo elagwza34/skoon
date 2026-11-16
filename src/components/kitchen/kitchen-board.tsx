@@ -30,12 +30,36 @@ export function KitchenBoard({ orders, readOnly = false }: { orders: StaffOrderR
   const [error, setError] = useState<string | null>(null)
   const [now, setNow] = useState(() => Date.now())
   const [sound, setSound] = useState(false)
-  const [, startTransition] = useTransition()
+  const [refreshing, startTransition] = useTransition()
+  const [online, setOnline] = useState(true)
+  const [lastUpdate, setLastUpdate] = useState<number | null>(null)
+  useEffect(() => { setLastUpdate(Date.now()) }, [orders])
+  useEffect(() => {
+    const connection = () => setOnline(navigator.onLine)
+    connection()
+    window.addEventListener('online', connection)
+    window.addEventListener('offline', connection)
+    return () => { window.removeEventListener('online', connection); window.removeEventListener('offline', connection) }
+  }, [])
+  useEffect(() => {
+    const refresh = () => {
+      if (navigator.onLine && document.visibilityState === 'visible' && !refreshing && !pendingId) startTransition(() => router.refresh())
+    }
+    const timer = setInterval(refresh, 5000)
+    window.addEventListener('online', refresh)
+    document.addEventListener('visibilitychange', refresh)
+    return () => { clearInterval(timer); window.removeEventListener('online', refresh); document.removeEventListener('visibilitychange', refresh) }
+  }, [refreshing, pendingId, router])
+  const stale = !online || (lastUpdate !== null && now - lastUpdate > 15000)
+  const freshness = <div className="flex flex-wrap items-center gap-3 rounded border border-border bg-card p-3 text-sm">
+    <p role="status">{!online ? 'الاتصال منقطع — الطلبات المعروضة قديمة.' : stale ? 'تأخر تحديث الطلبات. أعد المحاولة.' : refreshing ? 'جارٍ تحديث الطلبات…' : 'يتم تحديث الطلبات كل 5 ثوانٍ.'}{lastUpdate && <span className="ms-2 text-muted-foreground">آخر تحديث: {new Date(lastUpdate).toLocaleTimeString('ar-EG')}</span>}</p>
+    <Button variant="outline" disabled={!online || refreshing || !!pendingId} onClick={() => startTransition(() => router.refresh())}>تحديث الآن</Button>
+  </div>
   useEffect(() => {
     setSound(globalThis.localStorage?.getItem('skoon-kitchen-sound') === 'on')
   }, [])
   useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 30000)
+    const timer = setInterval(() => setNow(Date.now()), 5000)
     return () => clearInterval(timer)
   }, [])
   useEffect(() => {
@@ -99,6 +123,7 @@ export function KitchenBoard({ orders, readOnly = false }: { orders: StaffOrderR
             <h1 className="text-xl font-bold">مراقبة المطبخ</h1>
             <p className="mt-1 text-sm text-muted-foreground">عرض للمالك فقط. لا يمكن تنفيذ تحضير أو تغيير حالة الطلب من هذه الشاشة.</p>
           </header>
+          {freshness}
           <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {orders.map((order) => (
               <Card key={order.id}>
@@ -170,6 +195,7 @@ export function KitchenBoard({ orders, readOnly = false }: { orders: StaffOrderR
             بدء تحضير كل الجديد
           </Button>
         </div>
+        {freshness}
         {error ? (
           <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
             {error}

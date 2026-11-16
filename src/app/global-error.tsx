@@ -47,8 +47,9 @@ export default function GlobalError({
             عذراً، الموقع لا يستطيع التحميل الآن
           </h1>
           <p style={{ margin: '0 0 20px', fontSize: '0.9rem', opacity: 0.7, lineHeight: 1.6 }}>
-            حدث خطأ في الخادم. التفاصيل التقنية أدناه مفيدة للتشخيص.
+            تعذر الاتصال بالخدمة. أعد المحاولة، أو تواصل مع فريق الكافيه إذا استمرت المشكلة.
           </p>
+          <details className="text-start"><summary>تفاصيل للمسؤول</summary>
           <pre
             dir="ltr"
             style={{
@@ -68,6 +69,7 @@ export default function GlobalError({
             {error.message || 'Unknown error'}
             {error.digest ? `\n\ndigest: ${error.digest}` : ''}
           </pre>
+          </details>
           <button
             type="button"
             onClick={reset}

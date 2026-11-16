@@ -34,14 +34,7 @@ export function AppShell({
   // Lock background scroll while the mobile drawer is open so the page behind
   // doesn't jump (a common cause of the "layout looks broken" feeling on iOS
   // Safari, where the dynamic toolbar shifts the 100vh viewport).
-  useEffect(() => {
-    if (!open) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, [open]);
+  // The shared Modal now owns this scroll lock for the mobile drawer.
 
   // Sidebar links filtered to the role's permissions. Owner sees everything.
   // The server-side guard in the (app) layout is the real gate; this only
@@ -55,10 +48,11 @@ export function AppShell({
 
   return (
     <div className="flex min-h-dvh bg-background">
+      <a href="#main-content" className="skip-link">تخطّي التنقل إلى المحتوى</a>
       <Sidebar open={open} onClose={() => setOpen(false)} branchName={branchName} groups={groups} homeHref={groups[0]?.items[0]?.href} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <Topbar onMenu={() => setOpen((o) => !o)} user={user} />
-        <main className="min-w-0 flex-1 p-3 sm:p-4 lg:p-6">{children}</main>
+        <Topbar menuOpen={open} onMenu={() => setOpen((o) => !o)} user={user} />
+        <main id="main-content" tabIndex={-1} className="min-w-0 flex-1 p-3 sm:p-4 lg:p-6">{children}</main>
       </div>
     </div>
   );

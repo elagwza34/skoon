@@ -2,7 +2,7 @@
 
 import { useId, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
-import { formatCurrencyCompact } from "@/lib/format";
+import { formatCurrency, formatCurrencyCompact } from "@/lib/format";
 
 /**
  * Charts — hand-rolled, dependency-free SVG (a sales area chart + a donut).
@@ -70,6 +70,7 @@ export function AreaChart({ data, height = 240, className, ariaLabel }: AreaChar
 
   const hp = hover != null ? points[hover] : null;
 
+  if (!data.length) return <p className="p-4 text-sm text-muted-foreground">لا توجد بيانات للرسم بعد.</p>
   return (
     <div className={cn("relative w-full", className)}>
       <svg
@@ -81,7 +82,16 @@ export function AreaChart({ data, height = 240, className, ariaLabel }: AreaChar
         preserveAspectRatio="none"
         role="img"
         aria-label={ariaLabel ?? "رسم بياني"}
-        onMouseMove={onMove}
+        tabIndex={0}
+        onPointerMove={onMove}
+        onPointerDown={onMove}
+        onKeyDown={(event) => {
+          if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+            event.preventDefault()
+            setHover(index => event.key === 'Home' ? 0 : event.key === 'End' ? data.length - 1 : Math.max(0, Math.min(data.length - 1, (index ?? 0) + (event.key === 'ArrowRight' ? 1 : -1))))
+          }
+          if (event.key === 'Escape') setHover(null)
+        }}
         onMouseLeave={() => setHover(null)}
         className="overflow-visible"
       >
@@ -109,6 +119,7 @@ export function AreaChart({ data, height = 240, className, ariaLabel }: AreaChar
           </g>
         ))}
 
+        {points.length === 1 && <circle cx={points[0].x} cy={points[0].y} r={4} fill="hsl(var(--primary))" />}
         <path d={area} fill={`url(#fill-${gradId})`} />
         <path d={path} fill="none" stroke="hsl(var(--primary))" strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" />
 
@@ -128,6 +139,11 @@ export function AreaChart({ data, height = 240, className, ariaLabel }: AreaChar
         ) : null}
       </svg>
 
+      <span className="sr-only" role="status">{hp ? `${hp.label}: ${hp.display ?? formatCurrency(hp.value)}` : ''}</span>
+      <details className="mt-3 text-sm">
+        <summary className="min-h-11 cursor-pointer py-2">عرض بيانات الرسم في جدول</summary>
+        <div className="overflow-x-auto"><table className="w-full text-start"><caption className="sr-only">{ariaLabel ?? 'بيانات المبيعات'}</caption><thead><tr><th scope="col" className="p-2 text-start">الفترة</th><th scope="col" className="p-2 text-start">القيمة</th></tr></thead><tbody>{data.map((point, index) => <tr key={index} className="border-t border-border"><th scope="row" className="p-2 text-start font-normal">{point.label}</th><td className="p-2">{point.display ?? formatCurrency(point.value)}</td></tr>)}</tbody></table></div>
+      </details>
       {hp ? (
         <div
           className="pointer-events-none absolute -top-1 z-10 -translate-x-1/2 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs shadow-lg"
@@ -168,6 +184,7 @@ export function DonutChart({
   centerLabel,
   className,
 }: DonutChartProps) {
+  if (!data.length || data.every(slice => slice.value === 0)) return <p className="p-4 text-sm text-muted-foreground">لا توجد بيانات للتوزيع بعد.</p>
   const total = data.reduce((s, d) => s + d.value, 0) || 1;
   const r = (size - thickness) / 2;
   const c = 2 * Math.PI * r;

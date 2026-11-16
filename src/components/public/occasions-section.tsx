@@ -1,3 +1,7 @@
+
+import { PublicIcon } from '@/components/public/public-icon'
+
+import Image from 'next/image'
 export default function OccasionsSection() {
   const occasions = [
     {
@@ -46,7 +50,7 @@ export default function OccasionsSection() {
             className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-[#241B17] text-[#FFFCF8] text-sm font-md font-semibold hover:bg-[#B98757] hover:text-[#241B17] transition-all duration-300 shadow-md font-sans"
           >
             <span>تواصل معنا لحجز مناسبتك</span>
-            <span className="material-symbols-outlined text-[18px]">calendar_today</span>
+            <PublicIcon symbol={'calendar_today'} className="text-[18px]" />
           </a>
         </div>
 
@@ -56,10 +60,7 @@ export default function OccasionsSection() {
               key={occ.title}
               className="relative group rounded-[0.5rem] overflow-hidden shadow-lg h-[384px] bg-[#1A1310]"
             >
-              <div
-                className="w-full h-full bg-cover bg-center transition-transform duration-700 group-hover:scale-110"
-                style={{ backgroundImage: `url(${occ.image})` }}
-              />
+              <Image src={occ.image} alt="" fill sizes="(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw" className="object-cover transition-transform duration-700 group-hover:scale-105" />
               <div className="absolute inset-0 bg-gradient-to-t from-[#241B17] via-[#241B17]/60 to-transparent" />
               <div className="absolute inset-0 p-[1rem] flex flex-col justify-end text-[#FFFCF8]">
                 <span className="w-8 h-8 rounded-full bg-[#B98757]/90 text-[#241B17] flex items-center justify-center mb-2 font-bold text-xs font-sans">

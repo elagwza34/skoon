@@ -1,5 +1,8 @@
 'use client'
 
+import { uiLabel } from '@/lib/ui-labels'
+import { Modal } from '@/components/ui/modal'
+
 import { useCallback, useEffect, useState, useTransition } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -93,36 +96,36 @@ export function EmployeeManagementBoard({ canManage }: { canManage: boolean }) {
     <Card dir="rtl">
       <CardHeader><CardTitle>إدارة ملفات الموظفين</CardTitle></CardHeader>
       <CardContent className="space-y-4">
-        {error ? <p className="rounded border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">{error}</p> : null}
+        {error ? <p role="alert" className="rounded border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">{error}</p> : null}
         <div className="flex flex-wrap gap-2">
-          <Input className="max-w-xs" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ابحث بالاسم أو اسم المستخدم أو البريد" />
-          <select value={status} onChange={(event) => setStatus(event.target.value)} className="h-10 rounded-lg border border-border bg-background px-3 text-sm">
+          <label className="flex min-w-0 flex-col gap-1 text-sm"><span>البحث عن موظف</span><Input className="max-w-xs" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ابحث بالاسم أو اسم المستخدم أو البريد" /></label>
+          <label className="flex min-w-0 flex-col gap-1 text-sm"><span>حالة الموظف</span><select value={status} onChange={(event) => setStatus(event.target.value)} className="h-10 rounded-lg border border-border bg-background px-3 text-sm">
             <option value="active">النشطون</option><option value="inactive">غير النشطين</option><option value="archived">المؤرشفون</option><option value="terminated">المنتهية خدمتهم</option><option value="all">الكل</option>
-          </select>
+          </select></label>
           <Button variant="outline" onClick={() => void load()} disabled={loading}>تحديث</Button>
         </div>
         {loading ? <p className="text-sm text-muted-foreground">جارٍ التحميل…</p> : null}
         {!loading && rows.length === 0 ? <p className="text-sm text-muted-foreground">لا توجد سجلات مطابقة.</p> : null}
         <div className="grid gap-2 md:grid-cols-3">
           {rows.map((employee) => (
-            <button key={employee.id} onClick={() => void open(employee.id)} className="rounded-lg border border-border p-3 text-start transition hover:bg-accent/40 flex flex-col gap-2">
+            <div key={employee.id} className="rounded-lg border border-border p-3 text-start transition hover:bg-accent/40 flex flex-col gap-2">
               <div className="flex items-center justify-between">
                 <div>
                   <b>{employee.name}</b>
-                  <div className="mt-1 text-xs text-muted-foreground">{employee.roleName} · {employee.status} · {employee.username ?? employee.email ?? '—'}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">{employee.roleName} · {uiLabel(employee.status)} · {employee.username ?? employee.email ?? '—'}</div>
                 </div>
                 <Button size="sm" onClick={(event) => { event.stopPropagation(); void open(employee.id) }}>تعديل</Button>
               </div>
-            </button>
+            </div>
           ))}
         </div>
-        {selected ? <EmployeeDetailPanel employee={selected} canManage={canManage} onClose={() => setSelected(null)} onChanged={() => { void open(selected.id); transition(() => void load()) }} onArchive={archive} onReactivate={reactivate} onTerminate={terminate} post={post} setError={setError} /> : null}
+        {selected ? <EmployeeDetailPanel employee={selected} canManage={canManage} onClose={() => setSelected(null)} onChanged={() => { void open(selected.id); transition(() => void load()) }} onArchive={archive} onReactivate={reactivate} onTerminate={terminate} post={post} error={error} setError={setError} /> : null}
       </CardContent>
     </Card>
   )
 }
 
-function EmployeeDetailPanel({ employee, canManage, onClose, onChanged, onArchive, onReactivate, onTerminate, post, setError }: { employee: EmployeeDetail; canManage: boolean; onClose: () => void; onChanged: () => void; onArchive: () => void; onReactivate: () => void; onTerminate: () => void; post: (path: string, body?: unknown) => Promise<unknown>; setError: (value: string | null) => void }) {
+function EmployeeDetailPanel({ employee, canManage, onClose, onChanged, onArchive, onReactivate, onTerminate, post, error, setError }: { error: string | null; employee: EmployeeDetail; canManage: boolean; onClose: () => void; onChanged: () => void; onArchive: () => void; onReactivate: () => void; onTerminate: () => void; post: (path: string, body?: unknown) => Promise<unknown>; setError: (value: string | null) => void }) {
   const p = employee.employeeProfile
   const [name, setName] = useState(employee.name ?? '')
   const [username, setUsername] = useState(employee.username ?? '')
@@ -177,8 +180,9 @@ function EmployeeDetailPanel({ employee, canManage, onClose, onChanged, onArchiv
     finally { setBusy(false) }
   }
 
-  return <aside role="dialog" aria-modal="true" aria-label={`ملف ${employee.name}`} className="fixed inset-y-0 right-0 z-50 w-full max-w-2xl overflow-y-auto border-s border-border bg-background p-4 shadow-2xl sm:p-6">
+  return <Modal aria-label={`ملف ${employee.name}`} className="fixed inset-0 z-50 overflow-y-auto bg-background p-4 sm:p-6" onClose={onClose} dismissible={!busy}>
     <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-bold">ملف {employee.name}</h3><Button variant="ghost" size="sm" onClick={onClose}>إغلاق</Button></div>
+    {error && <p role="alert" className="rounded border border-destructive p-3 text-sm text-destructive">{error}</p>}
     {!canManage ? <p className="text-sm text-muted-foreground">هذه بيانات تشغيلية فقط. البيانات الشخصية والتعويضات والعقود متاحة للمالك فقط.</p> : <>
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="text-sm">الاسم<Input value={name} onChange={(event) => setName(event.target.value)} /></label>
@@ -207,7 +211,7 @@ function EmployeeDetailPanel({ employee, canManage, onClose, onChanged, onArchiv
       <div><Button onClick={() => void saveProfile()} disabled={busy}>حفظ بيانات HR</Button></div>
       <HistoryPanels employee={employee} post={post} onChanged={onChanged} setError={setError} />
     </>}
-  </aside>
+  </Modal>
 }
 
 function HistoryPanels({ employee, post, onChanged, setError }: { employee: EmployeeDetail; post: (path: string, body?: unknown) => Promise<unknown>; onChanged: () => void; setError: (value: string | null) => void }) {
@@ -221,8 +225,8 @@ function HistoryPanels({ employee, post, onChanged, setError }: { employee: Empl
   async function addRate() { try { await post(`/api/staff/employees/${employee.id}/compensation`, { compensationType: rateType, paymentFrequency: rateFrequency, amount: rateAmount, effectiveFrom: rateStart }); onChanged() } catch (cause) { setError(cause instanceof Error ? cause.message : 'تعذر إضافة التعويض') } }
   const profile = employee.employeeProfile
   return <div className="grid gap-4 lg:grid-cols-2">
-    <div className="rounded-lg border bg-background p-3"><b>العقود والسجل</b><div className="mt-2 space-y-1 text-xs">{profile?.contracts.map((contract) => <div key={String(contract.id)}>{contract.contractType} · {dateInput(contract.effectiveFrom)} إلى {dateInput(contract.effectiveUntil) || 'مفتوح'}</div>)}</div><div className="mt-3 flex gap-2"><Input value={contractType} onChange={(e) => setContractType(e.target.value)} /><Input type="date" value={contractStart} onChange={(e) => setContractStart(e.target.value)} /><Button size="sm" disabled={!contractStart} onClick={() => void addContract()}>إضافة</Button></div></div>
-    <div className="rounded-lg border bg-background p-3"><b>تاريخ التعويض</b><p className="mt-1 text-xs text-muted-foreground">لا تُنشئ هذه الشاشة Payroll أو حركة مالية.</p><div className="mt-2 space-y-1 text-xs">{profile?.compensationRates.map((rate) => <div key={String(rate.id)}>{rate.compensationType} · {String(rate.amount)} {rate.currency} · يبدأ {dateInput(rate.effectiveFrom)}</div>)}</div><div className="mt-3 grid gap-2 sm:grid-cols-2"><select value={rateType} onChange={(e) => setRateType(e.target.value)} className="h-10 rounded border bg-background px-2"><option value="monthly">شهري</option><option value="daily">يومي</option><option value="hourly">بالساعة</option><option value="per_shift">بالوردية</option></select><select value={rateFrequency} onChange={(e) => setRateFrequency(e.target.value)} className="h-10 rounded border bg-background px-2"><option value="weekly">أسبوعي</option><option value="semi_monthly">نصف شهري</option><option value="monthly">شهري</option></select><Input inputMode="decimal" value={rateAmount} onChange={(e) => setRateAmount(e.target.value)} placeholder="المبلغ" /><Input type="date" value={rateStart} onChange={(e) => setRateStart(e.target.value)} /><Button size="sm" disabled={!rateAmount || !rateStart} onClick={() => void addRate()}>إضافة سعر</Button></div></div>
+    <div className="rounded-lg border bg-background p-3"><b>العقود والسجل</b><div className="mt-2 space-y-1 text-xs">{profile?.contracts.map((contract) => <div key={String(contract.id)}>{uiLabel(contract.contractType)} · {dateInput(contract.effectiveFrom)} إلى {dateInput(contract.effectiveUntil) || 'مفتوح'}</div>)}</div><div className="mt-3 flex gap-2"><label className="flex min-w-0 flex-col gap-1 text-sm"><span>نوع العقد</span><Input value={contractType} onChange={(e) => setContractType(e.target.value)} /></label><label className="flex min-w-0 flex-col gap-1 text-sm"><span>بداية العقد</span><Input type="date" value={contractStart} onChange={(e) => setContractStart(e.target.value)} /></label><Button size="sm" disabled={!contractStart} onClick={() => void addContract()}>إضافة</Button></div></div>
+    <div className="rounded-lg border bg-background p-3"><b>تاريخ التعويض</b><p className="mt-1 text-xs text-muted-foreground">لا تُنشئ هذه الشاشة رواتب أو حركة مالية.</p><div className="mt-2 space-y-1 text-xs">{profile?.compensationRates.map((rate) => <div key={String(rate.id)}>{uiLabel(rate.compensationType)} · {String(rate.amount)} {rate.currency} · يبدأ {dateInput(rate.effectiveFrom)}</div>)}</div><div className="mt-3 grid gap-2 sm:grid-cols-2"><label className="flex min-w-0 flex-col gap-1 text-sm"><span>نوع الأجر</span><select value={rateType} onChange={(e) => setRateType(e.target.value)} className="h-10 rounded border bg-background px-2"><option value="monthly">شهري</option><option value="daily">يومي</option><option value="hourly">بالساعة</option><option value="per_shift">بالوردية</option></select></label><label className="flex min-w-0 flex-col gap-1 text-sm"><span>دورية الصرف</span><select value={rateFrequency} onChange={(e) => setRateFrequency(e.target.value)} className="h-10 rounded border bg-background px-2"><option value="weekly">أسبوعي</option><option value="semi_monthly">نصف شهري</option><option value="monthly">شهري</option></select></label><label className="flex min-w-0 flex-col gap-1 text-sm"><span>قيمة الأجر</span><Input inputMode="decimal" value={rateAmount} onChange={(e) => setRateAmount(e.target.value)} placeholder="المبلغ" /></label><label className="flex min-w-0 flex-col gap-1 text-sm"><span>تاريخ سريان الأجر</span><Input type="date" value={rateStart} onChange={(e) => setRateStart(e.target.value)} /></label><Button size="sm" disabled={!rateAmount || !rateStart} onClick={() => void addRate()}>إضافة سعر</Button></div></div>
     <EmployeeDocumentsPanel employeeId={employee.id} />
   </div>
 }
@@ -233,5 +237,5 @@ function EmployeeDocumentsPanel({ employeeId }: { employeeId: string }) {
   useEffect(() => { void load() }, [load])
   const upload = async () => { if (!file) return; setBusy(true); setError(''); try { const form = new FormData(); form.set('employeeId', employeeId); form.set('kind', kind); form.set('file', file); const response = await fetch('/api/staff/hr/documents', { method: 'POST', body: form }); const data = await response.json(); if (!response.ok) throw new Error(data.error); setFile(null); await load() } catch (cause) { setError(cause instanceof Error ? cause.message : 'تعذر رفع المستند') } finally { setBusy(false) } }
   const open = async (id: string) => { try { const response = await fetch(`/api/staff/hr/documents/${id}/signed-url`); const data = await response.json(); if (!response.ok) throw new Error(data.error); window.open(data.url, '_blank', 'noopener,noreferrer') } catch (cause) { setError(cause instanceof Error ? cause.message : 'تعذر فتح المستند') } }
-  return <div className="rounded-lg border bg-background p-3 lg:col-span-2"><b>المستندات الخاصة</b><p className="mt-1 text-xs text-muted-foreground">PDF أو صور حتى 8 MB؛ روابط التحميل مؤقتة ومخوّلة للمالك فقط.</p>{error ? <p className="mt-2 text-xs text-destructive">{error}</p> : null}<div className="mt-3 flex flex-wrap gap-2"><select value={kind} onChange={(event) => setKind(event.target.value)} className="h-10 rounded border bg-background px-2 text-sm"><option value="national_id_front">الرقم القومي — أمامي</option><option value="national_id_back">الرقم القومي — خلفي</option><option value="signed_contract">عقد موقّع</option><option value="other">مستند آخر</option></select><Input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" onChange={(event) => setFile(event.target.files?.[0] ?? null)} className="max-w-xs"/><Button size="sm" disabled={!file || busy} onClick={() => void upload()}>رفع</Button></div><div className="mt-3 flex flex-wrap gap-2">{rows.map((row) => <Button key={row.id} size="sm" variant="outline" onClick={() => void open(row.id)}>{row.kind}</Button>)}</div></div>
+  return <div className="rounded-lg border bg-background p-3 lg:col-span-2"><b>المستندات الخاصة</b><p className="mt-1 text-xs text-muted-foreground">PDF أو صور حتى 8 MB؛ روابط التحميل مؤقتة ومخوّلة للمالك فقط.</p>{error ? <p role="alert" className="mt-2 text-xs text-destructive">{error}</p> : null}<div className="mt-3 flex flex-wrap gap-2"><label className="flex min-w-0 flex-col gap-1 text-sm"><span>نوع المستند</span><select value={kind} onChange={(event) => setKind(event.target.value)} className="h-10 rounded border bg-background px-2 text-sm"><option value="national_id_front">الرقم القومي — أمامي</option><option value="national_id_back">الرقم القومي — خلفي</option><option value="signed_contract">عقد موقّع</option><option value="other">مستند آخر</option></select></label><label className="flex min-w-0 flex-col gap-1 text-sm"><span>اختيار المستند</span><Input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" onChange={(event) => setFile(event.target.files?.[0] ?? null)} className="max-w-xs"/></label><Button size="sm" disabled={!file || busy} onClick={() => void upload()}>رفع</Button></div><div className="mt-3 flex flex-wrap gap-2">{rows.map((row) => <Button key={row.id} size="sm" variant="outline" onClick={() => void open(row.id)}>{uiLabel(row.kind)}</Button>)}</div></div>
 }

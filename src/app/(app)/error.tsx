@@ -31,17 +31,19 @@ export default function AppError({
         </div>
         <h1 className="mb-2 text-lg font-bold">حدث خطأ غير متوقع</h1>
         <p className="mb-4 text-sm leading-relaxed text-muted-foreground">
-          {networkError ? 'انقطع الاتصال أثناء تحميل الصفحة. تأكد من اتصال الإنترنت ثم أعد المحاولة.' : 'تعذّر تحميل لوحة التحكم. التفاصيل أدناه مفيدة لتشخيص السبب على السيرفر.'}
+          {networkError ? 'انقطع الاتصال أثناء تحميل الصفحة. تأكد من اتصال الإنترنت ثم أعد المحاولة.' : 'تعذّر تحميل لوحة التحكم. تحقق من الاتصال ثم أعد المحاولة. إذا استمرت المشكلة، تواصل مع المسؤول.'}
         </p>
 
         <div
           className="mb-5 rounded-lg border border-destructive/25 bg-destructive/5 p-3 text-start"
           dir="ltr"
         >
+          <details className="text-start"><summary>تفاصيل للمسؤول</summary>
           <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words text-xs text-destructive">
             {error.message || 'Unknown error'}
             {error.digest ? `\n\ndigest: ${error.digest}` : ''}
           </pre>
+          </details>
         </div>
 
         <button

@@ -35,11 +35,12 @@ function TodayDate() {
 
 export interface TopbarProps {
   onMenu: () => void;
+  menuOpen?: boolean;
   /** Signed-in staff identity (server-resolved, required in production). */
   user?: { name: string; role: string; permissions?: string[] };
 }
 
-export function Topbar({ onMenu, user }: TopbarProps) {
+export function Topbar({ onMenu, menuOpen, user }: TopbarProps) {
   const pathname = usePathname();
   const title = titleForPath(pathname);
 
@@ -60,6 +61,8 @@ export function Topbar({ onMenu, user }: TopbarProps) {
         <button
           type="button"
           onClick={onMenu}
+          aria-expanded={menuOpen}
+          aria-controls="staff-navigation"
           aria-label="فتح القائمة"
           className="inline-flex h-10 w-10 items-center justify-center rounded-md text-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:hidden"
         >

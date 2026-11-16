@@ -1,0 +1,103 @@
+[
+  {
+    "width": 375,
+    "route": "/",
+    "title": "سكون — علامة تجارية للكافيه",
+    "overflow": false,
+    "h1": 1,
+    "offscreenLinks": 5
+  },
+  {
+    "width": 375,
+    "route": "/login",
+    "title": "سكون — علامة تجارية للكافيه",
+    "overflow": false,
+    "h1": 0,
+    "offscreenLinks": 0
+  },
+  {
+    "width": 375,
+    "route": "/scan-qr",
+    "title": "سكون — علامة تجارية للكافيه",
+    "overflow": false,
+    "h1": 0,
+    "offscreenLinks": 0
+  },
+  {
+    "width": 375,
+    "route": "/scan-qr",
+    "error": "locator.click: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('main button').first()\u001b[22m\n"
+  },
+  {
+    "width": 375,
+    "route": "/order-type",
+    "title": "سكون — علامة تجارية للكافيه",
+    "overflow": false,
+    "h1": 1,
+    "offscreenLinks": 0
+  },
+  {
+    "width": 768,
+    "route": "/",
+    "title": "سكون — علامة تجارية للكافيه",
+    "overflow": true,
+    "h1": 1,
+    "offscreenLinks": 5
+  },
+  {
+    "width": 768,
+    "route": "/login",
+    "title": "سكون — علامة تجارية للكافيه",
+    "overflow": false,
+    "h1": 0,
+    "offscreenLinks": 0
+  },
+  {
+    "width": 768,
+    "route": "/scan-qr",
+    "title": "سكون — علامة تجارية للكافيه",
+    "overflow": false,
+    "h1": 0,
+    "offscreenLinks": 0
+  },
+  {
+    "width": 768,
+    "route": "/order-type",
+    "title": "سكون — علامة تجارية للكافيه",
+    "overflow": false,
+    "h1": 1,
+    "offscreenLinks": 0
+  },
+  {
+    "width": 1440,
+    "route": "/",
+    "title": "سكون — علامة تجارية للكافيه",
+    "overflow": false,
+    "h1": 1,
+    "offscreenLinks": 5
+  },
+  {
+    "width": 1440,
+    "route": "/login",
+    "title": "سكون — علامة تجارية للكافيه",
+    "overflow": false,
+    "h1": 0,
+    "offscreenLinks": 0
+  },
+  {
+    "width": 1440,
+    "route": "/scan-qr",
+    "title": "سكون — علامة تجارية للكافيه",
+    "overflow": false,
+    "h1": 0,
+    "offscreenLinks": 0
+  },
+  {
+    "width": 1440,
+    "route": "/order-type",
+    "title": "سكون — علامة تجارية للكافيه",
+    "overflow": false,
+    "h1": 1,
+    "offscreenLinks": 0
+  }
+]

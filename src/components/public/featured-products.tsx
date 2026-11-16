@@ -27,6 +27,7 @@ interface FeaturedProductsProps {
 
 export function FeaturedProducts({ products, bgColor = 'bg-cafe-cream/50' }: FeaturedProductsProps) {
   useEffect(() => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
     gsap.from('.featured-card', {
       scrollTrigger: { trigger: '.featured-section', start: 'top 85%' },
       opacity: 0,

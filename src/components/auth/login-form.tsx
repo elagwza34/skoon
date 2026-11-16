@@ -71,7 +71,7 @@ export function LoginForm({ next, reason }: { next?: string; reason?: string }) 
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  className="absolute right-0 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center text-muted-foreground hover:text-foreground"
                   aria-label={showPassword ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'}
                 >
                   <Icon name={showPassword ? 'eye-off' : 'eye'} size={16} />
@@ -86,13 +86,13 @@ export function LoginForm({ next, reason }: { next?: string; reason?: string }) 
             ) : null}
 
             {reason === 'config' ? (
-              <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
                 إعدادات الموقع غير مكتملة على الخادم. راجع إعدادات البيئة ثم أعد المحاولة.
               </p>
             ) : null}
 
             {state.error && !(attempted && pending) ? (
-              <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
                 {state.error}
               </p>
             ) : null}

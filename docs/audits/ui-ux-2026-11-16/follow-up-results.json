@@ -1,0 +1,14 @@
+{
+  "scannerFinalURL": "http://127.0.0.1:3100/login?next=%2Fscan-qr",
+  "overflow": {
+    "width": 768,
+    "scrollWidth": 781,
+    "contributors": [
+      {
+        "tag": "DIV",
+        "classes": "absolute inset-0 bg-cover bg-center opacity-40 scale-105 transition-transform duration-1000",
+        "right": 787.1999206542969
+      }
+    ]
+  }
+}

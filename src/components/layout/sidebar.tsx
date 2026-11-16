@@ -1,5 +1,8 @@
 "use client";
 
+import { Modal } from '@/components/ui/modal';
+import { useMediaQuery } from '@/lib/use-media-query';
+import { useEffect } from 'react';
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
@@ -33,26 +36,9 @@ export interface SidebarProps {
 export function Sidebar({ open, onClose, branchName, groups = DEFAULT_GROUPS, homeHref = "/dashboard" }: SidebarProps) {
   const pathname = usePathname();
 
-  return (
-    <>
-      {/* Backdrop for the mobile drawer */}
-      <div
-        onClick={onClose}
-        aria-hidden="true"
-        className={cn(
-          "fixed inset-0 z-40 bg-background/60 backdrop-blur-sm transition-opacity lg:hidden",
-          open ? "opacity-100" : "pointer-events-none opacity-0",
-        )}
-      />
-
-      <aside
-        className={cn(
-          "fixed inset-y-0 start-0 z-50 flex w-64 flex-col border-e border-border bg-card",
-          "transition-transform duration-200 ease-out",
-          open ? "translate-x-0" : "translate-x-full",
-          "lg:sticky lg:top-0 lg:h-screen lg:translate-x-0",
-        )}
-      >
+  const mobile = useMediaQuery('(max-width: 1023px)');
+  useEffect(() => { if (!mobile && open) onClose(); }, [mobile, open, onClose]);
+  const content = <>
         {/* Brand */}
         <Link href={homeHref} onClick={onClose} className="flex items-center gap-2.5 px-4 py-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <Image
@@ -126,7 +112,14 @@ export function Sidebar({ open, onClose, branchName, groups = DEFAULT_GROUPS, ho
           </div>
           <ThemeToggle variant="full" className="w-full justify-start" />
         </div>
+  </>;
+  return <>
+    <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col border-e border-border bg-card lg:flex">{content}</aside>
+    {mobile && open && <Modal id="staff-navigation" aria-label="التنقل الرئيسي" onClose={onClose} className="fixed inset-0 z-50 bg-black/60 p-0">
+      <aside className="flex h-full w-64 max-w-full flex-col bg-card">
+        <button type="button" autoFocus onClick={onClose} className="m-2 min-h-11 rounded border px-3">إغلاق القائمة</button>
+        {content}
       </aside>
-    </>
-  );
+    </Modal>}
+  </>;
 }

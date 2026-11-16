@@ -1,0 +1,26 @@
+[
+  {
+    "width": 375,
+    "scrollWidth": 375,
+    "headerBottom": 96,
+    "badgeTop": 112
+  },
+  {
+    "width": 768,
+    "scrollWidth": 768,
+    "headerBottom": 96,
+    "badgeTop": 208.875
+  },
+  {
+    "width": 1440,
+    "scrollWidth": 1440,
+    "headerBottom": 96,
+    "badgeTop": 136.875
+  },
+  {
+    "width": 844,
+    "scrollWidth": 844,
+    "headerBottom": 96,
+    "badgeTop": 112
+  }
+]

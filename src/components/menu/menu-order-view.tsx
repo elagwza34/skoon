@@ -1,6 +1,8 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { Modal } from '@/components/ui/modal'
+
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
@@ -12,6 +14,8 @@ import { Segmented } from '@/components/ui/segmented'
 import { cn } from '@/lib/utils'
 import { PublicBackdrop } from '@/components/public/public-backdrop'
 import { saveGuestOrder } from '@/lib/guest-orders'
+import { formatCurrency } from '@/lib/format'
+import { guestDraftKey, restoreGuestCart } from '@/lib/guest-cart-draft'
 import type { PublicMenu } from '@/lib/public-menu'
 
 interface CartLine {
@@ -19,8 +23,7 @@ interface CartLine {
   qty: number
 }
 
-const egp = (n: number) =>
-  new Intl.NumberFormat('ar-EG', { style: 'currency', currency: 'EGP', maximumFractionDigits: 0 }).format(n)
+const egp = formatCurrency
 
 /**
  * Customer menu + cart + order submit for one table token.
@@ -41,15 +44,29 @@ export function MenuOrderView({ menu }: { menu: PublicMenu }) {
   const [cartOpen, setCartOpen] = useState(false)
   const [serviceBusy, setServiceBusy] = useState<string | null>(null)
   const [serviceMessage, setServiceMessage] = useState<string | null>(null)
-
+  const [restoredToken, setRestoredToken] = useState<string | null>(null)
+  const [draftMessage, setDraftMessage] = useState('')
+  const submitting = useRef(false)
+  const errorRef = useRef<HTMLParagraphElement>(null)
   useEffect(() => {
-    if (!cartOpen) return
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => {
-      document.body.style.overflow = prev
-    }
-  }, [cartOpen])
+    if (error) errorRef.current?.focus()
+  }, [error])
+  useEffect(() => {
+    try {
+      const restored = restoreGuestCart(localStorage.getItem(guestDraftKey(menu.table.token)), menu.table.token, menu.products)
+      setCart(restored.cart)
+      if (restored.changed) setDraftMessage('تم تحديث السلة حسب الأسعار والتوافر الحاليين. راجع الأصناف والإجمالي قبل الإرسال.')
+    } catch { setDraftMessage('حفظ السلة غير متاح في هذا المتصفح. احتفظ بالصفحة مفتوحة حتى إرسال الطلب.') }
+    setRestoredToken(menu.table.token)
+  }, [menu.table.token, menu.products])
+  useEffect(() => {
+    if (restoredToken !== menu.table.token || submitting.current) return
+    try {
+      const key = guestDraftKey(menu.table.token)
+      if (!cart.length) localStorage.removeItem(key)
+      else localStorage.setItem(key, JSON.stringify({ version: 1, token: menu.table.token, savedAt: Date.now(), cart, prices: Object.fromEntries(menu.products.map(p => [p.id, p.price])) }))
+    } catch { /* Ordering remains available when storage is blocked. */ }
+  }, [cart, restoredToken, menu.table.token, menu.products])
 
   const priceById = useMemo(() => new Map(menu.products.map((p) => [p.id, Number(p.price)])), [menu.products])
 
@@ -83,7 +100,10 @@ export function MenuOrderView({ menu }: { menu: PublicMenu }) {
   }
 
   async function submit() {
-    if (!name.trim() || cart.length === 0 || busy) return
+    if (submitting.current || busy) return
+    if (!name.trim()) { setError('اكتب اسمك لإرسال الطلب.'); return }
+    if (!cart.length) { setError('أضف صنفًا إلى السلة أولًا.'); return }
+    submitting.current = true
     setBusy(true)
     setError(null)
     try {
@@ -98,14 +118,16 @@ export function MenuOrderView({ menu }: { menu: PublicMenu }) {
         }),
       })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data?.error ?? 'Order failed')
+      if (!res.ok) throw new Error(data?.error ?? 'تعذر إرسال الطلب. تحقق من الاتصال وحاول مجددًا.')
       if (typeof data?.id !== 'string' || typeof data?.orderNumber !== 'string') {
-        throw new Error('Order failed')
+        throw new Error('تعذر إرسال الطلب. تحقق من الاتصال وحاول مجددًا.')
       }
+      try { localStorage.removeItem(guestDraftKey(menu.table.token)) } catch { /* Storage is optional. */ }
       saveGuestOrder({ id: data.id, orderNumber: data.orderNumber })
       router.push(`/order/${encodeURIComponent(data.id)}?n=${encodeURIComponent(data.orderNumber)}`)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Order failed')
+      setError(e instanceof Error ? e.message : 'تعذر إرسال الطلب. تحقق من الاتصال وحاول مجددًا.')
+      submitting.current = false
       setBusy(false)
     }
   }
@@ -139,9 +161,10 @@ export function MenuOrderView({ menu }: { menu: PublicMenu }) {
             {serviceBusy === type ? 'جارٍ الإرسال…' : label}
           </Button>
         ))}
-        {serviceMessage ? <span className="self-center text-xs text-cafe-caramel">{serviceMessage}</span> : null}
+        {serviceMessage ? <span role="status" className="self-center text-xs text-cafe-caramel">{serviceMessage}</span> : null}
       </div>
 
+      {draftMessage && <p role="status" className="relative z-20 mx-auto max-w-3xl p-4 text-sm text-cafe-cream">{draftMessage}</p>}
       {/* Sticky basket bar — always visible at the top; tap to review + submit. */}
       <button
         type="button"
@@ -183,6 +206,7 @@ export function MenuOrderView({ menu }: { menu: PublicMenu }) {
         </header>
 
         {/* Search */}
+        <label className="text-sm text-cafe-cream">البحث في المنيو
         <Input
           icon="search"
           placeholder="دور على صنف…"
@@ -191,6 +215,7 @@ export function MenuOrderView({ menu }: { menu: PublicMenu }) {
           className="border-cafe-mocha/30 bg-cafe-mocha/40 text-cafe-cream placeholder:text-cafe-cream/50"
         />
 
+        </label>
         {/* Categories */}
         <Segmented
           value={category}
@@ -225,16 +250,16 @@ export function MenuOrderView({ menu }: { menu: PublicMenu }) {
                   <CardFooter className="justify-end">
                     {inCart ? (
                       <div className="flex items-center gap-2">
-                        <Button size="icon" variant="outline" onClick={() => dec(p.id)} aria-label="إنقاص" className="border-cafe-mocha/40 bg-cafe-mocha/40 text-cafe-cream hover:bg-cafe-mocha/60">
+                        <Button size="icon" variant="outline" disabled={busy} onClick={() => dec(p.id)} aria-label="إنقاص" className="border-cafe-mocha/40 bg-cafe-mocha/40 text-cafe-cream hover:bg-cafe-mocha/60">
                           <Icon name="minus" size={16} />
                         </Button>
                         <span className="w-8 text-center font-semibold">{inCart.qty}</span>
-                        <Button size="icon" variant="outline" onClick={() => add(p.id)} aria-label="زيادة" className="border-cafe-mocha/40 bg-cafe-mocha/40 text-cafe-cream hover:bg-cafe-mocha/60">
+                        <Button size="icon" variant="outline" disabled={busy} onClick={() => add(p.id)} aria-label="زيادة" className="border-cafe-mocha/40 bg-cafe-mocha/40 text-cafe-cream hover:bg-cafe-mocha/60">
                           <Icon name="plus" size={16} />
                         </Button>
                       </div>
                     ) : (
-                      <Button size="sm" variant="secondary" onClick={() => add(p.id)} className="bg-cafe-caramel text-cafe-espresso hover:bg-cafe-caramel/90">
+                      <Button size="sm" variant="secondary" disabled={busy} onClick={() => add(p.id)} className="bg-cafe-caramel text-cafe-espresso hover:bg-cafe-caramel/90">
                         <Icon name="plus" size={16} />
                         أضف
                       </Button>
@@ -249,17 +274,17 @@ export function MenuOrderView({ menu }: { menu: PublicMenu }) {
 
       {/* Cart popup — reviews lines + collects name (required) & phone (optional). */}
       {cartOpen ? (
-        <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
+        <Modal className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" onClose={() => { if (!busy) setCartOpen(false) }} aria-label="سلة الطلب" dismissible={!busy}>
           <button
             type="button"
             aria-label="إغلاق"
             className="absolute inset-0 bg-black/80 backdrop-blur-md"
-            onClick={() => setCartOpen(false)}
+            onClick={() => { if (!busy) setCartOpen(false) }}
           />
           <div className="relative z-10 flex max-h-[90dvh] w-full max-w-md flex-col overflow-hidden rounded-t-2xl bg-cafe-espresso text-white shadow-xl sm:rounded-2xl">
             <div className="flex items-center justify-between border-b border-[#4a5568] px-4 py-3">
               <h2 className="text-base font-bold text-white">طلبك ({itemCount})</h2>
-              <Button size="icon" variant="ghost" onClick={() => setCartOpen(false)} aria-label="إغلاق" className="text-white">
+              <Button size="icon" variant="ghost" onClick={() => { if (!busy) setCartOpen(false) }} aria-label="إغلاق" className="text-white">
                 <Icon name="close" size={18} />
               </Button>
             </div>
@@ -274,11 +299,11 @@ export function MenuOrderView({ menu }: { menu: PublicMenu }) {
                     <div key={l.productId} className="flex items-center justify-between gap-2 text-sm">
                       <span className="truncate">{p.name}</span>
                       <span className="flex items-center gap-2">
-                        <Button size="icon" variant="outline" onClick={() => dec(l.productId)} aria-label="إنقاص" className="h-7 w-7">
+                        <Button size="icon" variant="outline" disabled={busy} onClick={() => dec(l.productId)} aria-label="إنقاص" className="h-7 w-7">
                           <Icon name="minus" size={14} />
                         </Button>
                         <span className="w-6 text-center font-semibold">{l.qty}</span>
-                        <Button size="icon" variant="outline" onClick={() => add(l.productId)} aria-label="زيادة" className="h-7 w-7">
+                        <Button size="icon" variant="outline" disabled={busy} onClick={() => add(l.productId)} aria-label="زيادة" className="h-7 w-7">
                           <Icon name="plus" size={14} />
                         </Button>
                         <span className="w-20 text-end font-medium">{egp((priceById.get(l.productId) ?? 0) * l.qty)}</span>
@@ -291,11 +316,11 @@ export function MenuOrderView({ menu }: { menu: PublicMenu }) {
               <div className="mt-2 flex flex-col gap-3 border-t border-border pt-3">
                 <label className="flex flex-col gap-1 text-sm">
                   <span className="font-medium">اسمك <span className="text-destructive">*</span></span>
-                  <Input placeholder="اسمك" value={name} onChange={(e) => setName(e.target.value)} />
+                  <Input id="guest-name" required autoComplete="given-name" aria-invalid={!!error && !name.trim()} aria-describedby={error ? "guest-order-error" : undefined} placeholder="اسمك" value={name} onChange={(e) => setName(e.target.value)} />
                 </label>
                 <label className="flex flex-col gap-1 text-sm">
                   <span className="font-medium">رقم الهاتف <span className="text-xs text-muted-foreground">(اختياري)</span></span>
-                  <Input icon="phone" type="tel" placeholder="01xxxxxxxxx" value={phone} onChange={(e) => setPhone(e.target.value)} />
+                  <Input icon="phone" type="tel" autoComplete="tel" dir="ltr" placeholder="01xxxxxxxxx" value={phone} onChange={(e) => setPhone(e.target.value)} />
                 </label>
                 <label className="flex flex-col gap-1 text-sm">
                   <span className="font-medium">ملاحظة <span className="text-xs text-muted-foreground">(اختياري)</span></span>
@@ -303,7 +328,7 @@ export function MenuOrderView({ menu }: { menu: PublicMenu }) {
                 </label>
               </div>
 
-              {error ? <p className="text-sm text-destructive">{error}</p> : null}
+              {error ? <p id="guest-order-error" ref={errorRef} tabIndex={-1} role="alert" className="text-sm text-red-300">{error}{!name.trim() && <a href="#guest-name" className="ms-2 underline">اكتب الاسم</a>}</p> : null}
             </div>
 
             <div className="flex flex-col gap-3 border-t border-border px-4 py-3">
@@ -311,13 +336,13 @@ export function MenuOrderView({ menu }: { menu: PublicMenu }) {
                 <span>الإجمالي</span>
                 <span>{egp(total)}</span>
               </div>
-              <Button size="lg" onClick={submit} disabled={busy || !name.trim() || cart.length === 0}>
+              <Button size="lg" onClick={submit} disabled={busy || cart.length === 0}>
                 {busy ? <Icon name="clock" size={18} /> : <Icon name="check" size={18} />}
                 {busy ? 'جاري الإرسال…' : 'إرسال الطلب'}
               </Button>
             </div>
           </div>
-        </div>
+        </Modal>
       ) : null}
     </div>
   )

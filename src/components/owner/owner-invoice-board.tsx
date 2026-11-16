@@ -1,5 +1,7 @@
 'use client'
 
+import { Modal } from '@/components/ui/modal'
+
 import { useState, useTransition, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -210,7 +212,7 @@ export function OwnerInvoiceBoard({ invoices, session }: { invoices: InvoiceRow[
       )}
 
       {deleteModal.length > 0 && (
-        <div role="dialog" aria-modal="true" aria-labelledby="delete-invoice-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <Modal aria-labelledby="delete-invoice-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClose={() => setDeleteModal([])} dismissible={!pending}>
           <Card className="w-full max-w-md p-5" dir="rtl">
             <CardHeader>
               <CardTitle id="delete-invoice-title">تأكيد الأرشفة{deleteModal.length > 1 ? ` (${deleteModal.length} فواتير)` : ` ${deleteModal[0]}`}</CardTitle>
@@ -230,7 +232,7 @@ export function OwnerInvoiceBoard({ invoices, session }: { invoices: InvoiceRow[
               <Button variant="destructive" size="sm" disabled={pending} onClick={executeDeleteBulk}>تأكيد الحذف</Button>
             </div>
           </Card>
-        </div>
+        </Modal>
       )}
     </Card>
   )

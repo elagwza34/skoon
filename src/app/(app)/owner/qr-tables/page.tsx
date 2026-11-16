@@ -99,7 +99,9 @@ export default async function OwnerQrTablesPage() {
               {table.branch?.name && (
                 <div className="mb-2 text-xs text-muted-foreground">{table.branch.name}</div>
               )}
-              <img
+              {/* QR images must preserve their generated pixels for scanning and print. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
                 src={table.qrDataUrl}
                 alt={`رمز QR للطاولة ${table.number}`}
                 width={160}

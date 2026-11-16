@@ -1,3 +1,6 @@
+import Image from 'next/image'
+
+import { PublicIcon } from '@/components/public/public-icon'
 export default function LandingFooter() {
   const LOGO = '/logo.png'
 
@@ -13,7 +16,7 @@ export default function LandingFooter() {
     <footer className="w-full bg-[#241B17] text-[#FFFCF8] py-[3.5rem] shadow-[0_1px_8px_rgba(0,0,0,0.04)]">
       <div className="w-full px-[1rem] lg:px-[3rem] flex flex-col items-center text-center gap-[3.5rem]">
         <div className="flex flex-col items-center gap-[0.375rem]">
-          <img src={LOGO} alt="سكون كافيه" className="h-12 w-auto object-contain" />
+          <Image src={LOGO} alt="سكون كافيه" width={96} height={48} className="h-12 w-auto object-contain" />
           <span className="text-[22px] text-[#B98757] tracking-wide font-sans font-medium">
             SOKOON CAFÉ
           </span>
@@ -33,13 +36,14 @@ export default function LandingFooter() {
           ))}
         </nav>
         <div className="flex items-center gap-[1rem]">
-          {['camera', 'public', 'alternate_email'].map((icon) => (
+          {[{ icon: 'camera', label: 'صور سكون', href: '#gallery' }, { icon: 'public', label: 'موقع الكافيه', href: '#contact' }, { icon: 'alternate_email', label: 'صفحة سكون على فيسبوك', href: 'https://web.facebook.com/profile.php?id=61594909603821' }].map((social) => (
             <a
-              key={icon}
-              href="#"
-              className="w-9 h-9 rounded-full bg-[#241b17] flex items-center justify-center text-[#D8C5AD] hover:text-[#D4AF37] transition-colors"
+              key={social.icon}
+              href={social.href}
+              aria-label={social.label}
+              className="w-11 h-11 rounded-full bg-[#241b17] flex items-center justify-center text-[#D8C5AD] hover:text-[#D4AF37] transition-colors"
             >
-              <span className="material-symbols-outlined text-[18px]">{icon}</span>
+              <PublicIcon symbol={social.icon} className="text-[18px]" />
             </a>
           ))}
         </div>

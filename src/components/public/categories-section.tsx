@@ -20,6 +20,7 @@ interface CategoriesSectionProps {
 
 export function CategoriesSection({ categories, bgColor = 'bg-cafe-espresso' }: CategoriesSectionProps) {
   useEffect(() => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
     gsap.from('.category-card', {
       scrollTrigger: { trigger: '.categories-section', start: 'top 85%' },
       opacity: 0,

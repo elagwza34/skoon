@@ -1,3 +1,5 @@
+
+import { PublicIcon } from '@/components/public/public-icon'
 export default function EventsSection() {
   const events = [
     {
@@ -38,7 +40,7 @@ export default function EventsSection() {
     <section className="py-[3.5rem] bg-[#f9f3ea]" id="events">
       <div className="w-full px-[1rem] lg:px-[3rem]">
         <div className="text-center max-w-[32rem] mx-auto mb-[3.5rem] flex flex-col items-center gap-[0.375rem]">
-          <span className="text-sm text-[#B98757] tracking-wider font-sans font-semibold">
+          <span className="text-sm text-[#805329] tracking-wider font-sans font-semibold">
             برنامجنا الترفيهي
           </span>
           <h2 className="text-[40px] font-bold text-[#241B17] font-sans">
@@ -57,15 +59,13 @@ export default function EventsSection() {
             >
               <div>
                 <div className="flex items-center justify-between mb-[0.75rem]">
-                  <span className="px-3 py-1 rounded-full bg-[rgba(212,175,55,0.18)] text-[#B98757] text-[10px] font-sans font-semibold">
+                  <span className="px-3 py-1 rounded-full bg-[rgba(212,175,55,0.18)] text-[#805329] text-[10px] font-sans font-semibold">
                     {ev.label}
                   </span>
                   <span className="text-[10px] text-[#4e4541] font-sans">{ev.time}</span>
                 </div>
                 <div className="w-12 h-12 rounded-[0.5rem] bg-[#f3ede4] flex items-center justify-center text-[#241B17] mb-[0.75rem]">
-                  <span className="material-symbols-outlined text-2xl text-[#B98757]">
-                    {ev.icon}
-                  </span>
+                  <PublicIcon symbol={ev.icon} className="text-2xl text-[#805329]" />
                 </div>
                 <h3 className="text-[18px] font-bold text-[#241B17] mb-2 font-sans">
                   {ev.title}
@@ -75,7 +75,7 @@ export default function EventsSection() {
                 </p>
               </div>
               <div className="pt-[0.75rem] mt-[0.75rem]">
-                <span className="text-[10px] text-[#B98757] font-sans font-semibold block">
+                <span className="text-[10px] text-[#805329] font-sans font-semibold block">
                   {ev.tag}
                 </span>
               </div>

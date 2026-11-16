@@ -15,6 +15,7 @@ interface MenuCtaProps {
 
 export function MenuCta({ bgColor = 'bg-cafe-espresso' }: MenuCtaProps) {
   useEffect(() => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
     gsap.from('.menu-cta-content', {
       scrollTrigger: { trigger: '.menu-cta-section', start: 'top 85%' },
       opacity: 0,

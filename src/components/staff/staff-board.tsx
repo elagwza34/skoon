@@ -1,5 +1,7 @@
 'use client'
 
+import { Modal } from '@/components/ui/modal'
+
 import { useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -93,15 +95,6 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
       setBootstrappingBranch(false)
     }
   }
-
-  useEffect(() => {
-    if (!invOpen) return
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !saving) setInvOpen(false)
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [invOpen, saving])
 
   useEffect(() => {
     if (!error && !success) return
@@ -271,7 +264,7 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
       </div>
 
       {directory.canManage && invOpen ? (
-        <div role="dialog" aria-modal="true" aria-label="إضافة موظف جديد" className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-3 sm:p-6">
+        <Modal aria-label="إضافة موظف جديد" dismissible={!saving} className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-3 sm:p-6" onClose={() => setInvOpen(false)}>
         <Card className="mx-auto my-4 w-full max-w-4xl sm:my-8">
           <CardHeader>
             <CardTitle>إضافة موظف جديد</CardTitle>
@@ -345,7 +338,7 @@ export function StaffBoard({ directory }: { directory: StaffDirectory }) {
             </div>
           </CardContent>
         </Card>
-        </div>
+        </Modal>
       ) : null}
 
       <Card>

@@ -13,10 +13,10 @@ export type BadgeTone =
 
 const tones: Record<BadgeTone, string> = {
   default: 'bg-secondary text-secondary-foreground',
-  primary: 'bg-primary/15 text-primary',
-  success: 'bg-success/15 text-success',
-  warning: 'bg-warning/15 text-warning',
-  destructive: 'bg-destructive/15 text-destructive',
+  primary: 'bg-primary/15 text-foreground',
+  success: 'bg-success/15 text-foreground',
+  warning: 'bg-warning/15 text-foreground',
+  destructive: 'bg-destructive/15 text-foreground',
   muted: 'bg-muted text-muted-foreground',
   info: 'bg-accent text-accent-foreground',
 }

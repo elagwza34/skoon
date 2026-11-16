@@ -1,5 +1,9 @@
 'use client'
 
+import { PublicIcon } from '@/components/public/public-icon'
+
+import Image from 'next/image'
+
 import { useState } from 'react'
 import {
   MENU_ITEMS,
@@ -27,7 +31,7 @@ export default function MenuSection() {
     <section className="py-[3.5rem] bg-[#F6F0E7]" id="menu">
       <div className="w-full px-[1rem] lg:px-[3rem]">
         <div className="text-center max-w-[32rem] mx-auto mb-[3.5rem] flex flex-col items-center gap-[0.375rem]">
-          <span className="text-sm text-[#B98757] tracking-wider font-sans font-semibold">
+          <span className="text-sm text-[#805329] tracking-wider font-sans font-semibold">
             قائمة المذاق الفريد
           </span>
           <h2 className="text-[40px] font-bold text-[#241B17] font-sans">
@@ -45,10 +49,11 @@ export default function MenuSection() {
             return (
               <button
                 key={cat}
+                aria-pressed={isActive}
                 onClick={() => setActiveCategory(cat)}
                 className={`px-5 py-2.5 rounded-full font-sans text-sm font-semibold transition-all ${
                   isActive
-                    ? 'bg-[#241B17] text-[#B98757] shadow-md'
+                    ? 'bg-[#241B17] text-[#D8C5AD] shadow-md'
                     : 'bg-[#FFFCF8] text-[#1d1b16] hover:text-[#241B17] hover:bg-[#f3ede4] shadow-sm'
                 }`}
               >
@@ -59,21 +64,18 @@ export default function MenuSection() {
         </div>
 
         {/* Menu Horizontal Scroll */}
-        <div className="flex flex-row gap-4 overflow-x-auto pb-4 no-scrollbar" id="menu-grid">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3" id="menu-grid" aria-label="أصناف المنيو">
           {filtered.map((item) => (
             <div
               key={item.id}
-              className="menu-card group min-w-[280px] rounded-[0.5rem] bg-[#FFFCF8] p-[1rem] shadow-md flex flex-col justify-between transition-all duration-300 hover:-translate-y-1 hover:shadow-xl"
+              className="menu-card group min-w-0 rounded-[0.5rem] bg-[#FFFCF8] p-[1rem] shadow-md flex flex-col justify-between transition-all duration-300 hover:-translate-y-1 hover:shadow-xl"
               data-category={item.category}
             >
               <div>
                 <div className="relative w-full h-[200px] md:h-[300px] rounded-[0.5rem] overflow-hidden mb-[0.75rem] bg-[#f3ede4]">
-                  <div
-                    className="w-full h-full bg-cover bg-center group-hover:scale-105 transition-transform duration-500"
-                    style={{ backgroundImage: `url(${item.image})` }}
-                  />
+                  <Image src={item.image} alt="" fill sizes="(min-width: 1024px) 30vw, (min-width: 640px) 50vw, 100vw" className="object-cover transition-transform duration-500 group-hover:scale-105" />
                   {/* Mobile height override handled via grid item: h-[64px] on parent */}
-                  <span className="absolute top-3 right-3 px-2.5 py-1 rounded-md bg-[#1A1310]/80 backdrop-blur text-[#B98757] text-[10px] font-sans font-medium">
+                  <span className="absolute top-3 right-3 px-2.5 py-1 rounded-md bg-[#1A1310]/90 backdrop-blur text-[#D8C5AD] text-xs font-sans font-medium">
                     {item.badge}
                   </span>
                 </div>
@@ -85,7 +87,7 @@ export default function MenuSection() {
                 </p>
               </div>
               <div className="flex items-center justify-between pt-[0.375rem] mt-auto">
-                <span className="text-[22px] font-bold text-[#B98757] font-sans">
+                <span className="text-[22px] font-bold text-[#805329] font-sans">
                   {item.price}
                 </span>
                 <span className="text-[10px] text-[#1d1b16]/80 font-sans">
@@ -103,7 +105,7 @@ export default function MenuSection() {
             className="inline-flex items-center gap-2 px-8 py-3.5 rounded-full bg-[#241B17] text-[#FFFCF8] text-[17px] font-semibold hover:bg-[#B98757] hover:text-[#241B17] transition-all duration-300 shadow-lg font-sans"
           >
             <span>اطلب الأن</span>
-            <span className="material-symbols-outlined text-[18px]">restaurant_menu</span>
+            <PublicIcon symbol={'restaurant_menu'} className="text-[18px]" />
           </a>
         </div>
       </div>

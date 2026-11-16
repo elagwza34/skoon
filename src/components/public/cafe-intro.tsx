@@ -17,6 +17,7 @@ interface CafeIntroProps {
 
 export function CafeIntro({ bgImage, bgColor = 'bg-white/80' }: CafeIntroProps) {
   useEffect(() => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
     gsap.from('.cafe-intro-content', {
       scrollTrigger: { trigger: '.cafe-intro-section', start: 'top 85%' },
       opacity: 0,

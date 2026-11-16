@@ -1,3 +1,5 @@
+
+import { PublicIcon } from '@/components/public/public-icon'
 import Image from 'next/image'
 
 const HERO_BG =
@@ -12,16 +14,13 @@ export default function LandingHero() {
       className="relative -mt-20 w-full min-h-[92vh] flex items-center justify-center overflow-hidden bg-[#1A1310]"
       id="hero"
     >
-      <div
-        className="absolute inset-0 bg-cover bg-center opacity-40 scale-105 transition-transform duration-1000"
-        style={{ backgroundImage: `url(${HERO_BG})` }}
-      />
+      <Image src={HERO_BG} alt="" fill sizes="100vw" priority className="object-cover opacity-40" />
       <div className="absolute inset-0 bg-gradient-to-t from-[#1A1310] via-[#1A1310]/70 to-[#1A1310]/40" />
 
-      <div className="relative z-10 w-full px-[1rem] lg:px-[3rem] text-center pt-28 pb-16 flex flex-col items-center">
+      <div className="relative z-10 w-full px-[1rem] lg:px-[3rem] text-center pt-44 pb-16 flex flex-col items-center lg:pt-28">
         <div className="mb-[1.25rem] inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-[#f3ede4]/10 backdrop-blur-md shadow-sm">
           <Image src={LOGO_BADGE} alt="سكون كافيه" width={24} height={24} className="w-6 h-6 object-contain" />
-          <span className="text-xs text-[#B98757] tracking-wider uppercase font-sans">
+          <span className="text-xs text-[#D8C5AD] tracking-wider uppercase font-sans">
             ملاذك الهادئ في قلب المدينة
           </span>
         </div>
@@ -37,14 +36,14 @@ export default function LandingHero() {
             className="px-8 py-3.5 rounded-full bg-[#B98757] text-[#1A1310] text-sm font-semibold hover:bg-[#D4AF37] transition-all duration-300 shadow-lg hover:shadow-[0_0_15px_rgba(212,175,55,0.18)] flex items-center gap-2"
           >
             <span>اطلب الآن</span>
-            <span className="material-symbols-outlined text-[18px]">qr_code_scanner</span>
+            <PublicIcon symbol={'qr_code_scanner'} className="text-[18px]" />
           </a>
           <a
             href="#menu"
             className="px-8 py-3.5 rounded-full bg-[#FFFCF8]/10 text-[#FFFCF8] text-sm font-medium hover:bg-[#FFFCF8]/20 backdrop-blur-md transition-all duration-300 flex items-center gap-2"
           >
             <span>استكشف المنيو</span>
-            <span className="material-symbols-outlined text-[18px]">restaurant_menu</span>
+            <PublicIcon symbol={'restaurant_menu'} className="text-[18px]" />
           </a>
         </div>
         <a
@@ -52,9 +51,7 @@ export default function LandingHero() {
           className="mt-[3.5rem] flex flex-col items-center gap-1 text-[#D8C5AD]/70 hover:text-[#B98757] transition-colors group"
         >
           <span className="text-[10px] tracking-widest font-sans">انزل للأسفل</span>
-          <span className="material-symbols-outlined text-2xl group-hover:translate-y-1 transition-transform animate-bounce">
-            expand_more
-          </span>
+          <PublicIcon symbol={'expand_more'} className="text-2xl group-hover:translate-y-1 transition-transform animate-bounce" />
         </a>
       </div>
     </section>

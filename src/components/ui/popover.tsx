@@ -43,15 +43,21 @@ export function Popover({
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const panelId = useId();
+  const triggerRef = useRef<HTMLElement | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const onOpenRef = useRef(onOpen);
+  onOpenRef.current = onOpen;
 
   useEffect(() => {
     if (!open) return;
-    onOpen?.();
+    onOpenRef.current?.();
+    const panel = panelRef.current;
+    (panel?.querySelector<HTMLElement>('a[href],button:not([disabled]),input:not([disabled]),[tabindex="0"]') ?? panel)?.focus();
     function onPointerDown(e: MouseEvent) {
       if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
     }
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") { e.preventDefault(); setOpen(false); triggerRef.current?.focus(); }
     }
     document.addEventListener("mousedown", onPointerDown);
     document.addEventListener("keydown", onKeyDown);
@@ -59,9 +65,9 @@ export function Popover({
       document.removeEventListener("mousedown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [open, onOpen]);
+  }, [open]);
 
-  const close = () => setOpen(false);
+  const close = () => { setOpen(false); triggerRef.current?.focus(); };
 
   return (
     <div ref={rootRef} className="relative">
@@ -69,6 +75,7 @@ export function Popover({
         ref: (el) => {
           // keep a handle on the trigger element for focus management if needed
           if (el) el.setAttribute("data-popover-trigger", "true");
+          triggerRef.current = el;
         },
         onClick: () => setOpen((o) => !o),
         "aria-expanded": open,
@@ -78,7 +85,10 @@ export function Popover({
 
       {open ? (
         <div
+          ref={panelRef}
+          tabIndex={-1}
           id={panelId}
+          onBlur={(event) => { if (event.relatedTarget && !rootRef.current?.contains(event.relatedTarget as Node)) setOpen(false); }}
           role={role}
           aria-label={ariaLabel}
           className={cn(

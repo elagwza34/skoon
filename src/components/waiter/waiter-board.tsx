@@ -1,5 +1,7 @@
 'use client'
 
+import { Modal } from '@/components/ui/modal'
+
 import { useCallback, useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { TableQrRequests } from '@/components/waiter/table-qr-requests'
@@ -322,7 +324,7 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
                 </Button>
               )}
               {error ? <p role="alert" className="min-w-0 break-words rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}
-              {success ? <p className="min-w-0 break-words rounded-md border border-success/40 bg-success/10 px-3 py-2 text-sm text-success">{success}</p> : null}
+              {success ? <p role="status" className="min-w-0 break-words rounded-md border border-success/40 bg-success/10 px-3 py-2 text-sm text-success">{success}</p> : null}
             </div>
           </div>
         </header>
@@ -553,7 +555,7 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
       </main>
 
       {transferDialog && (
-        <div role="dialog" aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" dir="rtl">
+        <Modal className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" dir="rtl" onClose={() => { setTransferDialog(null); setTransferRecipient(''); setTransferNotes('') }} aria-label="نقل الطاولة">
           <Card className="w-full max-w-md">
             <CardHeader><CardTitle>نقل مسؤولية طاولة</CardTitle></CardHeader>
             <CardContent className="space-y-3">
@@ -582,7 +584,7 @@ export function WaiterBoard({ workspace }: { workspace: WaiterWorkspace }) {
               <Button disabled={!transferDialog.tableId || !transferRecipient} onClick={submitTableTransfer}>إرسال طلب النقل</Button>
             </div>
           </Card>
-        </div>
+        </Modal>
       )}
 
     </div>

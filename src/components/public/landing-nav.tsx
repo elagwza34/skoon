@@ -4,10 +4,14 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 
+import { Modal } from '@/components/ui/modal'
+import { Icon } from '@/components/ui/icon'
+import { useMediaQuery } from '@/lib/use-media-query'
+
 const LOGO = '/logo.png'
 
 const navLinks = [
-  { href: '#', label: 'الرئيسية', active: true },
+  { href: '#hero', label: 'الرئيسية' },
   { href: '#menu', label: 'المنيو' },
   { href: '#occasions', label: 'المناسبات' },
   { href: '#events', label: 'الفعاليات' },
@@ -17,6 +21,19 @@ const navLinks = [
 export default function LandingNav() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [scrolled, setScrolled] = useState(false)
+  const [activeSection, setActiveSection] = useState('#hero')
+  const mobile = useMediaQuery('(max-width: 1023px)')
+  useEffect(() => { if (!mobile) setDrawerOpen(false) }, [mobile])
+  useEffect(() => {
+    const update = () => {
+      const sections = navLinks.map(link => document.querySelector(link.href)).filter((el): el is Element => !!el)
+      const current = sections.filter(el => el.getBoundingClientRect().top <= 150).at(-1)
+      setActiveSection(current ? `#${current.id}` : '#hero')
+    }
+    update()
+    window.addEventListener('scroll', update, { passive: true })
+    return () => window.removeEventListener('scroll', update)
+  }, [])
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 20)
@@ -38,13 +55,14 @@ export default function LandingNav() {
             <Image src={LOGO} alt="سكون كافيه" width={64} height={64} className="h-16 w-auto object-contain" priority />
   
           </div>
-          <nav className="hidden md:flex items-center gap-[3.5rem]">
+          <nav className="hidden lg:flex min-w-0 items-center gap-5 xl:gap-12">
             {navLinks.map((link) => (
               <Link
                 key={link.href}
                 href={link.href}
+                aria-current={activeSection === link.href ? "location" : undefined}
                 className={`text-sm transition-colors ${
-                  link.active
+                  activeSection === link.href
                     ? 'text-[#B98757]'
                     : 'text-[#D8C5AD] hover:text-[#FFFCF8]'
                 }`}
@@ -54,38 +72,31 @@ export default function LandingNav() {
             ))}
           </nav>
           <button
-            className="md:hidden flex items-center justify-center text-[#FFFCF8] focus:outline-none"
+            disabled={!mobile}
+            aria-label="فتح القائمة" aria-expanded={drawerOpen} aria-controls="public-navigation" className="lg:hidden flex h-11 w-11 items-center justify-center rounded text-[#FFFCF8]"
             onClick={() => setDrawerOpen((prev) => !prev)}
             type="button"
           >
-            <span className="material-symbols-outlined text-2xl">menu</span>
+            <Icon name="menu" size={24} />
           </button>
         </div>
       </header>
 
       {/* Mobile overlay */}
-      {drawerOpen && (
-        <div
-          className="fixed inset-0 bg-[#1A1310]/70 backdrop-blur-sm z-50 transition-opacity duration-300"
-          onClick={() => setDrawerOpen(false)}
-        />
-      )}
-
+      {mobile && drawerOpen && <Modal id="public-navigation" aria-label="قائمة التنقل" onClose={() => setDrawerOpen(false)} className="fixed inset-0 z-50 bg-black/60 p-0">
       {/* Mobile drawer */}
-      <aside
-        className={`fixed top-0 right-0 h-full w-72 bg-[#241B17] z-50 transform transition-transform duration-300 ease-in-out shadow-2xl flex flex-col p-[1.25rem] ${drawerOpen ? 'translate-x-0' : 'translate-x-full'}`}
-      >
+      <aside className="flex h-full w-72 max-w-full flex-col overflow-y-auto bg-[#241B17] p-5 text-[#FFFCF8]">
         <div className="flex items-center justify-between pb-[1.25rem]">
           <div className="flex items-center gap-[0.375rem]">
             <Image src={LOGO} alt="سكون" width={32} height={32} className="h-8 w-auto object-contain" />
             <span className="text-base text-[#FFFCF8] font-sans">سكون</span>
           </div>
           <button
-            className="text-[#D8C5AD] hover:text-[#FFFCF8]"
+            aria-label="إغلاق القائمة" className="flex h-11 w-11 items-center justify-center text-[#D8C5AD] hover:text-[#FFFCF8]"
             onClick={() => setDrawerOpen(false)}
             type="button"
           >
-            <span className="material-symbols-outlined text-2xl">close</span>
+            <Icon name="close" size={24} />
           </button>
         </div>
         <nav className="flex flex-col gap-[1.25rem] mt-[3rem]">
@@ -93,9 +104,10 @@ export default function LandingNav() {
             <Link
               key={link.href}
               href={link.href}
+                aria-current={activeSection === link.href ? "location" : undefined}
               onClick={() => setDrawerOpen(false)}
               className={`text-sm transition-colors ${
-                link.active
+                activeSection === link.href
                   ? 'text-[#B98757]'
                   : 'text-[#D8C5AD] hover:text-[#FFFCF8]'
               }`}
@@ -105,6 +117,7 @@ export default function LandingNav() {
           ))}
         </nav>
       </aside>
+      </Modal>}
     </>
   )
 }

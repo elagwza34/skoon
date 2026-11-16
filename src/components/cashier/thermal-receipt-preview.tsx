@@ -1,5 +1,7 @@
 'use client'
 
+import { Modal } from '@/components/ui/modal'
+
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import Image from 'next/image'
 import { Button } from '@/components/ui/button'
@@ -89,7 +91,7 @@ export function ThermalReceiptPreview({ invoice, payment, autoPrint = false, onC
   const orderType = invoice.orderType ?? 'dine_in'
   const isDineIn = orderType.toLowerCase() === 'dine_in'
 
-  return <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-2 sm:p-4" dir="rtl" role="dialog" aria-modal="true" aria-labelledby="thermal-receipt-title">
+  return <Modal className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-2 sm:p-4" dir="rtl" aria-labelledby="thermal-receipt-title" onClose={onClose}>
     <style>{`@media print {
       @page { margin: 0; }
       [data-thermal-receipt-shell] { width: 100% !important; max-width: 100% !important; overflow: visible !important; }
@@ -152,7 +154,7 @@ export function ThermalReceiptPreview({ invoice, payment, autoPrint = false, onC
         <Button onClick={printReceipt} disabled={isPrinting}>{isPrinting ? 'جارٍ الإرسال للطابعة…' : 'طباعة'}</Button>
       </footer>
     </Card>
-  </div>
+  </Modal>
 }
 
 function MetadataRow({ label, value, ltr = false }: { label: string; value: string; ltr?: boolean }) {

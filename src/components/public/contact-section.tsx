@@ -1,3 +1,6 @@
+import Image from 'next/image'
+
+import { PublicIcon } from '@/components/public/public-icon'
 import { CONTACT_PIN_IMG } from './contact-data'
 
 export default function ContactSection() {
@@ -5,7 +8,7 @@ export default function ContactSection() {
     <section className="py-[3.5rem] bg-[#241B17]" id="contact">
       <div className="w-full px-[1rem] lg:px-[3rem]">
         <div className="text-center max-w-[32rem] mx-auto mb-[3.5rem] flex flex-col items-center gap-[0.375rem]">
-          <span className="text-sm text-[#B98757] tracking-wider font-sans font-semibold">
+          <span className="text-sm text-[#805329] tracking-wider font-sans font-semibold">
             نحن بانتظارك
           </span>
           <h2 className="text-[40px] font-bold text-[#FFFCF8] font-sans">
@@ -21,8 +24,8 @@ export default function ContactSection() {
           <div className="lg:col-span-6 flex flex-col justify-between p-[2rem] rounded-[0.5rem] bg-[#FFFCF8] shadow-lg">
             <div className="flex flex-col gap-[1.25rem]">
               <div className="flex items-start gap-[0.75rem]">
-                <div className="w-12 h-12 rounded-[0.5rem] bg-[rgba(212,175,55,0.18)] flex items-center justify-center text-[#B98757] shrink-0">
-                  <span className="material-symbols-outlined text-2xl">location_on</span>
+                <div className="w-12 h-12 rounded-[0.5rem] bg-[rgba(212,175,55,0.18)] flex items-center justify-center text-[#805329] shrink-0">
+                  <PublicIcon symbol={'location_on'} className="text-2xl" />
                 </div>
                 <div>
                   <h3 className="text-[14px] font-bold text-[#241B17] mb-1 font-sans">
@@ -34,8 +37,8 @@ export default function ContactSection() {
                 </div>
               </div>
               <div className="flex items-start gap-[0.75rem]">
-                <div className="w-12 h-12 rounded-[0.5rem] bg-[rgba(212,175,55,0.18)] flex items-center justify-center text-[#B98757] shrink-0">
-                  <span className="material-symbols-outlined text-2xl">call</span>
+                <div className="w-12 h-12 rounded-[0.5rem] bg-[rgba(212,175,55,0.18)] flex items-center justify-center text-[#805329] shrink-0">
+                  <PublicIcon symbol={'call'} className="text-2xl" />
                 </div>
                 <div>
                   <h3 className="text-[14px] font-bold text-[#241B17] mb-1 font-sans">
@@ -47,8 +50,8 @@ export default function ContactSection() {
                 </div>
               </div>
               <div className="flex items-start gap-[0.75rem]">
-                <div className="w-12 h-12 rounded-[0.5rem] bg-[rgba(212,175,55,0.18)] flex items-center justify-center text-[#B98757] shrink-0">
-                  <span className="material-symbols-outlined text-2xl">schedule</span>
+                <div className="w-12 h-12 rounded-[0.5rem] bg-[rgba(212,175,55,0.18)] flex items-center justify-center text-[#805329] shrink-0">
+                  <PublicIcon symbol={'schedule'} className="text-2xl" />
                 </div>
                 <div>
                   <h3 className="text-[14px] font-bold text-[#241B17] mb-1 font-sans">
@@ -57,7 +60,7 @@ export default function ContactSection() {
                   <p className="text-[15px] text-[#4e4541] font-sans">
                     يوميًا من ٨:٠٠ صباحًا حتى ١:٠٠ بعد منتصف الليل.
                   </p>
-                  <p className="text-[13px] text-[#B98757] mt-0.5 font-sans">
+                  <p className="text-[13px] text-[#805329] mt-0.5 font-sans">
                     في عطلات نهاية الأسبوع حتى ٢:٠٠ صباحًا.
                   </p>
                 </div>
@@ -71,7 +74,7 @@ export default function ContactSection() {
                 rel="noopener"
                 className="flex-1 min-w-[160px] py-3.5 px-6 rounded-full bg-[#241B17] text-[#FFFCF8] text-sm font-semibold hover:bg-[#B98757] hover:text-[#241B17] transition-all duration-300 shadow-md text-center flex items-center justify-center gap-2 font-sans"
               >
-                <span className="material-symbols-outlined text-xl">chat</span>
+                <PublicIcon symbol={'chat'} className="text-xl" />
                 <span>تواصل واتساب</span>
               </a>
               <a
@@ -80,7 +83,7 @@ export default function ContactSection() {
                 rel="noopener"
                 className="flex-1 min-w-[160px] py-3.5 px-6 rounded-full bg-[rgba(212,175,55,0.18)] text-[#241B17] text-sm font-semibold hover:bg-[#B98757]/30 transition-all duration-300 shadow-sm text-center flex items-center justify-center gap-2 font-sans"
               >
-                <span className="material-symbols-outlined text-xl">directions</span>
+                <PublicIcon symbol={'directions'} className="text-xl" />
                 <span>الاتجاهات في الخريطة</span>
               </a>
             </div>
@@ -97,7 +100,7 @@ export default function ContactSection() {
               referrerPolicy="no-referrer-when-downgrade"
             />
             <div className="absolute bottom-4 right-4 bg-[#1A1310]/90 backdrop-blur-md p-3 rounded-xl shadow-md text-[#FFFCF8] flex items-center gap-3">
-              <img src={CONTACT_PIN_IMG} alt="سكون" className="w-8 h-8 object-contain" />
+              <Image src={CONTACT_PIN_IMG} alt="سكون" width={32} height={32} className="w-8 h-8 object-contain" />
               <div>
                 <p className="text-[14px] font-bold text-[#B98757] font-sans">
                   موقع سكون كافيه

@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, useTransition } from 'react'
+import { useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -45,10 +45,12 @@ const PAY_TONE: Record<string, BadgeTone> = {
 
 export function OrdersBoard({
   orders,
+  initialQuery = '',
   canPay = false,
   canRefund = false,
   canManage = false,
 }: {
+  initialQuery?: string
   orders: StaffOrderRow[]
   canPay?: boolean
   canRefund?: boolean
@@ -57,7 +59,8 @@ export function OrdersBoard({
   const router = useRouter()
   const [, startTransition] = useTransition()
   const [filter, setFilter] = useState<Filter>('all')
-  const [query, setQuery] = useState('')
+  const [query, setQuery] = useState(initialQuery)
+  useEffect(() => setQuery(initialQuery), [initialQuery])
 
   // Payment panel state
   const [payingId, setPayingId] = useState<string | null>(null)

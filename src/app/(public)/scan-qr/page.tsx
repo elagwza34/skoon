@@ -1,6 +1,8 @@
 'use client'
+import { PublicIcon } from '@/components/public/public-icon'
 
-import { useState, useEffect, useRef } from 'react'
+
+import { useState, useEffect, useRef, useId } from 'react'
 import { Html5Qrcode } from 'html5-qrcode'
 import Link from 'next/link'
 
@@ -9,11 +11,13 @@ export default function ScanQRPage() {
   const [error, setError] = useState<string | null>(null)
   const [scanResult, setScanResult] = useState<string | null>(null)
   const qrcodeRef = useRef<Html5Qrcode | null>(null)
-  const elementIdRef = useRef<string>('reader')
+  const elementId = useId().replace(/:/g, '')
+  const [starting, setStarting] = useState(false)
+  const inFlight = useRef(false)
+  const [ready, setReady] = useState(false)
 
   useEffect(() => {
-    const id = `qr-reader-${Date.now()}`
-    elementIdRef.current = id
+    setReady(true)
     return () => {
       if (qrcodeRef.current) {
         qrcodeRef.current.stop().catch(() => {})
@@ -21,10 +25,14 @@ export default function ScanQRPage() {
     }
   }, [])
   const startScanning = async () => {
+    if (inFlight.current || scanning) return
+    inFlight.current = true
+    setStarting(true)
     setError(null)
     setScanResult(null)
     try {
-      qrcodeRef.current = new Html5Qrcode(elementIdRef.current!)
+      if (!navigator.mediaDevices?.getUserMedia) throw new Error('CAMERA_UNAVAILABLE')
+      qrcodeRef.current = new Html5Qrcode(elementId)
       await qrcodeRef.current.start(
         { facingMode: 'environment' },
         {
@@ -34,24 +42,29 @@ export default function ScanQRPage() {
         (decodedText: string) => {
           setScanResult(decodedText)
           setScanning(false)
-          qrcodeRef.current?.stop()
+          void qrcodeRef.current?.stop().catch(() => {})
         },
         (errorMessage: string) => {
           // تجاهل أخطاء المسح العادية أثناء المحاولة
         }
       )
+      // html5-qrcode resolves start before the video's play promise settles.
+      // Do not offer Stop until playback has started, or a quick stop can race it.
+      const video = document.getElementById(elementId)?.querySelector('video')
+      if (video) await video.play()
       setScanning(true)
     } catch (err) {
-      setError('تعذر فتح الكاميرا. يرجى منح إذن الوصول للكاميرا.')
+      const message = String(err)
+      setError(/NotAllowed|Permission|denied/i.test(message) ? 'تم رفض إذن الكاميرا. اسمح بالوصول من إعدادات المتصفح، أو اختر طاولتك يدويًا.' : /NotFound|CAMERA_UNAVAILABLE/i.test(message) ? 'لا توجد كاميرا متاحة. يمكنك اختيار طاولتك يدويًا.' : 'تعذر تشغيل الماسح. أعد المحاولة أو اختر طاولتك يدويًا.')
       console.error(err)
+    } finally {
+      inFlight.current = false
+      setStarting(false)
     }
   }
 
   const stopScanning = async () => {
-    if (qrcodeRef.current) {
-      await qrcodeRef.current.stop()
-      setScanning(false)
-    }
+    try { await qrcodeRef.current?.stop() } catch { setError('تعذر إيقاف الكاميرا. أعد المحاولة.') } finally { setScanning(false) }
   }
 
   const restartScanning = () => {
@@ -111,15 +124,17 @@ export default function ScanQRPage() {
           </p>
 
           <div
-            id={elementIdRef.current!}
+            id={elementId}
             className="w-full max-w-[400px] mx-auto aspect-square rounded-[1rem] border-2 border-[#B98757] bg-[#1A1310] overflow-hidden shadow-2xl relative"
           />
 
+          {starting && <p role="status">جارٍ طلب الوصول إلى الكاميرا…</p>}
+          <Link href="/select-table" className="inline-flex min-h-11 items-center rounded-lg border border-[#B98757] px-4 py-2">اختيار الطاولة بدون كاميرا</Link>
           {error && (
-            <div className="p-4 rounded-[0.5rem] bg-[#ba1a1a]/20 border border-[#ba1a1a] text-[#ffdad6] text-sm font-sans">
+            <div role="alert" className="p-4 rounded-[0.5rem] bg-[#ba1a1a]/20 border border-[#ba1a1a] text-[#ffdad6] text-sm font-sans">
               {error}
               <button
-                onClick={startScanning}
+                onClick={startScanning} disabled={!ready || starting}
                 className="mt-2 text-sm text-[#B98757] underline hover:text-[#D4AF37]"
               >
                 إعادة المحاولة
@@ -129,11 +144,11 @@ export default function ScanQRPage() {
 
           {!scanning && !error && !scanResult && (
             <button
-              onClick={startScanning}
+              onClick={startScanning} disabled={!ready || starting}
               className="mt-6 inline-flex items-center gap-2 px-8 py-3.5 rounded-full bg-[#B98757] text-[#241B17] font-semibold hover:bg-[#D4AF37] transition-all duration-300 shadow-lg"
             >
-              <span className="material-symbols-outlined text-[18px]">camera_alt</span>
-              <span>تشغيل الكاميرا</span>
+              <PublicIcon symbol={'camera_alt'} className="text-[18px]" />
+              <span>{starting ? 'جارٍ تشغيل الكاميرا…' : 'تشغيل الكاميرا'}</span>
             </button>
           )}
 
@@ -153,9 +168,7 @@ export default function ScanQRPage() {
           {scanResult && (
             <div className="mt-6 p-6 rounded-[1rem] bg-[#F6F0E7] text-[#241B17] shadow-xl border border-[#B98757]">
               <div className="flex items-center gap-2 justify-center mb-3">
-                <span className="material-symbols-outlined text-2xl text-[#B98757]">
-                  check_circle
-                </span>
+                <PublicIcon symbol={'check_circle'} className="text-2xl text-[#B98757]" />
                 <span className="text-[18px] font-bold font-sans">
                   تم المسح بنجاح!
                 </span>
@@ -168,7 +181,7 @@ export default function ScanQRPage() {
                 className="w-full inline-flex items-center justify-center gap-2 px-8 py-3.5 rounded-full bg-[#241B17] text-[#FFFCF8] font-semibold hover:bg-[#B98757] hover:text-[#241B17] transition-all duration-300 shadow-lg"
               >
                 <span>انتقل إلى الطلب</span>
-                <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
+                <PublicIcon symbol={'arrow_forward'} className="text-[18px]" />
               </button>
               <button
                 onClick={restartScanning}

@@ -1,5 +1,7 @@
 'use client'
 
+import { Modal } from '@/components/ui/modal'
+
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Badge } from '@/components/ui/badge'
@@ -430,7 +432,7 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
       </div>
 
       {invoiceModalOpen && order && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
+        <Modal className="fixed inset-0 z-50 flex items-center justify-center" onClose={() => setInvoiceModalOpen(false)} aria-label="فاتورة الطاولة">
           <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setInvoiceModalOpen(false)} />
           <div className="relative z-10 w-full max-w-md max-h-[90vh] bg-[#17120F] text-[#F6EFE5] rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-[#35251D]">
             <div className="flex items-center justify-between p-4 border-b border-[#35251D] bg-[#35251D] text-[#F6EFE5]">
@@ -500,12 +502,12 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
               </div>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
 
       {/* موديل تفاصيل منتج نقطة البيع */}
       {posModalOpen && product && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
+        <Modal className="fixed inset-0 z-50 flex items-center justify-center" onClose={() => { setPosModalOpen(false); setProduct(null); setSelections({}) }} aria-label="إضافة صنف">
           <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => { setPosModalOpen(false); setProduct(null); setSelections({}); setQty(1); setNote('') }} />
           <div className="relative z-10 w-full max-w-lg max-h-[90vh] bg-[#17120F] text-[#F6EFE5] rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-[#35251D]">
             <div className="flex items-center justify-between p-4 border-b border-[#35251D] bg-[#35251D] text-[#F6EFE5]">
@@ -576,11 +578,11 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
               </Button>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
       {/* موديل تفاصيل السلة */}
       {cartModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
+        <Modal className="fixed inset-0 z-50 flex items-center justify-center" onClose={() => setCartModalOpen(false)} aria-label="سلة الطلب">
           <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setCartModalOpen(false)} />
           <div className="relative z-10 w-full max-w-lg max-h-[90vh] bg-[#17120F] text-[#F6EFE5] rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-[#35251D]">
             <div className="flex items-center justify-between p-4 border-b border-[#35251D] bg-[#35251D] text-[#F6EFE5]">
@@ -664,7 +666,7 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
               </div>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
 
       {/* عنصر الطيران إلى السلة */}

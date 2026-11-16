@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
 import { Icon } from '@/components/ui/icon'
 import { cn } from '@/lib/utils'
 
@@ -35,41 +36,47 @@ interface Props {
 export function OrderStatusTracker({ id, orderNumber, initialStatus, branchName, tableNumber }: Props) {
   const [status, setStatus] = useState(initialStatus)
   const [changed, setChanged] = useState(false)
-  const timer = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [failed, setFailed] = useState(false)
+  const [lastUpdate, setLastUpdate] = useState<string | null>(null)
+  const [retry, setRetry] = useState(0)
 
   useEffect(() => {
     if (TERMINAL.has(status)) return
-    let alive = true
-
+    const controller = new AbortController()
+    let timer: ReturnType<typeof setTimeout>
+    let active = true
+    const offline = () => setFailed(true)
     async function poll() {
       try {
+        if (!navigator.onLine) throw new Error('offline')
         const res = await fetch(`/api/public/orders/${id}?n=${encodeURIComponent(orderNumber)}`, {
-          cache: 'no-store',
+          cache: 'no-store', signal: AbortSignal.any([controller.signal, AbortSignal.timeout(12000)]),
         })
-        if (!res.ok || !alive) return
+        if (!res.ok) throw new Error('tracking unavailable')
         const data = (await res.json()) as { status?: string }
-        if (alive && data.status && data.status !== status) {
-          setStatus(data.status)
-          setChanged(true)
-        }
+        if (!data.status) throw new Error('invalid tracking response')
+        if (!active) return
+        setFailed(false)
+        setLastUpdate(new Date().toLocaleTimeString('ar-EG'))
+        if (data.status !== status) { setStatus(data.status); setChanged(true) }
       } catch {
         /* transient network blip — keep polling */
+        if (active) setFailed(true)
+      } finally {
+        if (active) timer = setTimeout(poll, POLL_MS)
       }
     }
-
-    timer.current = setInterval(poll, POLL_MS)
-    return () => {
-      alive = false
-      if (timer.current) clearInterval(timer.current)
-    }
-  }, [id, orderNumber, status])
+    void poll()
+    window.addEventListener('offline', offline)
+    return () => { active = false; controller.abort(); clearTimeout(timer); window.removeEventListener('offline', offline) }
+  }, [id, orderNumber, status, retry])
 
   const cancelled = status === 'cancelled'
   const currentIndex = STEPS.findIndex((s) => s.key === status)
 
   return (
     <Card className={cn('transition-colors', cancelled ? 'border-destructive/40' : 'border-success/40')}>
-      <CardContent className="flex flex-col items-center gap-3 p-6 text-center">
+      <CardContent aria-live="polite" aria-atomic="false" className="flex flex-col items-center gap-3 p-6 text-center">
         {cancelled ? (
           <>
             <span className="flex h-14 w-14 items-center justify-center rounded-full bg-destructive/10 text-destructive">
@@ -82,19 +89,21 @@ export function OrderStatusTracker({ id, orderNumber, initialStatus, branchName,
           <>
             <div className="flex items-center gap-2">
               <span className="relative flex h-2.5 w-2.5">
-                {!TERMINAL.has(status) ? (
+                {!failed && !TERMINAL.has(status) ? (
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-75" />
                 ) : null}
                 <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-success" />
               </span>
               <span className="text-xs font-medium text-muted-foreground">
-                {changed ? 'تم تحديث الحالة' : 'متابعة مباشرة لحالة الطلب'}
+                {failed ? 'تعذر تحديث الطلب — المعروض آخر حالة معروفة' : changed ? 'تم تحديث الحالة' : 'متابعة مباشرة لحالة الطلب'}
               </span>
             </div>
             <h1 className="text-xl font-bold">{STEPS[currentIndex]?.label ?? 'تم استلام طلبك'}</h1>
           </>
         )}
 
+        {failed && <Button variant="outline" onClick={() => setRetry(value => value + 1)}>إعادة الاتصال</Button>}
+        {lastUpdate && <p className="text-xs text-muted-foreground" aria-live="off">آخر تحديث: {lastUpdate}</p>}
         <p className="text-sm text-muted-foreground">
           {branchName} · طاولة {tableNumber}
         </p>

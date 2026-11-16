@@ -10,6 +10,14 @@ import { cn } from '@/lib/utils'
  */
 
 export type IconName =
+  | 'camera'
+  | 'music'
+  | 'heart'
+  | 'wifi'
+  | 'location'
+  | 'message'
+  | 'calendar'
+  | 'coffee'
   | 'dashboard'
   | 'orders'
   | 'pos'
@@ -52,6 +60,14 @@ export type IconName =
   | 'eye-off'
 
 export const ICON_PATHS: Record<IconName, React.ReactNode> = {
+  camera: <><path d="M3 7h4l2-3h6l2 3h4v13H3z" /><circle cx="12" cy="13" r="4" /></>,
+  music: <><path d="M9 18V5l12-2v13M9 8l12-2" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" /></>,
+  heart: <path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8z" />,
+  wifi: <><path d="M2 8a16 16 0 0 1 20 0M5 12a11 11 0 0 1 14 0M8 16a6 6 0 0 1 8 0" /><circle cx="12" cy="20" r="1" /></>,
+  location: <><path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 0 1 16 0z" /><circle cx="12" cy="10" r="3" /></>,
+  message: <path d="M21 15a4 4 0 0 1-4 4H7l-4 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z" />,
+  calendar: <><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M7 3v4M17 3v4M3 11h18" /></>,
+  coffee: <><path d="M3 8h13v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4zM16 8h2a4 4 0 0 1 0 8h-2M2 22h17M6 2v3M10 2v3M14 2v3" /></>,
   dashboard: (
     <>
       <rect x="3" y="3" width="7" height="9" rx="1.5" />
