@@ -73,6 +73,9 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
   const [deleteReason, setDeleteReason] = useState('')
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [assignedWaiterId, setAssignedWaiterId] = useState('')
+  const [customerName, setCustomerName] = useState('')
+  const [customerPhone, setCustomerPhone] = useState('')
+  useEffect(() => { setCustomerName(''); setCustomerPhone('') }, [table.id])
   const [invoiceModalOpen, setInvoiceModalOpen] = useState(false)
   const [posModalOpen, setPosModalOpen] = useState(false)
   const inFlight = useRef(false)
@@ -592,6 +595,11 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
               </Button>
             </div>
             <div className="p-4 overflow-y-auto space-y-2">
+              {!order && role === 'waiter' ? <fieldset disabled={busy} className="mb-3 grid gap-3 sm:grid-cols-2">
+                <legend className="mb-2 text-sm font-medium">بيانات العميل (اختيارية)</legend>
+                <label className="space-y-1 text-sm"><span>اسم العميل (اختياري)</span><Input value={customerName} onChange={event => setCustomerName(event.target.value)} autoComplete="name" maxLength={60} /></label>
+                <label className="space-y-1 text-sm"><span>رقم الموبايل (اختياري)</span><Input type="tel" inputMode="tel" autoComplete="tel" dir="ltr" value={customerPhone} onChange={event => setCustomerPhone(event.target.value)} maxLength={30} /></label>
+              </fieldset> : null}
               {Object.keys(cartItems).length === 0 ? (
                 <p className="text-center text-[#F6EFE5]/60 py-8">السلة فارغة.</p>
               ) : Object.entries(cartItems).map(([key, line]) => (
@@ -640,7 +648,8 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
               <Button className="bg-[#C99B68] text-[#17120F] hover:bg-[#d4a976]" disabled={Object.keys(cartItems).length === 0 || busy || !canManage || !canAppend || (requiresWaiterAssignment && !assignedWaiterId)} onClick={async () => {
                 const items = Object.values(cartItems).map(line => ({ productId: line.productId, variantId: line.variantId, modifierSelections: Object.entries(line.modifierSelections).map(([groupId, valueIds]) => ({ groupId, valueIds })), qty: line.qty, note: line.note }))
                 const target = order?.id
-                const fingerprint = JSON.stringify({ tableId: table.id, orderId: target ?? null, items, responsibleWaiterId: target ? null : (assignedWaiterId || null) })
+                const customer = target ? {} : { customerName: customerName.trim() || undefined, customerPhone: customerPhone.trim() || undefined }
+                const fingerprint = JSON.stringify({ tableId: table.id, orderId: target ?? null, items, responsibleWaiterId: target ? null : (assignedWaiterId || null), ...customer })
                 if (!attempt.current || attempt.current.fingerprint !== fingerprint) attempt.current = { fingerprint, key: crypto.randomUUID() }
                 const requestKey = attempt.current.key
                 await act(async () => {
@@ -648,7 +657,7 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
                     await request(`/api/staff/orders/${target}/items/append`, { items, idempotencyKey: requestKey }, requestKey)
                     setNotice('تم إضافة أصناف السلة للطلب')
                   } else {
-                    const result = await request('/api/staff/pos/orders', { orderType: 'dine_in', tableId: table.id, items, ...(assignedWaiterId ? { responsibleWaiterId: assignedWaiterId } : {}) }, requestKey)
+                    const result = await request('/api/staff/pos/orders', { orderType: 'dine_in', tableId: table.id, items, ...customer, ...(assignedWaiterId ? { responsibleWaiterId: assignedWaiterId } : {}) }, requestKey)
                     if (typeof result.id !== 'string') throw new Error('تعذر إنشاء الطلب؛ حدّث الصفحة')
                     createdOrder.current = result.id
                     await request(`/api/staff/orders/${result.id}/send`)
@@ -659,6 +668,8 @@ export function WaiterTableWorkspace({ workspace, table, invoices = [] }: { work
                   setCartItems({})
                   setCartModalOpen(false)
                   setAssignedWaiterId('')
+                  setCustomerName('')
+                  setCustomerPhone('')
                 })
               }}>
                 {busy ? 'جارٍ الإرسال…' : order ? 'إضافة السلة للطلب' : 'تأكيد الطلب وإرساله للمطبخ'}

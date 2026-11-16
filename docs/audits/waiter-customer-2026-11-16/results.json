@@ -1,0 +1,64 @@
+{
+  "synthetic": true,
+  "checks": [
+    "optional customer name=true phone=true",
+    "optional customer name=false phone=false",
+    "optional customer name=true phone=false",
+    "optional customer name=false phone=true"
+  ],
+  "runtimeErrors": [],
+  "submitted": [
+    {
+      "orderType": "dine_in",
+      "tableId": "1",
+      "items": [
+        {
+          "productId": "11",
+          "modifierSelections": [],
+          "qty": 1,
+          "note": ""
+        }
+      ],
+      "customerName": "Test customer",
+      "customerPhone": "01012345678"
+    },
+    {
+      "orderType": "dine_in",
+      "tableId": "1",
+      "items": [
+        {
+          "productId": "11",
+          "modifierSelections": [],
+          "qty": 1,
+          "note": ""
+        }
+      ]
+    },
+    {
+      "orderType": "dine_in",
+      "tableId": "1",
+      "items": [
+        {
+          "productId": "11",
+          "modifierSelections": [],
+          "qty": 1,
+          "note": ""
+        }
+      ],
+      "customerName": "Only name"
+    },
+    {
+      "orderType": "dine_in",
+      "tableId": "1",
+      "items": [
+        {
+          "productId": "11",
+          "modifierSelections": [],
+          "qty": 1,
+          "note": ""
+        }
+      ],
+      "customerPhone": "01012345678"
+    }
+  ]
+}
