@@ -35,6 +35,7 @@ export const floatMovementSchema = z.object({
 
 export interface FixedFloatBoard {
   branchId: string; balance: string; additions: string; withdrawals: string
+  available: string; baseline: string; outstanding: string; requiresReconciliation: boolean
   movements: { id: string; type: string; amount: string; source: string; destination: string; reason: string; occurredAt: string; actor: string | null }[]
 }
 
@@ -147,12 +148,30 @@ export async function getFixedFloatBoard(session: StaffSession): Promise<FixedFl
   if (!hasAtLeast(session.role, ROLE.MANAGER)) throw new FloatError('Forbidden', 403)
   const branchId = session.branchId ? BigInt(session.branchId) : await firstBranchId()
   if (!branchId || !staffCanAccessBranch(session, branchId)) throw new FloatError('Forbidden', 403)
-  const movements = await prisma.financialMovement.findMany({ where: { branchId }, orderBy: { occurredAt: 'desc' },
-    select: { id: true, type: true, amount: true, sourceAccount: true, destinationAccount: true, reason: true, occurredAt: true, actor: { select: { name: true } } },
+  const movements = await prisma.financialMovement.findMany({
+    where: { branchId },
+    orderBy: { occurredAt: 'desc' },
+    select: { id: true, type: true, amount: true, sourceAccount: true, destinationAccount: true, reason: true, occurredAt: true, advanceId: true, actor: { select: { name: true } } },
   })
   const totals = sharedFloatTotals(movements)
   const { additions, withdrawals } = totals
-  return { branchId: branchId.toString(), balance: (totals.baseline + additions - withdrawals).toFixed(2), additions: additions.toFixed(2), withdrawals: withdrawals.toFixed(2), movements: movements.slice(0, 200).map((m) => ({ id: m.id.toString(), type: m.type, amount: Number(m.amount).toFixed(2), source: m.sourceAccount, destination: m.destinationAccount, reason: m.reason, occurredAt: m.occurredAt.toISOString(), actor: m.actor?.name ?? null })) }
+  const advanceRows = movements.filter(m => m.type === 'fixed_float_advance')
+  const outstanding = advanceRows.reduce((sum, advance) => {
+    const returned = movements.filter(m => m.advanceId === advance.id && ['fixed_float_return', 'fixed_float_settlement'].includes(m.type)).reduce((n, m) => n + Number(m.amount), 0)
+    return sum + Math.max(0, Number(advance.amount) - returned)
+  }, 0)
+  const unallocatedReturns = movements.filter(m => ['fixed_float_return', 'fixed_float_settlement'].includes(m.type) && !m.advanceId).reduce((n, m) => n + Number(m.amount), 0)
+  return {
+    branchId: branchId.toString(),
+    balance: (totals.baseline + additions - withdrawals).toFixed(2),
+    additions: additions.toFixed(2),
+    withdrawals: withdrawals.toFixed(2),
+    available: totals.available.toFixed(2),
+    baseline: totals.baseline.toFixed(2),
+    outstanding: outstanding.toFixed(2),
+    requiresReconciliation: totals.requiresReconciliation || unallocatedReturns > 0,
+    movements: movements.slice(0, 200).map((m) => ({ id: m.id.toString(), type: m.type, amount: Number(m.amount).toFixed(2), source: m.sourceAccount, destination: m.destinationAccount, reason: m.reason, occurredAt: m.occurredAt.toISOString(), actor: m.actor?.name ?? null })),
+  }
 
 }
 
@@ -206,7 +225,8 @@ export async function recordFixedFloatMovement(session: StaffSession, input: unk
     if (!operational && data.direction === 'withdrawal') {
       const rows = await tx.financialMovement.findMany({ where: { branchId }, select: { type: true, amount: true, sourceAccount: true, destinationAccount: true } })
       const summary = sharedFloatTotals(rows)
-      if (summary.requiresReconciliation || data.amount > summary.available) throw new FloatError('Insufficient reconciled fixed-float balance', 409)
+      if (summary.requiresReconciliation) throw new FloatError('العهدة الثابتة تحتاج تأسيس/تسوية خط أساس موثق قبل السحب. أنشئ خط أساس للفرع (إن لم توجد حركات سابقة) أو نفّذ تسوية يدوية معتمدة.', 409)
+      if (data.amount > summary.available) throw new FloatError('رصيد العهدة الثابتة المتاح غير كافٍ للسحب', 409)
     }
     const movement = await tx.financialMovement.create({
       data: {
